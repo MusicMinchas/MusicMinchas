@@ -53,15 +53,25 @@ class LibraryRepository(
         refreshFolders()
         // With no Drive folders chosen yet, leave existing Drive rows alone (they keep their scanned
         // tags); the first folder the user picks prunes everything outside it.
-        if (driveAuth.account.value != null && settings.driveFolders.value.isNotEmpty()) refreshDrive()
+        if (driveAuth.account.value != null && settings.driveFolders.value.isNotEmpty() && driveSyncDue()) refreshDrive()
+    }
+
+    /** Whether the start-up sync should list Drive again, per the user's sync setting. */
+    private fun driveSyncDue(): Boolean = when (settings.syncMode.value) {
+        DriveSyncMode.OFF -> false
+        DriveSyncMode.APP_START -> true
+        DriveSyncMode.DAILY -> System.currentTimeMillis() - settings.lastDriveSync.value >= DAY_MS
     }
 
     suspend fun refreshFolders() = scan("Scanning folders", Track.SOURCE_SAF) {
         settings.safFolders.value.flatMap { local.scanTree(Uri.parse(it)) }.distinctBy { it.id }
     }
 
-    suspend fun refreshDrive() = scan("Scanning Google Drive", Track.SOURCE_DRIVE) {
-        drive.scan(settings.driveFolders.value.map { it.id })
+    suspend fun refreshDrive() {
+        val ok = scan("Scanning Google Drive", Track.SOURCE_DRIVE) {
+            drive.scan(settings.driveFolders.value.map { it.id })
+        }
+        if (ok) settings.setLastDriveSync(System.currentTimeMillis())
     }
 
     suspend fun listDriveFolders(parentId: String?): List<DriveFolder> = drive.listFolders(parentId)
@@ -94,7 +104,8 @@ class LibraryRepository(
      * Replaces the rows of one source with a fresh scan. Rows that still exist keep everything the
      * metadata pipeline already learned; only the file-level fields are refreshed.
      */
-    private suspend fun scan(label: String, source: String, block: suspend () -> List<Track>) {
+    private suspend fun scan(label: String, source: String, block: suspend () -> List<Track>): Boolean {
+        var ok = false
         scanMutex.withLock {
             _status.value = "$label…"
             try {
@@ -111,6 +122,7 @@ class LibraryRepository(
                     dao.delete(existing.keys - scanned.mapTo(HashSet()) { it.id })
                 }
                 _lastError.value = null
+                ok = true
             } catch (e: Exception) {
                 Log.w(TAG, "$label failed", e)
                 _lastError.value = "$label failed: ${e.message ?: e.javaClass.simpleName}"
@@ -119,9 +131,11 @@ class LibraryRepository(
             }
         }
         enrich()
+        return ok
     }
 
     private companion object {
         const val TAG = "LibraryRepository"
+        const val DAY_MS = 24 * 60 * 60 * 1000L
     }
 }

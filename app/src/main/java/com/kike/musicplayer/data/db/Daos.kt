@@ -96,3 +96,16 @@ interface QueueDao {
         insertState(state)
     }
 }
+
+@Dao
+interface HistoryDao {
+    @Insert
+    suspend fun insert(entry: PlayHistory)
+
+    @Query("SELECT * FROM play_history ORDER BY playedAt DESC LIMIT :limit")
+    fun observeRecent(limit: Int): Flow<List<PlayHistory>>
+
+    /** Keeps the newest [keep] plays; older ones can't affect the playlists any more. */
+    @Query("DELETE FROM play_history WHERE id NOT IN (SELECT id FROM play_history ORDER BY playedAt DESC LIMIT :keep)")
+    suspend fun prune(keep: Int)
+}

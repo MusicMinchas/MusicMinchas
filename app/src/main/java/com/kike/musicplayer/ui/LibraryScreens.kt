@@ -45,6 +45,22 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.Card
+import androidx.compose.material3.FilledIconButton
+import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.ui.graphics.BlendMode
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.CompositingStrategy
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.text.style.TextAlign
+import coil3.compose.AsyncImage
+import androidx.compose.foundation.layout.Box
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.kike.musicplayer.data.db.Track
@@ -57,9 +73,12 @@ fun LibraryScreen(
     onOpenAlbum: (String) -> Unit,
     onOpenArtist: (String) -> Unit,
     onOpenSources: () -> Unit,
+    onOpenRecentTracks: () -> Unit,
+    onOpenRecentAlbums: () -> Unit,
     contentPadding: PaddingValues,
 ) {
     val library by libraryVm.library.collectAsState()
+    val playlists by libraryVm.playlists.collectAsState()
     val results by libraryVm.searchResults.collectAsState()
     val query by libraryVm.query.collectAsState()
     val scanStatus by libraryVm.scanStatus.collectAsState()
@@ -78,7 +97,7 @@ fun LibraryScreen(
             Text(busy, Modifier.padding(horizontal = 16.dp, vertical = 2.dp), style = MaterialTheme.typography.labelSmall)
         }
         PrimaryTabRow(selectedTabIndex = tab) {
-            listOf("Songs", "Albums", "Artists").forEachIndexed { i, label ->
+            listOf("Songs", "Albums", "Artists", "Playlists").forEachIndexed { i, label ->
                 Tab(selected = tab == i, onClick = { tab = i }, text = { Text(label) })
             }
         }
@@ -104,6 +123,7 @@ fun LibraryScreen(
                     }
                 }
             }
+            3 -> PlaylistsTab(playlists, playerVm, onOpenRecentTracks, onOpenRecentAlbums)
         }
     }
 }
@@ -180,7 +200,7 @@ fun PlayShuffleRow(onPlay: () -> Unit, onShuffle: () -> Unit, enabled: Boolean) 
 }
 
 @Composable
-private fun AlbumsGrid(albums: List<Album>, onOpenAlbum: (String) -> Unit) {
+internal fun AlbumsGrid(albums: List<Album>, onOpenAlbum: (String) -> Unit) {
     LazyVerticalGrid(
         columns = GridCells.Adaptive(150.dp),
         contentPadding = PaddingValues(12.dp),
@@ -248,29 +268,40 @@ fun AlbumScreen(album: Album?, playerVm: PlayerViewModel, onBack: () -> Unit, co
     }
 }
 
+@Composable
+fun ArtistScreen(artist: Artist?, playerVm: PlayerViewModel, onBack: () -> Unit, contentPadding: PaddingValues) =
+    TrackListScreen(artist?.name ?: "", artist?.tracks, playerVm, onBack, contentPadding)
+
+/** A titled list of songs with Play / Shuffle: an artist's songs, or the Recently Played playlist. */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun ArtistScreen(artist: Artist?, playerVm: PlayerViewModel, onBack: () -> Unit, contentPadding: PaddingValues) {
+fun TrackListScreen(
+    title: String,
+    tracks: List<Track>?,
+    playerVm: PlayerViewModel,
+    onBack: () -> Unit,
+    contentPadding: PaddingValues,
+) {
     val player by playerVm.state.collectAsState()
     Column(Modifier.fillMaxSize().padding(contentPadding)) {
         TopAppBar(
-            title = { Text(artist?.name ?: "", maxLines = 1, overflow = TextOverflow.Ellipsis) },
+            title = { Text(title, maxLines = 1, overflow = TextOverflow.Ellipsis) },
             navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back") } },
         )
-        if (artist == null) return@Column
+        if (tracks == null) return@Column
         LazyColumn(Modifier.fillMaxSize()) {
             item {
                 PlayShuffleRow(
-                    onPlay = { playerVm.playTracks(artist.tracks, 0) },
-                    onShuffle = { playerVm.playTracks(artist.tracks, 0, shuffle = true) },
-                    enabled = true,
+                    onPlay = { playerVm.playTracks(tracks, 0) },
+                    onShuffle = { playerVm.playTracks(tracks, 0, shuffle = true) },
+                    enabled = tracks.isNotEmpty(),
                 )
             }
-            itemsIndexed(artist.tracks, key = { _, t -> t.id }) { index, track ->
+            itemsIndexed(tracks, key = { _, t -> t.id }) { index, track ->
                 TrackRow(
                     track = track,
                     isCurrent = track.id == player.current?.mediaId,
-                    onClick = { playerVm.playTracks(artist.tracks, index) },
+                    onClick = { playerVm.playTracks(tracks, index) },
                     onPlayNext = { playerVm.playNext(track) },
                     onAddToQueue = { playerVm.addToQueue(track) },
                 )
@@ -278,3 +309,112 @@ fun ArtistScreen(artist: Artist?, playerVm: PlayerViewModel, onBack: () -> Unit,
         }
     }
 }
+
+/** Recently Played Albums: the albums as a grid; Play plays them all, newest first. */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun AlbumListScreen(
+    title: String,
+    albums: List<Album>,
+    playerVm: PlayerViewModel,
+    onOpenAlbum: (String) -> Unit,
+    onBack: () -> Unit,
+    contentPadding: PaddingValues,
+) {
+    Column(Modifier.fillMaxSize().padding(contentPadding)) {
+        TopAppBar(
+            title = { Text(title, maxLines = 1, overflow = TextOverflow.Ellipsis) },
+            navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back") } },
+        )
+        val all = albums.flatMap { it.tracks }
+        PlayShuffleRow(
+            onPlay = { playerVm.playTracks(all, 0) },
+            onShuffle = { playerVm.playTracks(all, 0, shuffle = true) },
+            enabled = all.isNotEmpty(),
+        )
+        AlbumsGrid(albums, onOpenAlbum)
+    }
+}
+
+@Composable
+private fun PlaylistsTab(
+    playlists: Playlists,
+    playerVm: PlayerViewModel,
+    onOpenRecentTracks: () -> Unit,
+    onOpenRecentAlbums: () -> Unit,
+) {
+    val tracks = playlists.recentTracks
+    val albums = playlists.recentAlbums
+    Column(
+        Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+        PlaylistTile(
+            title = "Recently Played",
+            subtitle = if (tracks.isEmpty()) "Nothing played yet" else "${tracks.size} songs",
+            covers = tracks.mapNotNull { it.artworkUri }.distinct().take(TILE_COVERS),
+            onOpen = onOpenRecentTracks,
+            onPlay = if (tracks.isEmpty()) null else ({ playerVm.playTracks(tracks, 0) }),
+        )
+        PlaylistTile(
+            title = "Recently Played Albums",
+            subtitle = if (albums.isEmpty()) "Nothing played yet" else "${albums.size} albums",
+            covers = albums.mapNotNull { it.artworkUri }.take(TILE_COVERS),
+            onOpen = onOpenRecentAlbums,
+            onPlay = if (albums.isEmpty()) null else ({ playerVm.playTracks(albums.flatMap { it.tracks }, 0) }),
+        )
+    }
+}
+
+/**
+ * A playlist tile: a strip of covers fading from 30% transparency on the left to 80% on the right,
+ * with the title on the right where the covers are faintest.
+ */
+@Composable
+private fun PlaylistTile(title: String, subtitle: String, covers: List<String>, onOpen: () -> Unit, onPlay: (() -> Unit)?) {
+    Card(
+        onClick = onOpen,
+        modifier = Modifier.fillMaxWidth().height(128.dp),
+        shape = RoundedCornerShape(16.dp),
+    ) {
+        Box(Modifier.fillMaxSize()) {
+            if (covers.isNotEmpty()) {
+                Row(
+                    Modifier.fillMaxSize()
+                        .graphicsLayer(compositingStrategy = CompositingStrategy.Offscreen)
+                        .drawWithContent {
+                            drawContent()
+                            drawRect(
+                                Brush.horizontalGradient(0f to Color.Black.copy(alpha = 0.7f), 1f to Color.Black.copy(alpha = 0.2f)),
+                                blendMode = BlendMode.DstIn,
+                            )
+                        },
+                ) {
+                    covers.forEach { cover ->
+                        AsyncImage(
+                            model = cover,
+                            contentDescription = null,
+                            contentScale = ContentScale.Crop,
+                            modifier = Modifier.weight(1f).fillMaxHeight(),
+                        )
+                    }
+                }
+            }
+            Row(
+                Modifier.align(Alignment.CenterEnd).padding(horizontal = 16.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Column(horizontalAlignment = Alignment.End) {
+                    Text(title, style = MaterialTheme.typography.titleLarge, textAlign = TextAlign.End)
+                    Text(subtitle, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+                if (onPlay != null) {
+                    Spacer(Modifier.width(12.dp))
+                    FilledIconButton(onClick = onPlay) { Icon(Icons.Default.PlayArrow, "Play $title") }
+                }
+            }
+        }
+    }
+}
+
+private const val TILE_COVERS = 4

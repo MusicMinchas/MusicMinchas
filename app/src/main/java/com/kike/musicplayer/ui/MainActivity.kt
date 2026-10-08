@@ -30,6 +30,8 @@ private sealed interface Screen {
     data object Queue : Screen
     data object Sources : Screen
     data object DriveFolders : Screen
+    data object RecentTracks : Screen
+    data object RecentAlbums : Screen
 }
 
 class MainActivity : ComponentActivity() {
@@ -66,6 +68,7 @@ class MainActivity : ComponentActivity() {
         }
 
         val library by libraryVm.library.collectAsState()
+        val playlists by libraryVm.playlists.collectAsState()
         val showMini = screen !is Screen.NowPlaying && screen !is Screen.Queue && screen !is Screen.DriveFolders
 
         Scaffold(bottomBar = { if (showMini) MiniPlayer(playerVm) { push(Screen.NowPlaying) } }) { padding: PaddingValues ->
@@ -75,6 +78,8 @@ class MainActivity : ComponentActivity() {
                     onOpenAlbum = { push(Screen.AlbumDetail(it)) },
                     onOpenArtist = { push(Screen.ArtistDetail(it)) },
                     onOpenSources = { push(Screen.Sources) },
+                    onOpenRecentTracks = { push(Screen.RecentTracks) },
+                    onOpenRecentAlbums = { push(Screen.RecentAlbums) },
                     contentPadding = padding,
                 )
                 is Screen.AlbumDetail -> AlbumScreen(
@@ -86,6 +91,11 @@ class MainActivity : ComponentActivity() {
                 Screen.NowPlaying -> NowPlayingScreen(playerVm, ::pop, { push(Screen.Queue) }, padding)
                 Screen.Queue -> QueueScreen(playerVm, ::pop, padding)
                 Screen.DriveFolders -> DriveFolderPickerScreen(libraryVm, ::pop, padding)
+                Screen.RecentTracks -> TrackListScreen("Recently Played", playlists.recentTracks, playerVm, ::pop, padding)
+                Screen.RecentAlbums -> AlbumListScreen(
+                    "Recently Played Albums", playlists.recentAlbums, playerVm,
+                    onOpenAlbum = { push(Screen.AlbumDetail(it)) }, onBack = ::pop, contentPadding = padding,
+                )
                 Screen.Sources -> SourcesScreen(
                     libraryVm,
                     onBack = ::pop,

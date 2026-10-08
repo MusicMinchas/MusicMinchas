@@ -40,6 +40,9 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.foundation.selection.selectable
+import androidx.compose.material3.RadioButton
+import com.kike.musicplayer.data.DriveSyncMode
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.kike.musicplayer.data.db.Track
@@ -65,6 +68,8 @@ fun SourcesScreen(
     val status by vm.scanStatus.collectAsState()
     val error by vm.lastError.collectAsState()
     val unplayable by vm.unplayableCount.collectAsState()
+    val syncMode by vm.syncMode.collectAsState()
+    val lastSync by vm.lastDriveSync.collectAsState()
     val counts = library.tracks.groupingBy { it.source }.eachCount()
 
     Column(Modifier.fillMaxSize().padding(contentPadding)) {
@@ -127,6 +132,23 @@ fun SourcesScreen(
                         Button(onClick = onAddDriveFolder) { Text("Add Drive folder") }
                         if (driveFolders.isNotEmpty()) OutlinedButton(onClick = { vm.refreshDrive() }) { Text("Sync") }
                     }
+                    if (driveFolders.isNotEmpty()) {
+                        Text("Automatic sync", style = MaterialTheme.typography.labelLarge, modifier = Modifier.padding(top = 8.dp))
+                        DriveSyncMode.entries.forEach { mode ->
+                            Row(
+                                Modifier.fillMaxWidth().selectable(selected = syncMode == mode, onClick = { vm.setSyncMode(mode) }),
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                RadioButton(selected = syncMode == mode, onClick = null)
+                                Text(mode.label, Modifier.padding(start = 8.dp))
+                            }
+                        }
+                        Text(
+                            if (lastSync == 0L) "Not synced yet" else "Last synced ${relativeTime(lastSync)}",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
                     OutlinedButton(onClick = { vm.disconnectDrive() }) { Text("Disconnect") }
                 }
             }
@@ -168,6 +190,17 @@ private fun SourceCard(title: String, subtitle: String, content: @Composable () 
             Text(subtitle, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             content()
         }
+    }
+}
+
+/** "just now", "5 min ago", "3 h ago", "2 days ago" */
+private fun relativeTime(time: Long): String {
+    val minutes = (System.currentTimeMillis() - time) / 60_000
+    return when {
+        minutes < 1 -> "just now"
+        minutes < 60 -> "$minutes min ago"
+        minutes < 48 * 60 -> "${minutes / 60} h ago"
+        else -> "${minutes / (24 * 60)} days ago"
     }
 }
 

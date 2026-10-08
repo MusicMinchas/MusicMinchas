@@ -25,6 +25,7 @@ import androidx.media3.session.MediaSession.MediaItemsWithStartPosition
 import com.google.common.collect.ImmutableList
 import com.google.common.util.concurrent.ListenableFuture
 import com.kike.musicplayer.container
+import com.kike.musicplayer.data.db.PlayHistory
 import com.kike.musicplayer.data.db.SessionState
 import com.kike.musicplayer.data.db.Track
 import com.kike.musicplayer.data.db.getByIds
@@ -63,6 +64,30 @@ class PlaybackService : MediaLibraryService(), CastHost {
 
     private val dao by lazy { container.database.tracks() }
     private val queueDao by lazy { container.database.queue() }
+    private val historyDao by lazy { container.database.history() }
+
+    /**
+     * Records a play when a track starts playing (on the phone or on Sonos): once per time it
+     * becomes the current item, so pausing and resuming doesn't count twice.
+     */
+    private val historyListener = object : Player.Listener {
+        private var recorded: String? = null
+
+        override fun onEvents(player: Player, events: Player.Events) {
+            if (events.contains(Player.EVENT_MEDIA_ITEM_TRANSITION)) recorded = null
+            if (!events.containsAny(Player.EVENT_IS_PLAYING_CHANGED, Player.EVENT_MEDIA_ITEM_TRANSITION)) return
+            val mediaId = player.currentMediaItem?.mediaId ?: return
+            if (!player.isPlaying || recorded == mediaId) return
+            recorded = mediaId
+            val entry = PlayHistory(trackId = trackIdOf(mediaId), playedAt = System.currentTimeMillis())
+            scope.launch(Dispatchers.IO) {
+                runCatching {
+                    historyDao.insert(entry)
+                    historyDao.prune(HISTORY_KEEP)
+                }.onFailure { Log.w(TAG, "Recording play failed", it) }
+            }
+        }
+    }
 
     override fun onCreate() {
         super.onCreate()
@@ -109,6 +134,7 @@ class PlaybackService : MediaLibraryService(), CastHost {
                 Log.w(TAG, "Playback error on ${player.currentMediaItem?.mediaId}", error)
             }
         })
+        player.addListener(historyListener)
 
         val sessionActivity = PendingIntent.getActivity(
             this, 0, Intent(this, MainActivity::class.java),
@@ -170,6 +196,7 @@ class PlaybackService : MediaLibraryService(), CastHost {
         val server = container.trackServer
         server.start()
         val sonos = SonosPlayer(group, server, dao) { message -> endCast(message) }
+        sonos.addListener(historyListener)
         // Mode and play state first: with an empty queue they don't reach the speaker, and the
         // queue load then starts playback (or not) accordingly.
         sonos.repeatMode = repeat
@@ -425,6 +452,8 @@ class PlaybackService : MediaLibraryService(), CastHost {
 
     companion object {
         private const val TAG = "PlaybackService"
+        /** Enough plays to always find 30 different songs and 10 different albums. */
+        private const val HISTORY_KEEP = 500
         private const val ROOT = "root"
         private const val SONGS = "songs"
         private const val ALBUMS = "albums"

@@ -7,6 +7,12 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 
+enum class DriveSyncMode(val label: String) {
+    OFF("No automatic sync"),
+    DAILY("Every 24 h"),
+    APP_START("At app start"),
+}
+
 class Settings(context: Context) {
     private val prefs = context.getSharedPreferences("settings", Context.MODE_PRIVATE)
 
@@ -20,6 +26,26 @@ class Settings(context: Context) {
     )
     /** Drive folders to import, with a display path as the name. */
     val driveFolders: StateFlow<List<DriveFolder>> = _driveFolders.asStateFlow()
+
+    private val _syncMode = MutableStateFlow(
+        runCatching { DriveSyncMode.valueOf(prefs.getString(KEY_SYNC_MODE, null) ?: "") }.getOrDefault(DriveSyncMode.DAILY)
+    )
+    /** When the app re-lists the chosen Drive folders by itself. */
+    val syncMode: StateFlow<DriveSyncMode> = _syncMode.asStateFlow()
+
+    private val _lastDriveSync = MutableStateFlow(prefs.getLong(KEY_LAST_SYNC, 0L))
+    /** Time of the last successful Drive sync (0 = never). */
+    val lastDriveSync: StateFlow<Long> = _lastDriveSync.asStateFlow()
+
+    fun setSyncMode(mode: DriveSyncMode) {
+        prefs.edit { putString(KEY_SYNC_MODE, mode.name) }
+        _syncMode.value = mode
+    }
+
+    fun setLastDriveSync(time: Long) {
+        prefs.edit { putLong(KEY_LAST_SYNC, time) }
+        _lastDriveSync.value = time
+    }
 
     private val _onlineMetadata = MutableStateFlow(prefs.getBoolean(KEY_ONLINE, true))
     val onlineMetadata: StateFlow<Boolean> = _onlineMetadata.asStateFlow()
@@ -60,6 +86,8 @@ class Settings(context: Context) {
     private companion object {
         const val KEY_SAF = "saf_folders"
         const val KEY_ONLINE = "online_metadata"
+        const val KEY_SYNC_MODE = "drive_sync_mode"
+        const val KEY_LAST_SYNC = "drive_last_sync"
         const val KEY_DRIVE = "drive_connected"
         const val KEY_DRIVE_ACCOUNT = "drive_account"
         const val KEY_DRIVE_FOLDERS = "drive_folders"

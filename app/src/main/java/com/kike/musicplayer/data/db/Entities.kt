@@ -72,3 +72,11 @@ data class SessionState(
     val shuffle: Boolean,
     val repeatMode: Int,
 )
+
+/** One play of a track (recorded when it starts playing); feeds the automatic playlists. */
+@Entity(tableName = "play_history", indices = [Index("playedAt")])
+data class PlayHistory(
+    @PrimaryKey(autoGenerate = true) val id: Long = 0,
+    val trackId: String,
+    val playedAt: Long,
+)
