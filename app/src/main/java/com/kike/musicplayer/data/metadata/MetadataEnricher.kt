@@ -360,15 +360,15 @@ class MetadataEnricher(
                 musicBrainz.searchRecordings("recording:${quote(title)} AND artist:${quote(artist)}").recordings
             }
         }
-        var recording = recordings.firstOrNull { (it.score ?: 0) >= MIN_SCORE }
+        var recording = bestRecording(recordings.filter { (it.score ?: 0) >= MIN_SCORE })
         if (recording == null) {
             // Misspelled names ("Dark Tranquility") match nothing exactly; try fuzzy terms, but only
             // accept a result spelled almost the same, as fuzzy search also finds unrelated songs.
-            recording = mbCall {
+            recording = bestRecording(mbCall {
                 musicBrainz.searchRecordings("recording:(${fuzzy(title)}) AND artist:(${fuzzy(artist)})").recordings
-            }.firstOrNull {
+            }.filter {
                 (it.score ?: 0) >= MIN_SCORE && similar(it.title, title) && similar(it.artistName.orEmpty(), artist)
-            }
+            })
         }
         if (recording == null) return track
         val release = pickRelease(recording, track.album)
@@ -387,11 +387,22 @@ class MetadataEnricher(
         )
     }
 
+    /** Among equally good matches, prefer a real album track over e.g. the music-video recording. */
+    private fun bestRecording(candidates: List<MbRecording>): MbRecording? =
+        candidates.firstOrNull { it.video != true && !it.releases.isNullOrEmpty() } ?: candidates.firstOrNull()
+
+    /**
+     * The album the track most likely comes from: the one named in the tags, else the earliest
+     * official studio album (not a compilation or live album), else any official release.
+     */
     private fun pickRelease(recording: MbRecording, knownAlbum: String?): MbRelease? {
         val releases = recording.releases.orEmpty()
+        val byDate = compareBy<MbRelease> { it.date.isNullOrBlank() }.thenBy { it.date }
         return releases.firstOrNull { knownAlbum != null && it.title.equals(knownAlbum, ignoreCase = true) }
-            ?: releases.firstOrNull { it.status == "Official" && it.releaseGroup?.primaryType == "Album" }
-            ?: releases.firstOrNull { it.status == "Official" }
+            ?: releases.filter {
+                it.status == "Official" && it.releaseGroup?.primaryType == "Album" && it.releaseGroup.secondaryTypes.isNullOrEmpty()
+            }.minWithOrNull(byDate)
+            ?: releases.filter { it.status == "Official" }.minWithOrNull(byDate)
             ?: releases.firstOrNull()
     }
 

@@ -37,6 +37,8 @@ data class MbRecording(
     val length: Long? = null,
     @Json(name = "artist-credit") val artistCredit: List<MbArtistCredit>? = null,
     val releases: List<MbRelease>? = null,
+    /** Music-video recordings belong to no album, so they carry no cover. */
+    val video: Boolean? = null,
 ) {
     val artistName: String?
         get() = artistCredit?.joinToString("") { it.name + (it.joinphrase ?: "") }?.takeIf { it.isNotBlank() }
@@ -58,6 +60,8 @@ data class MbRelease(
 data class MbReleaseGroup(
     val id: String,
     @Json(name = "primary-type") val primaryType: String? = null,
+    /** e.g. "Compilation", "Live", "Remix"; empty for an original studio album. */
+    @Json(name = "secondary-types") val secondaryTypes: List<String>? = null,
 )
 
 /** https://musicbrainz.org/doc/Cover_Art_Archive/API */
