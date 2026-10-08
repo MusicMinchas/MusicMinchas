@@ -102,6 +102,8 @@ class LibraryRepository(
                     val existing = dao.getBySource(source).associateBy { it.id }
                     val merged = scanned.map { fresh ->
                         val old = existing[fresh.id] ?: return@map fresh
+                        // A file edited in place (e.g. tags or cover added) changes size: read it again.
+                        if (old.sizeBytes != null && fresh.sizeBytes != null && old.sizeBytes != fresh.sizeBytes) return@map fresh
                         old.copy(uri = fresh.uri, fileName = fresh.fileName, mimeType = fresh.mimeType, sizeBytes = fresh.sizeBytes)
                     }
                     dao.upsertAll(merged)
