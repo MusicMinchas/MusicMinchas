@@ -402,7 +402,7 @@ private fun PlaylistTile(title: String, subtitle: String, covers: List<String>, 
                     }
                 }
             }
-            // Title on a dark panel (20% transparent) in the bottom-left corner: readable over any cover.
+            // Title on a grey panel (25% transparent) in the bottom-left corner: readable over any cover.
             Column(
                 Modifier.align(Alignment.BottomStart)
                     .padding(12.dp)
@@ -427,7 +427,7 @@ private fun PlaylistTile(title: String, subtitle: String, covers: List<String>, 
     }
 }
 
-/** Dark grey at 80% opacity (20% transparent). */
-private val TilePanel = Color(0xFF2A2A2A).copy(alpha = 0.8f)
+/** Mid-dark grey at 75% opacity (25% transparent). */
+private val TilePanel = Color(0xFF4A4A4A).copy(alpha = 0.75f)
 
 private const val TILE_COVERS = 4
