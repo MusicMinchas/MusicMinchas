@@ -44,7 +44,8 @@ data class DriveFileList(
 
 data class DriveFile(
     val id: String,
-    val name: String,
+    /** Absent when the request's `fields` don't ask for it (e.g. the folder-ancestry listing). */
+    val name: String = "",
     val mimeType: String? = null,
     /** Drive sends int64 values as JSON strings. */
     val size: String? = null,
