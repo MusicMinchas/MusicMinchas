@@ -45,6 +45,8 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import com.kike.musicplayer.R
+import androidx.compose.ui.res.stringResource
 import androidx.compose.foundation.background
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.foundation.rememberScrollState
@@ -90,7 +92,7 @@ fun LibraryScreen(
 
     Column(Modifier.fillMaxSize().padding(contentPadding)) {
         TopAppBar(
-            title = { Text("Music") },
+            title = { Text(stringResource(R.string.app_name)) },
             actions = { IconButton(onClick = onOpenSources) { Icon(Icons.Default.Tune, "Sources & settings") } },
         )
         val busy = scanStatus ?: progress?.let { "${it.stage} ${it.done}/${it.total}" }

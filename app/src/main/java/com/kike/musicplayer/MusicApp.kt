@@ -111,7 +111,7 @@ class AppContainer(app: Application) {
 
     private companion object {
         // MusicBrainz asks every client to identify itself: https://musicbrainz.org/doc/MusicBrainz_API/Rate_Limiting
-        const val USER_AGENT = "KikeMusicPlayer/${BuildConfig.VERSION_NAME} ( personal Android app )"
+        const val USER_AGENT = "MusicMinchas/${BuildConfig.VERSION_NAME} ( personal Android app )"
     }
 }
 

@@ -1,4 +1,4 @@
-# Music Player
+# MusicMinchas
 
 A native Android music player: Kotlin, Jetpack Compose, Media3/ExoPlayer, Room, Retrofit, and Coil.
 
