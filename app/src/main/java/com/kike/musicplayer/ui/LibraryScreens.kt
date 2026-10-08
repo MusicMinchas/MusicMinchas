@@ -45,6 +45,8 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.graphics.Shadow
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.fillMaxHeight
@@ -405,8 +407,18 @@ private fun PlaylistTile(title: String, subtitle: String, covers: List<String>, 
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Column(horizontalAlignment = Alignment.End) {
-                    Text(title, style = MaterialTheme.typography.titleLarge, textAlign = TextAlign.End)
-                    Text(subtitle, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    // Bold, with a halo in the background colour, so the text stays readable over busy covers.
+                    val halo = Shadow(MaterialTheme.colorScheme.surface, blurRadius = 12f)
+                    Text(
+                        title,
+                        style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold, shadow = halo),
+                        textAlign = TextAlign.End,
+                    )
+                    Text(
+                        subtitle,
+                        style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.SemiBold, shadow = halo),
+                        color = MaterialTheme.colorScheme.onSurface,
+                    )
                 }
                 if (onPlay != null) {
                     Spacer(Modifier.width(12.dp))
