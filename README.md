@@ -53,6 +53,6 @@ ui               Compose screens, PlayerViewModel (MediaController), LibraryView
 
 ## Known limits
 
-- The first tag scan of a large Drive library is limited by Drive itself: about 140 files per minute. Results are cached, so later scans only read new files.
+- The first tag scan of a large Drive library reads each file's header over the network, about 140 files per minute. Results are cached, so later scans only read new files.
 - Android Auto cannot load artwork from `file://` (extracted embedded art). Online covers (https) do show.
 - Drive has no tag index, so the first metadata pass for Drive songs reads each file's header over the network.
