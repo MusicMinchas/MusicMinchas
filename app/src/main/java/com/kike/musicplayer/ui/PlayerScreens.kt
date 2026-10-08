@@ -51,6 +51,17 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.ui.draw.blur
+import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.ui.graphics.BlendMode
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.CompositingStrategy
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.material3.TopAppBarDefaults
+import coil3.compose.AsyncImage
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -98,73 +109,110 @@ private fun PlayPauseIcon(s: PlayerUiState, onClick: () -> Unit) {
 fun NowPlayingScreen(playerVm: PlayerViewModel, onBack: () -> Unit, onOpenQueue: () -> Unit, contentPadding: PaddingValues) {
     val s by playerVm.state.collectAsState()
     val meta = s.current?.mediaMetadata
-    Column(Modifier.fillMaxSize().padding(contentPadding)) {
-        TopAppBar(
-            title = {},
-            navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.Default.KeyboardArrowDown, "Close") } },
-            actions = { IconButton(onClick = onOpenQueue) { Icon(Icons.AutoMirrored.Filled.QueueMusic, "Queue") } },
-        )
-        Column(
-            Modifier.fillMaxSize().padding(horizontal = 24.dp),
-            horizontalAlignment = Alignment.CenterHorizontally,
-        ) {
-            Artwork(
-                meta?.artworkUri,
-                Modifier.fillMaxWidth().aspectRatio(1f),
-                shape = RoundedCornerShape(12.dp),
+    Box(Modifier.fillMaxSize()) {
+        ArtworkBackdrop(meta?.artworkUri)
+        Column(Modifier.fillMaxSize().padding(contentPadding)) {
+            TopAppBar(
+                title = {},
+                colors = TopAppBarDefaults.topAppBarColors(containerColor = Color.Transparent),
+                navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.Default.KeyboardArrowDown, "Close") } },
+                actions = { IconButton(onClick = onOpenQueue) { Icon(Icons.AutoMirrored.Filled.QueueMusic, "Queue") } },
             )
-            Spacer(Modifier.height(24.dp))
-            Text(
-                meta?.title?.toString() ?: "Nothing playing", style = MaterialTheme.typography.headlineSmall,
-                maxLines = 2, overflow = TextOverflow.Ellipsis, textAlign = TextAlign.Center,
-            )
-            Text(
-                listOfNotNull(meta?.artist, meta?.albumTitle).joinToString(" · "),
-                color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis,
-            )
-            s.formatInfo?.let {
-                Text(it, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary,
-                    modifier = Modifier.padding(top = 4.dp))
-            }
-            Spacer(Modifier.height(16.dp))
-            SeekBar(s, playerVm::seekTo)
-            Row(
-                Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceEvenly,
-                verticalAlignment = Alignment.CenterVertically,
+            Column(
+                Modifier.fillMaxSize().padding(horizontal = 24.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
             ) {
-                IconButton(onClick = { playerVm.toggleShuffle() }) {
-                    Icon(Icons.Default.Shuffle, "Shuffle",
-                        tint = if (s.shuffle) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant)
+                Artwork(
+                    meta?.artworkUri,
+                    Modifier.fillMaxWidth().aspectRatio(1f),
+                    shape = RoundedCornerShape(12.dp),
+                )
+                Spacer(Modifier.height(24.dp))
+                Text(
+                    meta?.title?.toString() ?: "Nothing playing", style = MaterialTheme.typography.headlineSmall,
+                    maxLines = 2, overflow = TextOverflow.Ellipsis, textAlign = TextAlign.Center,
+                )
+                Text(
+                    listOfNotNull(meta?.artist, meta?.albumTitle).joinToString(" · "),
+                    color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                )
+                s.formatInfo?.let {
+                    Text(it, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.padding(top = 4.dp))
                 }
-                IconButton(onClick = { playerVm.previous() }) { Icon(Icons.Default.SkipPrevious, "Previous", Modifier.size(36.dp)) }
-                FilledIconButton(onClick = playerVm::togglePlay, modifier = Modifier.size(72.dp)) {
-                    if (s.isBuffering && !s.isPlaying) CircularProgressIndicator(Modifier.size(32.dp), strokeWidth = 3.dp)
-                    else Icon(if (s.isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
-                        if (s.isPlaying) "Pause" else "Play", Modifier.size(40.dp))
+                Spacer(Modifier.height(16.dp))
+                SeekBar(s, playerVm::seekTo)
+                Row(
+                    Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceEvenly,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    IconButton(onClick = { playerVm.toggleShuffle() }) {
+                        Icon(Icons.Default.Shuffle, "Shuffle",
+                            tint = if (s.shuffle) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                    IconButton(onClick = { playerVm.previous() }) { Icon(Icons.Default.SkipPrevious, "Previous", Modifier.size(36.dp)) }
+                    FilledIconButton(onClick = playerVm::togglePlay, modifier = Modifier.size(72.dp)) {
+                        if (s.isBuffering && !s.isPlaying) CircularProgressIndicator(Modifier.size(32.dp), strokeWidth = 3.dp)
+                        else Icon(if (s.isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
+                            if (s.isPlaying) "Pause" else "Play", Modifier.size(40.dp))
+                    }
+                    IconButton(onClick = { playerVm.next() }) { Icon(Icons.Default.SkipNext, "Next", Modifier.size(36.dp)) }
+                    IconButton(onClick = { playerVm.cycleRepeat() }) {
+                        Icon(
+                            if (s.repeatMode == Player.REPEAT_MODE_ONE) Icons.Default.RepeatOne else Icons.Default.Repeat,
+                            "Repeat",
+                            tint = if (s.repeatMode != Player.REPEAT_MODE_OFF) MaterialTheme.colorScheme.primary
+                            else MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
                 }
-                IconButton(onClick = { playerVm.next() }) { Icon(Icons.Default.SkipNext, "Next", Modifier.size(36.dp)) }
-                IconButton(onClick = { playerVm.cycleRepeat() }) {
-                    Icon(
-                        if (s.repeatMode == Player.REPEAT_MODE_ONE) Icons.Default.RepeatOne else Icons.Default.Repeat,
-                        "Repeat",
-                        tint = if (s.repeatMode != Player.REPEAT_MODE_OFF) MaterialTheme.colorScheme.primary
-                        else MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
+                s.error?.let {
+                    Text("Playback error: $it", color = MaterialTheme.colorScheme.error,
+                        style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(top = 8.dp))
                 }
-            }
-            s.error?.let {
-                Text("Playback error: $it", color = MaterialTheme.colorScheme.error,
-                    style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(top = 8.dp))
-            }
-            Spacer(Modifier.weight(1f))
-            s.upNext.firstOrNull()?.let { next ->
-                TextButton(onClick = onOpenQueue, modifier = Modifier.padding(bottom = 8.dp)) {
-                    Text("Up next: ${next.item.mediaMetadata.title}", maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Spacer(Modifier.weight(1f))
+                s.upNext.firstOrNull()?.let { next ->
+                    TextButton(onClick = onOpenQueue, modifier = Modifier.padding(bottom = 8.dp)) {
+                        Text("Up next: ${next.item.mediaMetadata.title}", maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    }
                 }
             }
         }
     }
+}
+
+/**
+ * The cover, blurred and stretched across the top of the screen, fading from semi-transparent at
+ * the top to fully transparent before the transport controls.
+ */
+@Composable
+private fun ArtworkBackdrop(uri: Any?) {
+    if (uri == null) return
+    AsyncImage(
+        model = uri,
+        contentDescription = null,
+        contentScale = ContentScale.Crop,
+        alignment = Alignment.TopCenter,
+        modifier = Modifier
+            .fillMaxWidth()
+            .fillMaxHeight(0.8f)
+            .blur(32.dp) // no-op before Android 12
+            // Offscreen so the gradient below can mask this layer's alpha (DstIn keeps the image
+            // only where the mask is opaque).
+            .graphicsLayer(compositingStrategy = CompositingStrategy.Offscreen)
+            .drawWithContent {
+                drawContent()
+                drawRect(
+                    brush = Brush.verticalGradient(
+                        0f to Color.Black.copy(alpha = 0.6f),
+                        0.45f to Color.Black.copy(alpha = 0.35f),
+                        1f to Color.Transparent,
+                    ),
+                    blendMode = BlendMode.DstIn,
+                )
+            },
+    )
 }
 
 @Composable
