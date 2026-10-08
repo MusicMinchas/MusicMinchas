@@ -1,0 +1,205 @@
+package com.kike.musicplayer.ui
+
+import android.app.Application
+import android.content.ComponentName
+import androidx.lifecycle.AndroidViewModel
+import androidx.lifecycle.viewModelScope
+import androidx.media3.common.C
+import androidx.media3.common.MediaItem
+import androidx.media3.common.MimeTypes
+import androidx.media3.common.Player
+import androidx.media3.session.MediaController
+import androidx.media3.session.SessionToken
+import com.google.common.util.concurrent.ListenableFuture
+import com.google.common.util.concurrent.MoreExecutors
+import com.kike.musicplayer.data.db.Track
+import com.kike.musicplayer.playback.PlaybackService
+import com.kike.musicplayer.playback.toMediaItem
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.isActive
+import kotlinx.coroutines.launch
+
+data class QueueEntry(val playlistIndex: Int, val item: MediaItem)
+
+data class PlayerUiState(
+    val connected: Boolean = false,
+    val current: MediaItem? = null,
+    val isPlaying: Boolean = false,
+    val isBuffering: Boolean = false,
+    val positionMs: Long = 0,
+    val bufferedMs: Long = 0,
+    val durationMs: Long = 0,
+    val shuffle: Boolean = false,
+    val repeatMode: Int = Player.REPEAT_MODE_OFF,
+    val currentIndex: Int = C.INDEX_UNSET,
+    /** Tracks that will play after the current one, in playback (shuffle-aware) order. */
+    val upNext: List<QueueEntry> = emptyList(),
+    val queueSize: Int = 0,
+    /** e.g. "FLAC · 44.1 kHz · 2 ch" */
+    val formatInfo: String? = null,
+    val error: String? = null,
+)
+
+/** UI-side MediaController, connected asynchronously to [PlaybackService]. */
+class PlayerViewModel(app: Application) : AndroidViewModel(app) {
+    private val controllerFuture: ListenableFuture<MediaController> =
+        MediaController.Builder(app, SessionToken(app, ComponentName(app, PlaybackService::class.java))).buildAsync()
+    private var controller: MediaController? = null
+
+    private val _state = MutableStateFlow(PlayerUiState())
+    val state: StateFlow<PlayerUiState> = _state.asStateFlow()
+
+    private var ticker: Job? = null
+
+    private val listener = object : Player.Listener {
+        override fun onEvents(player: Player, events: Player.Events) = refresh(player)
+    }
+
+    init {
+        controllerFuture.addListener({
+            val c = runCatching { controllerFuture.get() }.getOrNull() ?: return@addListener
+            controller = c
+            c.addListener(listener)
+            refresh(c)
+        }, MoreExecutors.directExecutor())
+    }
+
+    private fun refresh(p: Player) {
+        _state.value = PlayerUiState(
+            connected = true,
+            current = p.currentMediaItem,
+            isPlaying = p.isPlaying,
+            isBuffering = p.playbackState == Player.STATE_BUFFERING,
+            positionMs = p.currentPosition,
+            bufferedMs = p.bufferedPosition,
+            durationMs = p.duration.takeIf { it != C.TIME_UNSET } ?: 0,
+            shuffle = p.shuffleModeEnabled,
+            repeatMode = p.repeatMode,
+            currentIndex = p.currentMediaItemIndex,
+            upNext = upNext(p),
+            queueSize = p.mediaItemCount,
+            formatInfo = formatInfo(p),
+            error = p.playerError?.let { e -> e.cause?.message ?: e.errorCodeName },
+        )
+        if (p.isPlaying) startTicker() else ticker?.cancel()
+    }
+
+    private fun upNext(p: Player): List<QueueEntry> {
+        val timeline = p.currentTimeline
+        if (timeline.isEmpty || p.currentMediaItemIndex == C.INDEX_UNSET) return emptyList()
+        val result = mutableListOf<QueueEntry>()
+        var i = timeline.getNextWindowIndex(p.currentMediaItemIndex, Player.REPEAT_MODE_OFF, p.shuffleModeEnabled)
+        while (i != C.INDEX_UNSET && result.size < timeline.windowCount) {
+            result += QueueEntry(i, p.getMediaItemAt(i))
+            i = timeline.getNextWindowIndex(i, Player.REPEAT_MODE_OFF, p.shuffleModeEnabled)
+        }
+        return result
+    }
+
+    private fun formatInfo(p: Player): String? {
+        val format = p.currentTracks.groups
+            .firstOrNull { it.type == C.TRACK_TYPE_AUDIO && it.isSelected }
+            ?.let { g -> (0 until g.length).firstOrNull { g.isTrackSelected(it) }?.let(g::getTrackFormat) }
+            ?: return null
+        val codec = when (format.sampleMimeType) {
+            MimeTypes.AUDIO_FLAC -> "FLAC"
+            MimeTypes.AUDIO_ALAC -> "ALAC"
+            MimeTypes.AUDIO_MPEG -> "MP3"
+            MimeTypes.AUDIO_AAC -> "AAC"
+            MimeTypes.AUDIO_RAW -> "PCM"
+            else -> format.sampleMimeType?.substringAfter('/')?.uppercase()
+        }
+        val parts = listOfNotNull(
+            codec,
+            format.sampleRate.takeIf { it > 0 }?.let { "%.1f kHz".format(it / 1000.0).replace(".0 ", " ") },
+            format.bitrate.takeIf { it > 0 }?.let { "${it / 1000} kbps" },
+            format.channelCount.takeIf { it > 0 }?.let { if (it == 2) "stereo" else "$it ch" },
+        )
+        return parts.joinToString(" · ").ifEmpty { null }
+    }
+
+    private fun startTicker() {
+        if (ticker?.isActive == true) return
+        ticker = viewModelScope.launch {
+            while (isActive) {
+                controller?.let { c ->
+                    _state.update { it.copy(positionMs = c.currentPosition, bufferedMs = c.bufferedPosition) }
+                }
+                delay(500)
+            }
+        }
+    }
+
+    // ---- Commands ----
+
+    fun playTracks(tracks: List<Track>, startIndex: Int, shuffle: Boolean = false) {
+        val c = controller ?: return
+        c.shuffleModeEnabled = shuffle
+        val start = if (shuffle) tracks.indices.random() else startIndex
+        c.setMediaItems(tracks.map { it.toMediaItem() }, start, 0)
+        c.prepare()
+        c.play()
+    }
+
+    fun playNext(track: Track) {
+        val c = controller ?: return
+        if (c.mediaItemCount == 0) return playTracks(listOf(track), 0)
+        c.addMediaItem(c.currentMediaItemIndex + 1, track.toMediaItem())
+    }
+
+    fun addToQueue(track: Track) {
+        val c = controller ?: return
+        if (c.mediaItemCount == 0) return playTracks(listOf(track), 0)
+        c.addMediaItem(track.toMediaItem())
+    }
+
+    fun togglePlay() {
+        val c = controller ?: return
+        if (c.playbackState == Player.STATE_IDLE) c.prepare()
+        if (c.playbackState == Player.STATE_ENDED) c.seekToDefaultPosition(0)
+        if (c.isPlaying) c.pause() else c.play()
+    }
+
+    fun next() = controller?.seekToNext()
+    fun previous() = controller?.seekToPrevious()
+
+    fun seekTo(positionMs: Long) {
+        controller?.seekTo(positionMs)
+        _state.update { it.copy(positionMs = positionMs) }
+    }
+
+    fun toggleShuffle() = controller?.let { it.shuffleModeEnabled = !it.shuffleModeEnabled }
+
+    fun cycleRepeat() = controller?.let {
+        it.repeatMode = when (it.repeatMode) {
+            Player.REPEAT_MODE_OFF -> Player.REPEAT_MODE_ALL
+            Player.REPEAT_MODE_ALL -> Player.REPEAT_MODE_ONE
+            else -> Player.REPEAT_MODE_OFF
+        }
+    }
+
+    fun skipTo(playlistIndex: Int) = controller?.let {
+        it.seekToDefaultPosition(playlistIndex)
+        it.play()
+    }
+
+    fun moveItem(from: Int, to: Int) = controller?.moveMediaItem(from, to)
+    fun removeItem(playlistIndex: Int) = controller?.removeMediaItem(playlistIndex)
+
+    fun clearUpNext() = controller?.let { c ->
+        val current = c.currentMediaItemIndex
+        if (current == C.INDEX_UNSET) return@let
+        c.removeMediaItems(current + 1, c.mediaItemCount)
+        if (current > 0) c.removeMediaItems(0, current)
+    }
+
+    override fun onCleared() {
+        controller?.removeListener(listener)
+        MediaController.releaseFuture(controllerFuture)
+    }
+}
