@@ -11,6 +11,7 @@ A native Android music player: Kotlin, Jetpack Compose, Media3/ExoPlayer, Room, 
   Only folders the user picks are imported, so ringtones, app sounds and other stray audio stay out.
   - *Device folders*: picked through the Storage Access Framework, with a persisted grant, so no storage permission is needed. Sub-folders are included.
   - *Google Drive folders*: picked in an in-app browser (My Drive and Shared with me). The app lists all folders and audio files once and filters by ancestry, so it doesn't make one request per folder. Drive access uses OAuth 2.0 through Google Identity Services `AuthorizationClient` with the `drive.readonly` scope. Files are streamed with HTTP Range requests through OkHttp, so playback starts before the file is downloaded.
+- **Play on Sonos**: the cast button in Now Playing lists Sonos rooms and groups (SSDP discovery). The app's queue is copied into the group's Sonos queue, and Sonos fetches each track from a small HTTP server in the app (`sonos/TrackServer`). Drive files are relayed with the OAuth token, which never leaves the phone; folder files are served directly; Range requests are supported, so Sonos seeks and reads ahead (about 4× real time). Sonos plays the audio itself. While casting, the media session uses `SonosPlayer` (a Media3 `SimpleBasePlayer`), so the app UI, notification, lock screen and volume keys control the speaker. Picking "This phone" hands the queue back at the same position.
 - **Metadata pipeline**, cached in Room:
   1. Local: tags and embedded artwork are read from the file, 12 files at a time, and written to Room in batches. Device files use `MediaMetadataRetriever`. Drive files use ExoPlayer's extractors (`media3-inspector` `MetadataRetriever`) with each request capped at 1 MB, because tags sit in the header. Artwork is stored once per album in `files/artwork`.
   2. Online fallback for songs still missing artist, album, or artwork: MusicBrainz release search (once per album) or recording search gives the MBIDs, then the Cover Art Archive gives the front cover. Requests are limited to 1 per second as MusicBrainz requires. You can turn this off in *Sources & metadata*.
@@ -54,5 +55,6 @@ ui               Compose screens, PlayerViewModel (MediaController), LibraryView
 ## Known limits
 
 - The first tag scan of a large Drive library reads each file's header over the network, about 140 files per minute. Results are cached, so later scans only read new files.
+- Casting needs the phone on the same Wi-Fi as Sonos, with the app running (a foreground service with wake and Wi-Fi locks keeps it serving). Sonos S2 plays FLAC/ALAC up to 24-bit/48 kHz; higher sample rates won't play there. Up next ignores Sonos' own shuffle order.
 - Android Auto cannot load artwork from `file://` (extracted embedded art). Online covers (https) do show.
 - Drive has no tag index, so the first metadata pass for Drive songs reads each file's header over the network.

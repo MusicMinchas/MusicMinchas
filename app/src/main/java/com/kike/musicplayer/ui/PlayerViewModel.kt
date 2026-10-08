@@ -5,6 +5,7 @@ import android.content.ComponentName
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import androidx.media3.common.C
+import androidx.media3.common.DeviceInfo
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MimeTypes
 import androidx.media3.common.Player
@@ -12,7 +13,9 @@ import androidx.media3.session.MediaController
 import androidx.media3.session.SessionToken
 import com.google.common.util.concurrent.ListenableFuture
 import com.google.common.util.concurrent.MoreExecutors
+import com.kike.musicplayer.container
 import com.kike.musicplayer.data.db.Track
+import com.kike.musicplayer.sonos.SonosGroup
 import com.kike.musicplayer.playback.PlaybackService
 import com.kike.musicplayer.playback.toMediaItem
 import kotlinx.coroutines.Job
@@ -43,6 +46,8 @@ data class PlayerUiState(
     /** e.g. "FLAC · 44.1 kHz · 2 ch" */
     val formatInfo: String? = null,
     val error: String? = null,
+    /** Speaker volume (0-100) while playing on a remote device such as Sonos, else null. */
+    val remoteVolume: Int? = null,
 )
 
 /** UI-side MediaController, connected asynchronously to [PlaybackService]. */
@@ -50,6 +55,12 @@ class PlayerViewModel(app: Application) : AndroidViewModel(app) {
     private val controllerFuture: ListenableFuture<MediaController> =
         MediaController.Builder(app, SessionToken(app, ComponentName(app, PlaybackService::class.java))).buildAsync()
     private var controller: MediaController? = null
+
+    private val cast = app.container.castManager
+    val castGroups = cast.groups
+    val castDiscovering = cast.discovering
+    val castActive = cast.active
+    val castMessage = cast.message
 
     private val _state = MutableStateFlow(PlayerUiState())
     val state: StateFlow<PlayerUiState> = _state.asStateFlow()
@@ -85,6 +96,7 @@ class PlayerViewModel(app: Application) : AndroidViewModel(app) {
             queueSize = p.mediaItemCount,
             formatInfo = formatInfo(p),
             error = p.playerError?.let { e -> e.cause?.message ?: e.errorCodeName },
+            remoteVolume = p.deviceVolume.takeIf { p.deviceInfo.playbackType == DeviceInfo.PLAYBACK_TYPE_REMOTE },
         )
         if (p.isPlaying) startTicker() else ticker?.cancel()
     }
@@ -163,6 +175,15 @@ class PlayerViewModel(app: Application) : AndroidViewModel(app) {
         if (c.playbackState == Player.STATE_IDLE) c.prepare()
         if (c.playbackState == Player.STATE_ENDED) c.seekToDefaultPosition(0)
         if (c.isPlaying) c.pause() else c.play()
+    }
+
+    fun discoverSpeakers() = cast.discover()
+    fun castTo(group: SonosGroup) = cast.cast(group)
+    fun stopCasting() = cast.stopCast()
+
+    fun setRemoteVolume(volume: Int) {
+        controller?.setDeviceVolume(volume, 0)
+        _state.update { it.copy(remoteVolume = volume) }
     }
 
     fun next() = controller?.seekToNext()

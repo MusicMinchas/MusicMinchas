@@ -2,6 +2,8 @@ package com.kike.musicplayer.playback
 
 import android.app.PendingIntent
 import android.content.Intent
+import android.net.wifi.WifiManager
+import android.os.PowerManager
 import android.util.Log
 import androidx.annotation.OptIn
 import androidx.media3.common.AudioAttributes
@@ -26,6 +28,10 @@ import com.kike.musicplayer.container
 import com.kike.musicplayer.data.db.SessionState
 import com.kike.musicplayer.data.db.Track
 import com.kike.musicplayer.data.db.getByIds
+import com.kike.musicplayer.sonos.CastHost
+import com.kike.musicplayer.sonos.Sonos
+import com.kike.musicplayer.sonos.SonosGroup
+import com.kike.musicplayer.sonos.SonosPlayer
 import com.kike.musicplayer.ui.MainActivity
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -43,12 +49,17 @@ import kotlinx.coroutines.runBlocking
  * hardware button handling, and a browse tree for Android Auto.
  */
 @OptIn(UnstableApi::class)
-class PlaybackService : MediaLibraryService() {
+class PlaybackService : MediaLibraryService(), CastHost {
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private lateinit var player: ExoPlayer
     private lateinit var session: MediaLibrarySession
     private var saveJob: Job? = null
+
+    /** Set while the queue plays on a Sonos group instead of the phone. */
+    private var sonosPlayer: SonosPlayer? = null
+    private var castWakeLock: PowerManager.WakeLock? = null
+    private var castWifiLock: WifiManager.WifiLock? = null
 
     private val dao by lazy { container.database.tracks() }
     private val queueDao by lazy { container.database.queue() }
@@ -108,24 +119,114 @@ class PlaybackService : MediaLibraryService() {
             .build()
 
         scope.launch { restoreQueue() }
+        container.castManager.host = this
     }
 
     override fun onGetSession(controllerInfo: MediaSession.ControllerInfo): MediaLibrarySession = session
 
     override fun onTaskRemoved(rootIntent: Intent?) {
-        // Swiping the app away while paused stops the service; while playing, music continues.
-        if (!player.playWhenReady || player.mediaItemCount == 0) {
+        // Swiping the app away while paused stops the service; while playing (here or on Sonos), music continues.
+        val active = session.player
+        if (!active.playWhenReady || active.mediaItemCount == 0) {
             saveNow()
             stopSelf()
         }
     }
 
     override fun onDestroy() {
+        stopCast()
+        if (container.castManager.host === this) container.castManager.host = null
         saveNow()
         scope.cancel()
         session.release()
         player.release()
         super.onDestroy()
+    }
+
+    // ---- Casting to Sonos ----
+
+    /** Moves the current queue, position and play state from whatever plays now to [group]. */
+    override fun startCast(group: SonosGroup) {
+        val source = session.player
+        if (source.mediaItemCount == 0) {
+            container.castManager.onCastEnded("Play something first, then cast it")
+            return
+        }
+        val items = (0 until source.mediaItemCount).map { source.getMediaItemAt(it) }
+        val index = source.currentMediaItemIndex
+        val position = source.currentPosition
+        val playing = source.playWhenReady
+        val repeat = source.repeatMode
+        val shuffle = source.shuffleModeEnabled
+
+        // Switching from one Sonos group to another: silence the old one.
+        sonosPlayer?.let { old ->
+            val oldIp = (container.castManager.active.value ?: group).coordinatorIp
+            old.release()
+            scope.launch(Dispatchers.IO) { runCatching { Sonos.pause(oldIp) } }
+        }
+        player.pause()
+
+        val server = container.trackServer
+        server.start()
+        val sonos = SonosPlayer(group, server, dao) { message -> endCast(message) }
+        // Mode and play state first: with an empty queue they don't reach the speaker, and the
+        // queue load then starts playback (or not) accordingly.
+        sonos.repeatMode = repeat
+        sonos.shuffleModeEnabled = shuffle
+        sonos.playWhenReady = playing
+        sonos.setMediaItems(items, index, position)
+        sonosPlayer = sonos
+        session.player = sonos
+        acquireCastLocks()
+        container.castManager.onCastStarted(group)
+    }
+
+    override fun stopCast() = endCast(null)
+
+    /** Hands the queue back to the phone, paused where Sonos was, and stops the speaker. */
+    private fun endCast(message: String?) {
+        val sonos = sonosPlayer ?: return
+        Log.i(TAG, "Ending cast: ${message ?: "stopped by user"}")
+        val ip = container.castManager.active.value?.coordinatorIp
+        val (items, index, position) = sonos.snapshot()
+        val repeat = sonos.repeatMode
+        val shuffle = sonos.shuffleModeEnabled
+        sonosPlayer = null
+        session.player = player
+        sonos.release()
+        ip?.let { scope.launch(Dispatchers.IO) { runCatching { Sonos.pause(it) } } }
+        if (items.isNotEmpty()) {
+            player.setMediaItems(items, index.coerceIn(0, items.lastIndex), position)
+            player.repeatMode = repeat
+            player.shuffleModeEnabled = shuffle
+            player.prepare()
+        }
+        container.trackServer.stop()
+        releaseCastLocks()
+        container.castManager.onCastEnded(message)
+    }
+
+    /**
+     * Sonos fetches every track from the phone, so keep the CPU and Wi-Fi awake while casting
+     * (with the screen off, Android would otherwise let the server stall).
+     */
+    private fun acquireCastLocks() {
+        if (castWakeLock == null) {
+            castWakeLock = getSystemService(PowerManager::class.java)
+                .newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "MusicPlayer:cast").apply { acquire() }
+        }
+        if (castWifiLock == null) {
+            castWifiLock = getSystemService(WifiManager::class.java)
+                .createWifiLock(WifiManager.WIFI_MODE_FULL_LOW_LATENCY, "MusicPlayer:cast").apply { acquire() }
+        }
+    }
+
+    private fun releaseCastLocks() {
+        castWakeLock?.takeIf { it.isHeld }?.release()
+        castWakeLock = null
+        castWifiLock?.takeIf { it.isHeld }?.release()
+        castWifiLock = null
     }
 
     // ---- Queue persistence ----

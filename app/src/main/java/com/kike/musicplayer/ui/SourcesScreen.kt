@@ -244,7 +244,7 @@ fun DriveFolderPickerScreen(vm: LibraryViewModel, onClose: () -> Unit, contentPa
                 enabled = canSelect,
                 modifier = Modifier.fillMaxWidth().padding(16.dp),
             ) {
-                Text(if (canSelect) "Use “${current!!.name}”" else "Open a folder to select it", maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text(if (canSelect) "Use “${current.name}”" else "Open a folder to select it", maxLines = 1, overflow = TextOverflow.Ellipsis)
             }
         }
     }

@@ -51,6 +51,16 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.material.icons.filled.Cast
+import androidx.compose.material.icons.filled.CastConnected
+import androidx.compose.material.icons.filled.Speaker
+import androidx.compose.material.icons.filled.PhoneAndroid
+import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.automirrored.filled.VolumeDown
+import androidx.compose.material.icons.automirrored.filled.VolumeUp
+import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.ui.graphics.vector.ImageVector
+import kotlin.math.roundToInt
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.drawWithContent
@@ -73,6 +83,7 @@ import sh.calvin.reorderable.rememberReorderableLazyListState
 @Composable
 fun MiniPlayer(playerVm: PlayerViewModel, onOpen: () -> Unit) {
     val s by playerVm.state.collectAsState()
+    val castTo by playerVm.castActive.collectAsState()
     val item = s.current ?: return
     Surface(tonalElevation = 3.dp, modifier = Modifier.fillMaxWidth().clickable(onClick = onOpen)) {
         Column {
@@ -85,7 +96,7 @@ fun MiniPlayer(playerVm: PlayerViewModel, onOpen: () -> Unit) {
                 Column(Modifier.weight(1f).padding(horizontal = 12.dp)) {
                     Text(item.mediaMetadata.title?.toString() ?: "", maxLines = 1, overflow = TextOverflow.Ellipsis)
                     Text(
-                        item.mediaMetadata.artist?.toString() ?: "", maxLines = 1, overflow = TextOverflow.Ellipsis,
+                        listOfNotNull(item.mediaMetadata.artist?.toString(), castTo?.let { "on ${it.name}" }).joinToString(" · "), maxLines = 1, overflow = TextOverflow.Ellipsis,
                         style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
@@ -108,7 +119,10 @@ private fun PlayPauseIcon(s: PlayerUiState, onClick: () -> Unit) {
 @Composable
 fun NowPlayingScreen(playerVm: PlayerViewModel, onBack: () -> Unit, onOpenQueue: () -> Unit, contentPadding: PaddingValues) {
     val s by playerVm.state.collectAsState()
+    val castTo by playerVm.castActive.collectAsState()
+    var showCast by remember { mutableStateOf(false) }
     val meta = s.current?.mediaMetadata
+    if (showCast) CastSheet(playerVm) { showCast = false }
     Box(Modifier.fillMaxSize()) {
         ArtworkBackdrop(meta?.artworkUri)
         Column(Modifier.fillMaxSize().padding(contentPadding)) {
@@ -116,7 +130,13 @@ fun NowPlayingScreen(playerVm: PlayerViewModel, onBack: () -> Unit, onOpenQueue:
                 title = {},
                 colors = TopAppBarDefaults.topAppBarColors(containerColor = Color.Transparent),
                 navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.Default.KeyboardArrowDown, "Close") } },
-                actions = { IconButton(onClick = onOpenQueue) { Icon(Icons.AutoMirrored.Filled.QueueMusic, "Queue") } },
+                actions = {
+                    IconButton(onClick = { showCast = true }) {
+                        if (castTo != null) Icon(Icons.Default.CastConnected, "Playing on ${castTo!!.name}", tint = MaterialTheme.colorScheme.primary)
+                        else Icon(Icons.Default.Cast, "Play on a speaker")
+                    }
+                    IconButton(onClick = onOpenQueue) { Icon(Icons.AutoMirrored.Filled.QueueMusic, "Queue") }
+                },
             )
             Column(
                 Modifier.fillMaxSize().padding(horizontal = 24.dp),
@@ -136,7 +156,14 @@ fun NowPlayingScreen(playerVm: PlayerViewModel, onBack: () -> Unit, onOpenQueue:
                     listOfNotNull(meta?.artist, meta?.albumTitle).joinToString(" · "),
                     color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis,
                 )
-                s.formatInfo?.let {
+                val group = castTo
+                if (group != null) {
+                    TextButton(onClick = { showCast = true }) {
+                        Icon(Icons.Default.Speaker, null, Modifier.size(18.dp))
+                        Spacer(Modifier.width(6.dp))
+                        Text("Playing on ${group.name}", style = MaterialTheme.typography.labelLarge)
+                    }
+                } else s.formatInfo?.let {
                     Text(it, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary,
                         modifier = Modifier.padding(top = 4.dp))
                 }
@@ -167,6 +194,7 @@ fun NowPlayingScreen(playerVm: PlayerViewModel, onBack: () -> Unit, onOpenQueue:
                         )
                     }
                 }
+                s.remoteVolume?.let { volume -> RemoteVolume(volume, playerVm::setRemoteVolume) }
                 s.error?.let {
                     Text("Playback error: $it", color = MaterialTheme.colorScheme.error,
                         style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(top = 8.dp))
@@ -179,6 +207,77 @@ fun NowPlayingScreen(playerVm: PlayerViewModel, onBack: () -> Unit, onOpenQueue:
                 }
             }
         }
+    }
+}
+
+/** Speaker volume while casting; sent when the finger lifts so Sonos isn't flooded with commands. */
+@Composable
+private fun RemoteVolume(volume: Int, onChange: (Int) -> Unit) {
+    var dragging by remember { mutableStateOf<Float?>(null) }
+    Row(Modifier.fillMaxWidth().padding(top = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+        Icon(Icons.AutoMirrored.Filled.VolumeDown, null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
+        Slider(
+            value = dragging ?: (volume / 100f),
+            onValueChange = { dragging = it },
+            onValueChangeFinished = {
+                dragging?.let { onChange((it * 100).roundToInt()) }
+                dragging = null
+            },
+            modifier = Modifier.weight(1f).padding(horizontal = 8.dp),
+        )
+        Icon(Icons.AutoMirrored.Filled.VolumeUp, null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
+    }
+}
+
+/** Picks where the queue plays: this phone or a Sonos room/group. */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun CastSheet(playerVm: PlayerViewModel, onDismiss: () -> Unit) {
+    val groups by playerVm.castGroups.collectAsState()
+    val discovering by playerVm.castDiscovering.collectAsState()
+    val active by playerVm.castActive.collectAsState()
+    val message by playerVm.castMessage.collectAsState()
+    LaunchedEffect(Unit) { playerVm.discoverSpeakers() }
+
+    ModalBottomSheet(onDismissRequest = onDismiss) {
+        Column(Modifier.padding(bottom = 24.dp)) {
+            Row(Modifier.padding(horizontal = 24.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                Text("Play on", style = MaterialTheme.typography.titleLarge, modifier = Modifier.weight(1f))
+                if (discovering) CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp)
+                else TextButton(onClick = { playerVm.discoverSpeakers() }) { Text("Search again") }
+            }
+            CastRow(Icons.Default.PhoneAndroid, "This phone", selected = active == null) {
+                playerVm.stopCasting()
+                onDismiss()
+            }
+            groups.forEach { group ->
+                CastRow(Icons.Default.Speaker, group.name, selected = active?.uuid == group.uuid) {
+                    if (active?.uuid != group.uuid) playerVm.castTo(group)
+                    onDismiss()
+                }
+            }
+            message?.let {
+                Text(it, Modifier.padding(horizontal = 24.dp, vertical = 8.dp), color = MaterialTheme.colorScheme.error,
+                    style = MaterialTheme.typography.bodySmall)
+            }
+            if (groups.isEmpty() && discovering) {
+                Text("Looking for Sonos speakers…", Modifier.padding(horizontal = 24.dp, vertical = 8.dp),
+                    color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+        }
+    }
+}
+
+@Composable
+private fun CastRow(icon: ImageVector, label: String, selected: Boolean, onClick: () -> Unit) {
+    Row(
+        Modifier.fillMaxWidth().clickable(onClick = onClick).padding(horizontal = 24.dp, vertical = 14.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Icon(icon, null, tint = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant)
+        Spacer(Modifier.width(16.dp))
+        Text(label, Modifier.weight(1f), color = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface)
+        if (selected) Icon(Icons.Default.Check, "Selected", tint = MaterialTheme.colorScheme.primary)
     }
 }
 

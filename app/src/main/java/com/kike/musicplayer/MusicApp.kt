@@ -16,6 +16,8 @@ import com.kike.musicplayer.data.local.LocalLibrary
 import com.kike.musicplayer.data.metadata.CoverArtApi
 import com.kike.musicplayer.data.metadata.MetadataEnricher
 import com.kike.musicplayer.data.metadata.MusicBrainzApi
+import com.kike.musicplayer.sonos.CastManager
+import com.kike.musicplayer.sonos.TrackServer
 import com.squareup.moshi.Moshi
 import com.squareup.moshi.kotlin.reflect.KotlinJsonAdapterFactory
 import kotlinx.coroutines.CoroutineScope
@@ -88,6 +90,14 @@ class AppContainer(app: Application) {
     private val coverArt = retrofit(CoverArtApi.BASE_URL, metadataHttp).create(CoverArtApi::class.java)
 
     val enricher = MetadataEnricher(app, database.tracks(), settings, driveAuth, driveScanHttp, musicBrainz, coverArt)
+
+    /** Lets Sonos fetch tracks from the phone while casting. */
+    val trackServer = TrackServer(
+        app, database.tracks(),
+        // Sonos reads ahead in bursts and then pauses for minutes; a normal read timeout would drop the relay.
+        driveHttp.newBuilder().readTimeout(10, TimeUnit.MINUTES).build(),
+    )
+    val castManager = CastManager(app, appScope)
 
     val library = LibraryRepository(
         dao = database.tracks(),
