@@ -10,12 +10,17 @@ import kotlinx.coroutines.flow.Flow
 
 @Dao
 interface TrackDao {
+    // @Transaction: a large library spans several CursorWindows; without a read transaction a
+    // concurrent write between window refills makes rows vanish ("Couldn't read row N").
+    @Transaction
     @Query("SELECT * FROM tracks ORDER BY title COLLATE NOCASE")
     fun observeAll(): Flow<List<Track>>
 
+    @Transaction
     @Query("SELECT * FROM tracks ORDER BY title COLLATE NOCASE")
     suspend fun getAll(): List<Track>
 
+    @Transaction
     @Query("SELECT * FROM tracks WHERE source = :source")
     suspend fun getBySource(source: String): List<Track>
 

@@ -101,9 +101,13 @@ class LocalLibrary(private val context: Context) {
         private const val TAG = "LocalLibrary"
         private val AUDIO_EXTENSIONS = setOf("mp3", "m4a", "aac", "flac", "wav", "alac")
 
+        private val PLAYLIST_MIME_TYPES = setOf("audio/x-mpegurl", "audio/mpegurl", "audio/x-scpls")
+
         fun isAudio(name: String, mime: String?): Boolean =
-            mime?.startsWith("audio/") == true ||
-                name.substringAfterLast('.', "").lowercase() in AUDIO_EXTENSIONS
+            mime !in PLAYLIST_MIME_TYPES && (
+                mime?.startsWith("audio/") == true ||
+                    name.substringAfterLast('.', "").lowercase() in AUDIO_EXTENSIONS
+                )
 
         /** MediaStore reports missing tags as "<unknown>". */
         fun String?.cleanTag(): String? =

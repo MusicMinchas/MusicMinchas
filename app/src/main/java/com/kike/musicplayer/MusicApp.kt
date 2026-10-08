@@ -76,7 +76,7 @@ class AppContainer(app: Application) {
     private val musicBrainz = retrofit(MusicBrainzApi.BASE_URL, metadataHttp).create(MusicBrainzApi::class.java)
     private val coverArt = retrofit(CoverArtApi.BASE_URL, metadataHttp).create(CoverArtApi::class.java)
 
-    val enricher = MetadataEnricher(app, database.tracks(), settings, driveAuth, musicBrainz, coverArt)
+    val enricher = MetadataEnricher(app, database.tracks(), settings, driveAuth, driveHttp, musicBrainz, coverArt)
 
     val library = LibraryRepository(
         context = app,

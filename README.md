@@ -5,15 +5,15 @@ A native Android music player: Kotlin, Jetpack Compose, Media3/ExoPlayer, Room, 
 ## Features
 
 - **Playback** with ExoPlayer inside a `MediaLibraryService`: background playback, notification, lock screen, hardware/Bluetooth buttons, Android Auto browse tree (Songs / Albums plus search), and resume after the app was killed.
-- **Formats**: MP3, AAC, FLAC, ALAC, and WAV, using ExoPlayer's built-in extractors and the platform decoders (no FFmpeg). Float output is enabled so 24-bit sources keep their resolution.
+- **Formats**: MP3, AAC, FLAC, ALAC, and WAV, using ExoPlayer's built-in extractors (no FFmpeg). MP3, AAC, FLAC, and WAV use the platform decoders. ALAC uses a built-in Kotlin port of Apple's reference decoder (`playback/alac`), because Qualcomm's `c2.qti.alac.*` decoders reject valid files. It is verified bit-exact against FFmpeg for 16-bit stereo, 16-bit mono, and 24-bit/96 kHz stereo. Float output is enabled so 24-bit sources keep their resolution.
 - **Queue**: play, pause, skip, seek, shuffle, and repeat (off / all / one). The Up Next list follows the shuffle order. Drag-to-reorder works when shuffle is off. You can remove items, and add songs with *Play next* or *Add to queue*. The queue and position are saved in Room and restored.
 - **Sources**
   - *This device*: the MediaStore index (`READ_MEDIA_AUDIO`).
   - *Folders*: any folder picked through the Storage Access Framework, with a persisted grant.
   - *Google Drive*: OAuth 2.0 through Google Identity Services `AuthorizationClient` with the `drive.readonly` scope. Files are streamed with HTTP Range requests through OkHttp, so playback starts before the file is downloaded.
 - **Metadata pipeline**, cached in Room:
-  1. Local: `MediaMetadataRetriever` reads ID3, Vorbis, and MP4 tags plus embedded artwork. Artwork is stored once per album in `files/artwork`.
-  2. Online fallback for songs still missing artist, album, or artwork: a MusicBrainz recording search gives the MBIDs, then the Cover Art Archive gives the front cover. Requests are limited to 1 per second as MusicBrainz requires. You can turn this off in *Sources & metadata*.
+  1. Local: tags and embedded artwork are read from the file, 12 files at a time, and written to Room in batches. Device files use `MediaMetadataRetriever`. Drive files use ExoPlayer's extractors (`media3-inspector` `MetadataRetriever`) with each request capped at 1 MB, because tags sit in the header. Artwork is stored once per album in `files/artwork`.
+  2. Online fallback for songs still missing artist, album, or artwork: MusicBrainz release search (once per album) or recording search gives the MBIDs, then the Cover Art Archive gives the front cover. Requests are limited to 1 per second as MusicBrainz requires. You can turn this off in *Sources & metadata*.
 
 ## Build
 
@@ -53,6 +53,6 @@ ui               Compose screens, PlayerViewModel (MediaController), LibraryView
 
 ## Known limits
 
-- ALAC needs the device's platform decoder. Current Android versions have one.
+- The first tag scan of a large Drive library is limited by Drive itself: about 80 files per minute, because each request takes 1 to 4 s to start. Results are cached, so later scans only read new files.
 - Android Auto cannot load artwork from `file://` (extracted embedded art). Online covers (https) do show.
 - Drive has no tag index, so the first metadata pass for Drive songs reads each file's header over the network.

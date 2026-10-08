@@ -14,7 +14,6 @@ import androidx.media3.common.util.UnstableApi
 import androidx.media3.datasource.DefaultDataSource
 import androidx.media3.datasource.okhttp.OkHttpDataSource
 import androidx.media3.exoplayer.DefaultLoadControl
-import androidx.media3.exoplayer.DefaultRenderersFactory
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.session.LibraryResult
@@ -63,7 +62,7 @@ class PlaybackService : MediaLibraryService() {
         player = ExoPlayer.Builder(this)
             .setRenderersFactory(
                 // Float output keeps 24-bit sources at full resolution through the mixer.
-                DefaultRenderersFactory(this).setEnableAudioFloatOutput(true)
+                AppRenderersFactory(this).setEnableAudioFloatOutput(true)
             )
             .setMediaSourceFactory(DefaultMediaSourceFactory(dataSourceFactory))
             .setLoadControl(

@@ -14,12 +14,21 @@ interface MusicBrainzApi {
         @Query("fmt") format: String = "json",
     ): MbRecordingSearch
 
+    @GET("ws/2/release")
+    suspend fun searchReleases(
+        @Query("query") query: String,
+        @Query("limit") limit: Int = 5,
+        @Query("fmt") format: String = "json",
+    ): MbReleaseSearch
+
     companion object {
         const val BASE_URL = "https://musicbrainz.org/"
     }
 }
 
 data class MbRecordingSearch(val recordings: List<MbRecording> = emptyList())
+
+data class MbReleaseSearch(val releases: List<MbRelease> = emptyList())
 
 data class MbRecording(
     val id: String,
@@ -38,6 +47,8 @@ data class MbArtistCredit(val name: String, val joinphrase: String? = null)
 data class MbRelease(
     val id: String,
     val title: String,
+    /** Only set in release search results. */
+    val score: Int? = null,
     val status: String? = null,
     val date: String? = null,
     @Json(name = "artist-credit") val artistCredit: List<MbArtistCredit>? = null,
