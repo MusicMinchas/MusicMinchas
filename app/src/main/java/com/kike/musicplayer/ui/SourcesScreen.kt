@@ -64,6 +64,7 @@ fun SourcesScreen(
     val progress by vm.metadataProgress.collectAsState()
     val status by vm.scanStatus.collectAsState()
     val error by vm.lastError.collectAsState()
+    val unplayable by vm.unplayableCount.collectAsState()
     val counts = library.tracks.groupingBy { it.source }.eachCount()
 
     Column(Modifier.fillMaxSize().padding(contentPadding)) {
@@ -110,6 +111,13 @@ fun SourcesScreen(
                                 "sub-folders are imported.",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.primary,
+                        )
+                    }
+                    if (unplayable > 0) {
+                        Text(
+                            "$unplayable files skipped: no playable audio (usually DRM-protected Apple Music downloads)",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                     }
                     driveFolders.forEach { folder ->

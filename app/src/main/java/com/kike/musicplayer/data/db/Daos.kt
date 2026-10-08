@@ -13,11 +13,11 @@ interface TrackDao {
     // @Transaction: a large library spans several CursorWindows; without a read transaction a
     // concurrent write between window refills makes rows vanish ("Couldn't read row N").
     @Transaction
-    @Query("SELECT * FROM tracks ORDER BY title COLLATE NOCASE")
+    @Query("SELECT * FROM tracks WHERE durationMs >= 0 ORDER BY title COLLATE NOCASE")
     fun observeAll(): Flow<List<Track>>
 
     @Transaction
-    @Query("SELECT * FROM tracks ORDER BY title COLLATE NOCASE")
+    @Query("SELECT * FROM tracks WHERE durationMs >= 0 ORDER BY title COLLATE NOCASE")
     suspend fun getAll(): List<Track>
 
     @Transaction
@@ -36,11 +36,21 @@ interface TrackDao {
     @Query("SELECT COUNT(*) FROM tracks WHERE metadataState < ${Track.META_DONE}")
     fun observePendingCount(): Flow<Int>
 
+    @Query("SELECT COUNT(*) FROM tracks WHERE durationMs = ${Track.DURATION_UNPLAYABLE}")
+    fun observeUnplayableCount(): Flow<Int>
+
     @Query(
         "UPDATE tracks SET metadataState = ${Track.META_LOCAL_DONE} WHERE metadataState = ${Track.META_DONE} " +
             "AND (artist IS NULL OR album IS NULL OR artworkUri IS NULL)"
     )
     suspend fun requeueIncomplete(): Int
+
+    /**
+     * Tracks without a duration were never read successfully (or are MP3s read before durations were
+     * estimated); queue them for another tag read.
+     */
+    @Query("UPDATE tracks SET metadataState = ${Track.META_NEW} WHERE durationMs = 0 AND metadataState != ${Track.META_NEW}")
+    suspend fun requeueUnread(): Int
 
     @Upsert
     suspend fun upsertAll(tracks: List<Track>)

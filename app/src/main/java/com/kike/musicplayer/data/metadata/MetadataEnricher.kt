@@ -8,6 +8,7 @@ import androidx.annotation.OptIn
 import androidx.media3.common.C
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MediaMetadata
+import androidx.media3.common.MimeTypes
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.datasource.DefaultDataSource
 import androidx.media3.datasource.okhttp.OkHttpDataSource
@@ -44,6 +45,9 @@ import java.security.MessageDigest
  *     the MBIDs, then the Cover Art Archive for the front cover. Albums are looked up once.
  * Results are written to Room in batches, so the library list isn't rebuilt for every track.
  */
+/** The container parsed but holds no playable audio track (typically FairPlay DRM, "drms"). */
+class NoAudioTrackException : IOException()
+
 @OptIn(UnstableApi::class)
 class MetadataEnricher(
     private val context: Context,
@@ -86,6 +90,8 @@ class MetadataEnricher(
     suspend fun run() = mutex.withLock {
         withContext(Dispatchers.IO) {
             try {
+                // Files whose read failed in earlier versions were marked done with no tags (length 0).
+                dao.requeueUnread()
                 localPass()
                 if (settings.onlineMetadata.value) onlinePass()
             } finally {
@@ -100,17 +106,27 @@ class MetadataEnricher(
         Log.i(TAG, "Reading tags of ${ids.size} files")
         val driveConnected = driveAuth.account.value != null
         val queue = Channel<String>(Channel.UNLIMITED).apply { ids.forEach { trySend(it) }; close() }
-        val results = Channel<Track>(capacity = 64)
+        // Null = the file couldn't be read (timeout, dropped connection...): it stays NEW and is
+        // retried on the next run instead of being marked done with empty tags.
+        val results = Channel<Track?>(capacity = 64)
 
         val workers = List(PARALLEL_READS) {
             launch {
                 for (id in queue) {
                     val track = dao.get(id) ?: continue
                     if (track.source == Track.SOURCE_DRIVE && !driveConnected) continue
-                    val updated = runCatching { extractLocal(track) }
-                        .onFailure { Log.w(TAG, "Tag extraction failed for ${track.fileName}: $it") }
-                        .getOrDefault(track)
-                    results.send(updated.copy(metadataState = if (updated.isComplete()) Track.META_DONE else Track.META_LOCAL_DONE))
+                    val updated = try {
+                        extractLocal(track)
+                    } catch (e: NoAudioTrackException) {
+                        // Not a transient failure: mark it so it is hidden and never retried.
+                        Log.w(TAG, "No playable audio in ${track.fileName}")
+                        track.copy(durationMs = Track.DURATION_UNPLAYABLE)
+                    } catch (e: Exception) {
+                        Log.w(TAG, "Tag extraction failed for ${track.fileName}: $e")
+                        null
+                    }
+                    val done = updated != null && (updated.isComplete() || updated.durationMs == Track.DURATION_UNPLAYABLE)
+                    results.send(updated?.copy(metadataState = if (done) Track.META_DONE else Track.META_LOCAL_DONE))
                 }
             }
         }
@@ -123,7 +139,7 @@ class MetadataEnricher(
         var done = 0
         for (track in results) {
             _progress.value = Progress("Reading tags", ++done, ids.size)
-            writer.add(track)
+            if (track != null) writer.add(track)
         }
         writer.flush()
     }
@@ -224,10 +240,14 @@ class MetadataEnricher(
      * Drive files: ExoPlayer's own extractors (ID3, Vorbis comments, MP4 ilst) over OkHttp. They
      * stop once the header is parsed, whereas MediaMetadataRetriever keeps reading the whole file.
      */
-    private suspend fun readRemoteTags(track: Track): Tags =
-        runCatching { retrieve(track, cappedSourceFactory) }.getOrNull()
-            ?: retrieve(track, uncappedSourceFactory)
-            ?: throw IOException("No audio track found in ${track.fileName}")
+    private suspend fun readRemoteTags(track: Track): Tags {
+        // MP3s without a Xing/VBRI header only get a duration from the total file size, which the
+        // cap hides. Uncapped, the read still stops once the header is parsed (~1-2 MB).
+        val capped = if (track.mimeType == MimeTypes.AUDIO_MPEG) null
+        else runCatching { retrieve(track, cappedSourceFactory) }.getOrNull()
+        return capped ?: retrieve(track, uncappedSourceFactory)
+            ?: throw NoAudioTrackException()
+    }
 
     /** Null when the extractor found no tracks (e.g. the capped read ended before the header did). */
     private suspend fun retrieve(track: Track, factory: DefaultMediaSourceFactory): Tags? {

@@ -25,6 +25,7 @@ data class Track(
     val trackNumber: Int? = null,
     val discNumber: Int? = null,
     val year: Int? = null,
+    /** 0 = not read yet; [DURATION_UNPLAYABLE] = no playable audio (e.g. DRM-protected). */
     val durationMs: Long = 0,
     /** file:// of art extracted from the file, or an https Cover Art Archive URL. */
     val artworkUri: String? = null,
@@ -48,6 +49,9 @@ data class Track(
         const val META_LOCAL_DONE = 1
         /** Nothing more to do. */
         const val META_DONE = 2
+
+        /** The file has no audio track we can play (e.g. FairPlay "drms"); hidden from the library. */
+        const val DURATION_UNPLAYABLE = -1L
 
         fun albumKeyOf(album: String?, artist: String?): String =
             "${album.orEmpty().trim().lowercase()}\u001F${artist.orEmpty().trim().lowercase()}"

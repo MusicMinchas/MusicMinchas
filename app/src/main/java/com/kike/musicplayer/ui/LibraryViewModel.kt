@@ -77,6 +77,7 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
     val lastError = repo.lastError
     val metadataProgress = repo.metadataProgress
     val pendingMetadata = repo.pendingMetadata.stateIn(viewModelScope, SharingStarted.Eagerly, 0)
+    val unplayableCount = repo.unplayableCount.stateIn(viewModelScope, SharingStarted.Eagerly, 0)
     val safFolders = settings.safFolders
     val onlineMetadata = settings.onlineMetadata
     val driveAccount = driveAuth.account

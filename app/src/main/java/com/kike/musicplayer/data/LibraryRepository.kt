@@ -34,6 +34,7 @@ class LibraryRepository(
 ) {
     val tracks: Flow<List<Track>> = dao.observeAll()
     val pendingMetadata: Flow<Int> = dao.observePendingCount()
+    val unplayableCount: Flow<Int> = dao.observeUnplayableCount()
     val metadataProgress = enricher.progress
 
     private val _status = MutableStateFlow<String?>(null)
