@@ -360,7 +360,17 @@ class MetadataEnricher(
                 musicBrainz.searchRecordings("recording:${quote(title)} AND artist:${quote(artist)}").recordings
             }
         }
-        val recording = recordings.firstOrNull { (it.score ?: 0) >= MIN_SCORE } ?: return track
+        var recording = recordings.firstOrNull { (it.score ?: 0) >= MIN_SCORE }
+        if (recording == null) {
+            // Misspelled names ("Dark Tranquility") match nothing exactly; try fuzzy terms, but only
+            // accept a result spelled almost the same, as fuzzy search also finds unrelated songs.
+            recording = mbCall {
+                musicBrainz.searchRecordings("recording:(${fuzzy(title)}) AND artist:(${fuzzy(artist)})").recordings
+            }.firstOrNull {
+                (it.score ?: 0) >= MIN_SCORE && similar(it.title, title) && similar(it.artistName.orEmpty(), artist)
+            }
+        }
+        if (recording == null) return track
         val release = pickRelease(recording, track.album)
 
         val artwork = track.artworkUri ?: release?.let { findCover(it) }
@@ -422,6 +432,31 @@ class MetadataEnricher(
 
         /** Lucene phrase with special characters escaped. */
         private fun quote(s: String) = "\"" + s.replace("\\", "\\\\").replace("\"", "\\\"") + "\""
+
+        /** Each word as a Lucene fuzzy term ("dark~ tranquility~"), special characters dropped. */
+        private fun fuzzy(s: String) =
+            s.lowercase().split(Regex("[^\\p{L}\\p{N}]+")).filter { it.isNotEmpty() }.joinToString(" ") { "$it~" }
+
+        /** True when the two names differ by at most ~15% of their letters (case/punctuation ignored). */
+        private fun similar(a: String, b: String): Boolean {
+            val x = a.lowercase().filter { it.isLetterOrDigit() }
+            val y = b.lowercase().filter { it.isLetterOrDigit() }
+            if (x.isEmpty() || y.isEmpty()) return false
+            return editDistance(x, y) <= maxOf(1, (maxOf(x.length, y.length) * 0.15).toInt())
+        }
+
+        private fun editDistance(a: String, b: String): Int {
+            var prev = IntArray(b.length + 1) { it }
+            for (i in 1..a.length) {
+                val cur = IntArray(b.length + 1)
+                cur[0] = i
+                for (j in 1..b.length) {
+                    cur[j] = minOf(prev[j] + 1, cur[j - 1] + 1, prev[j - 1] + if (a[i - 1] == b[j - 1]) 0 else 1)
+                }
+                prev = cur
+            }
+            return prev[b.length]
+        }
 
         private fun String.leadingInt() = Regex("^\\d+").find(this)?.value?.toIntOrNull()
 
