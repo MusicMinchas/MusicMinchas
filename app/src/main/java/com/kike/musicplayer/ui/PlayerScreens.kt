@@ -196,8 +196,8 @@ private fun ArtworkBackdrop(uri: Any?) {
         alignment = Alignment.TopCenter,
         modifier = Modifier
             .fillMaxWidth()
-            .fillMaxHeight(0.8f)
-            .blur(32.dp) // no-op before Android 12
+            .fillMaxHeight(0.85f)
+            .blur(20.dp) // no-op before Android 12
             // Offscreen so the gradient below can mask this layer's alpha (DstIn keeps the image
             // only where the mask is opaque).
             .graphicsLayer(compositingStrategy = CompositingStrategy.Offscreen)
@@ -205,8 +205,8 @@ private fun ArtworkBackdrop(uri: Any?) {
                 drawContent()
                 drawRect(
                     brush = Brush.verticalGradient(
-                        0f to Color.Black.copy(alpha = 0.6f),
-                        0.45f to Color.Black.copy(alpha = 0.35f),
+                        0f to Color.Black.copy(alpha = 0.65f),
+                        0.45f to Color.Black.copy(alpha = 0.38f),
                         1f to Color.Transparent,
                     ),
                     blendMode = BlendMode.DstIn,
