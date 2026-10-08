@@ -10,7 +10,7 @@ import androidx.room.PrimaryKey
  */
 @Entity(tableName = "tracks", indices = [Index("source"), Index("metadataState")])
 data class Track(
-    /** "ms:<MediaStore id>", "saf:<document uri>" or "drive:<file id>". */
+    /** "saf:<document uri>" or "drive:<file id>". */
     @PrimaryKey val id: String,
     val source: String,
     /** What ExoPlayer opens: a content:// URI or the Drive download URL. */
@@ -37,6 +37,7 @@ data class Track(
     val albumKey: String get() = albumKeyOf(album, albumArtist ?: artist)
 
     companion object {
+        /** Device-wide MediaStore scan of earlier versions; such rows are deleted on start. */
         const val SOURCE_MEDIASTORE = "mediastore"
         const val SOURCE_SAF = "saf"
         const val SOURCE_DRIVE = "drive"

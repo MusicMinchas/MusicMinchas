@@ -1,15 +1,12 @@
 package com.kike.musicplayer.data
 
-import android.Manifest
-import android.content.Context
-import android.content.pm.PackageManager
 import android.net.Uri
-import android.os.Build
 import android.util.Log
 import com.kike.musicplayer.data.db.Track
 import com.kike.musicplayer.data.db.TrackDao
 import com.kike.musicplayer.data.db.delete
 import com.kike.musicplayer.data.drive.DriveAuth
+import com.kike.musicplayer.data.drive.DriveFolder
 import com.kike.musicplayer.data.drive.DriveLibrary
 import com.kike.musicplayer.data.local.LocalLibrary
 import com.kike.musicplayer.data.metadata.MetadataEnricher
@@ -27,7 +24,6 @@ import kotlinx.coroutines.withContext
 
 /** Keeps the Room track table in sync with every source and kicks off metadata enrichment. */
 class LibraryRepository(
-    private val context: Context,
     private val dao: TrackDao,
     private val settings: Settings,
     private val local: LocalLibrary,
@@ -50,34 +46,30 @@ class LibraryRepository(
     private val scanMutex = Mutex()
     private var enrichJob: Job? = null
 
-    fun hasAudioPermission(): Boolean {
-        val permission = if (Build.VERSION.SDK_INT >= 33) Manifest.permission.READ_MEDIA_AUDIO
-        else Manifest.permission.READ_EXTERNAL_STORAGE
-        return context.checkSelfPermission(permission) == PackageManager.PERMISSION_GRANTED
-    }
-
     fun refreshAll() = scope.launch {
-        refreshDevice()
+        // Earlier versions scanned the whole device through MediaStore; only picked folders count now.
+        dao.deleteSource(Track.SOURCE_MEDIASTORE)
         refreshFolders()
-        if (driveAuth.account.value != null) refreshDrive()
-    }
-
-    suspend fun refreshDevice() = scan("Scanning device", Track.SOURCE_MEDIASTORE) {
-        if (hasAudioPermission()) local.scanMediaStore() else emptyList()
+        // With no Drive folders chosen yet, leave existing Drive rows alone (they keep their scanned
+        // tags); the first folder the user picks prunes everything outside it.
+        if (driveAuth.account.value != null && settings.driveFolders.value.isNotEmpty()) refreshDrive()
     }
 
     suspend fun refreshFolders() = scan("Scanning folders", Track.SOURCE_SAF) {
-        // Skip files the MediaStore scan already found (same name and size) to avoid duplicates.
-        val known = dao.getBySource(Track.SOURCE_MEDIASTORE).mapTo(HashSet()) { it.fileName to it.sizeBytes }
-        settings.safFolders.value.flatMap { local.scanTree(Uri.parse(it)) }
-            .filter { (it.fileName to it.sizeBytes) !in known }
-            .distinctBy { it.id }
+        settings.safFolders.value.flatMap { local.scanTree(Uri.parse(it)) }.distinctBy { it.id }
     }
 
-    suspend fun refreshDrive() = scan("Scanning Google Drive", Track.SOURCE_DRIVE) { drive.scan() }
+    suspend fun refreshDrive() = scan("Scanning Google Drive", Track.SOURCE_DRIVE) {
+        drive.scan(settings.driveFolders.value.map { it.id })
+    }
+
+    suspend fun listDriveFolders(parentId: String?): List<DriveFolder> = drive.listFolders(parentId)
+
+    suspend fun resolveDriveFolderId(id: String): String = drive.resolveId(id)
 
     suspend fun removeDrive() {
         driveAuth.disconnect()
+        settings.clearDriveFolders()
         dao.deleteSource(Track.SOURCE_DRIVE)
     }
 
@@ -110,8 +102,7 @@ class LibraryRepository(
                     val existing = dao.getBySource(source).associateBy { it.id }
                     val merged = scanned.map { fresh ->
                         val old = existing[fresh.id] ?: return@map fresh
-                        if (source == Track.SOURCE_MEDIASTORE && old.metadataState == Track.META_NEW) fresh
-                        else old.copy(uri = fresh.uri, fileName = fresh.fileName, mimeType = fresh.mimeType, sizeBytes = fresh.sizeBytes)
+                        old.copy(uri = fresh.uri, fileName = fresh.fileName, mimeType = fresh.mimeType, sizeBytes = fresh.sizeBytes)
                     }
                     dao.upsertAll(merged)
                     dao.delete(existing.keys - scanned.mapTo(HashSet()) { it.id })

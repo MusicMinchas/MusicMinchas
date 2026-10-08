@@ -5,22 +5,32 @@ import com.kike.musicplayer.data.local.LocalLibrary
 import okhttp3.Interceptor
 import okhttp3.Response
 import retrofit2.http.GET
+import retrofit2.http.Path
 import retrofit2.http.Query
 
 interface DriveApi {
     @GET("drive/v3/files")
     suspend fun listFiles(
         @Query("q") query: String,
-        @Query("fields") fields: String = "nextPageToken,files(id,name,mimeType,size)",
+        @Query("fields") fields: String = "nextPageToken,files(id,name,mimeType,size,parents)",
         @Query("pageSize") pageSize: Int = 1000,
         @Query("pageToken") pageToken: String? = null,
+        @Query("orderBy") orderBy: String? = null,
         @Query("supportsAllDrives") supportsAllDrives: Boolean = true,
         @Query("includeItemsFromAllDrives") includeAllDrives: Boolean = true,
     ): DriveFileList
 
+    @GET("drive/v3/files/{id}")
+    suspend fun getFile(
+        @Path("id") id: String,
+        @Query("fields") fields: String = "id,name",
+        @Query("supportsAllDrives") supportsAllDrives: Boolean = true,
+    ): DriveFile
+
     companion object {
         const val BASE_URL = "https://www.googleapis.com/"
         const val HOST = "www.googleapis.com"
+        const val FOLDER_MIME = "application/vnd.google-apps.folder"
 
         /** Direct media URL. Drive honours Range requests, so ExoPlayer streams and seeks it in chunks. */
         fun mediaUrl(fileId: String) = "${BASE_URL}drive/v3/files/$fileId?alt=media&supportsAllDrives=true"
@@ -35,19 +45,50 @@ data class DriveFileList(
 data class DriveFile(
     val id: String,
     val name: String,
-    val mimeType: String?,
+    val mimeType: String? = null,
     /** Drive sends int64 values as JSON strings. */
-    val size: String?,
+    val size: String? = null,
+    val parents: List<String>? = null,
 )
 
-/** Lists every audio file the account can see in Drive. */
+/** A Drive folder the user can pick as a music source. */
+data class DriveFolder(val id: String, val name: String)
+
 class DriveLibrary(private val api: DriveApi) {
-    suspend fun scan(): List<Track> {
-        val result = mutableListOf<Track>()
-        var pageToken: String? = null
-        do {
-            val page = api.listFiles(query = "trashed = false and mimeType contains 'audio/'", pageToken = pageToken)
-            page.files.filter { LocalLibrary.isAudio(it.name, it.mimeType) }.mapTo(result) { file ->
+
+    /** Sub-folders of [parentId] ("root" for My Drive), or folders shared with the user when null. */
+    suspend fun listFolders(parentId: String?): List<DriveFolder> {
+        val scope = if (parentId == null) "sharedWithMe" else "'${escape(parentId)}' in parents"
+        return listAll("$scope and mimeType = '${DriveApi.FOLDER_MIME}' and trashed = false", "nextPageToken,files(id,name)", orderBy = "name")
+            .map { DriveFolder(it.id, it.name) }
+    }
+
+    /** Resolves the "root" alias to My Drive's real folder ID, which is what files list as their parent. */
+    suspend fun resolveId(id: String): String = api.getFile(id).id
+
+    /**
+     * Audio files anywhere below [folderIds]. Rather than walking the tree folder by folder (one
+     * request each), it lists all folders and all audio files once and filters by ancestry locally.
+     */
+    suspend fun scan(folderIds: Collection<String>): List<Track> {
+        if (folderIds.isEmpty()) return emptyList()
+        val selected = folderIds.toSet()
+        val parentsOf = listAll("mimeType = '${DriveApi.FOLDER_MIME}' and trashed = false", "nextPageToken,files(id,parents)")
+            .associate { it.id to it.parents.orEmpty() }
+        val memo = HashMap<String, Boolean>()
+
+        fun isInside(folderId: String, depth: Int = 0): Boolean {
+            if (folderId in selected) return true
+            if (depth > MAX_DEPTH) return false // guards against cycles in odd shared structures
+            memo[folderId]?.let { return it }
+            val inside = parentsOf[folderId].orEmpty().any { isInside(it, depth + 1) }
+            memo[folderId] = inside
+            return inside
+        }
+
+        return listAll("trashed = false and mimeType contains 'audio/'", "nextPageToken,files(id,name,mimeType,size,parents)")
+            .filter { file -> LocalLibrary.isAudio(file.name, file.mimeType) && file.parents.orEmpty().any { isInside(it) } }
+            .map { file ->
                 Track(
                     id = "drive:${file.id}",
                     source = Track.SOURCE_DRIVE,
@@ -58,9 +99,23 @@ class DriveLibrary(private val api: DriveApi) {
                     title = file.name.substringBeforeLast('.'),
                 )
             }
+    }
+
+    private suspend fun listAll(query: String, fields: String, orderBy: String? = null): List<DriveFile> {
+        val result = mutableListOf<DriveFile>()
+        var pageToken: String? = null
+        do {
+            val page = api.listFiles(query = query, fields = fields, pageToken = pageToken, orderBy = orderBy)
+            result += page.files
             pageToken = page.nextPageToken
         } while (pageToken != null)
         return result
+    }
+
+    private companion object {
+        const val MAX_DEPTH = 64
+
+        fun escape(s: String) = s.replace("\\", "\\\\").replace("'", "\\'")
     }
 }
 

@@ -9,6 +9,7 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.kike.musicplayer.container
 import com.kike.musicplayer.data.db.Track
+import com.kike.musicplayer.data.drive.DriveFolder
 import com.kike.musicplayer.playback.albumTrackOrder
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -31,6 +32,20 @@ data class Album(
 )
 
 data class Artist(val name: String, val tracks: List<Track>, val albumCount: Int)
+
+/** Drive folder browser. An empty [path] is the top level, offering My Drive and Shared with me. */
+data class DriveBrowserState(
+    val path: List<DriveFolder> = emptyList(),
+    val children: List<DriveFolder> = emptyList(),
+    val loading: Boolean = false,
+    val error: String? = null,
+) {
+    companion object {
+        const val MY_DRIVE_ID = "root"
+        const val SHARED_ID = "sharedWithMe"
+        val TOP_LEVEL = listOf(DriveFolder(MY_DRIVE_ID, "My Drive"), DriveFolder(SHARED_ID, "Shared with me"))
+    }
+}
 
 data class Library(
     val tracks: List<Track> = emptyList(),
@@ -69,12 +84,14 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
     private val _driveMessage = MutableStateFlow<String?>(null)
     val driveMessage: StateFlow<String?> = _driveMessage.asStateFlow()
 
-    private val _hasAudioPermission = MutableStateFlow(repo.hasAudioPermission())
-    val hasAudioPermission: StateFlow<Boolean> = _hasAudioPermission.asStateFlow()
+    val driveFolders = settings.driveFolders
+
+    private val _driveBrowser = MutableStateFlow(DriveBrowserState())
+    val driveBrowser: StateFlow<DriveBrowserState> = _driveBrowser.asStateFlow()
 
     private var started = false
 
-    /** Called once the UI is up: rescan everything (cheap for MediaStore) and resume enrichment. */
+    /** Called once the UI is up: rescan the chosen folders (new/removed files) and resume enrichment. */
     fun start() {
         if (started) return
         started = true
@@ -85,12 +102,60 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
         _query.value = q
     }
 
-    fun onPermissionResult() {
-        _hasAudioPermission.value = repo.hasAudioPermission()
-        viewModelScope.launch { repo.refreshDevice() }
+    fun refreshAll() = repo.refreshAll()
+
+    // ---- Drive folder browser ----
+
+    /** Opens the browser at its top level ("My Drive" / "Shared with me"). */
+    fun openDriveBrowser() {
+        _driveBrowser.value = DriveBrowserState()
     }
 
-    fun refreshAll() = repo.refreshAll()
+    fun enterDriveFolder(folder: DriveFolder) = loadDriveFolder(_driveBrowser.value.path + folder)
+
+    /** Returns false when already at the top level (the caller then closes the browser). */
+    fun driveBrowserBack(): Boolean {
+        val path = _driveBrowser.value.path
+        if (path.isEmpty()) return false
+        if (path.size == 1) _driveBrowser.value = DriveBrowserState() else loadDriveFolder(path.dropLast(1))
+        return true
+    }
+
+    private fun loadDriveFolder(path: List<DriveFolder>) {
+        _driveBrowser.value = DriveBrowserState(path = path, loading = true)
+        viewModelScope.launch {
+            val id = path.last().id
+            val result = runCatching { repo.listDriveFolders(if (id == DriveBrowserState.SHARED_ID) null else id) }
+            if (_driveBrowser.value.path != path) return@launch // user navigated away meanwhile
+            _driveBrowser.value = result.fold(
+                onSuccess = { DriveBrowserState(path = path, children = it) },
+                onFailure = { DriveBrowserState(path = path, error = "Couldn't list folders: ${it.message}") },
+            )
+        }
+    }
+
+    /** Adds the folder currently shown in the browser as a music source and syncs Drive. */
+    fun selectCurrentDriveFolder(onDone: () -> Unit) {
+        val path = _driveBrowser.value.path
+        val current = path.lastOrNull() ?: return
+        if (current.id == DriveBrowserState.SHARED_ID) return
+        viewModelScope.launch {
+            try {
+                // Files list My Drive's real ID as their parent, never the "root" alias.
+                val id = if (current.id == DriveBrowserState.MY_DRIVE_ID) repo.resolveDriveFolderId(current.id) else current.id
+                settings.addDriveFolder(DriveFolder(id, path.joinToString(" / ") { it.name }))
+                onDone()
+                repo.refreshDrive()
+            } catch (e: Exception) {
+                _driveBrowser.value = _driveBrowser.value.copy(error = "Couldn't add folder: ${e.message}")
+            }
+        }
+    }
+
+    fun removeDriveFolder(id: String) {
+        settings.removeDriveFolder(id)
+        viewModelScope.launch { repo.refreshDrive() }
+    }
 
     fun addFolder(uri: Uri) {
         getApplication<Application>().contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
@@ -139,7 +204,8 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
             return
         }
         _driveMessage.value = null
-        viewModelScope.launch { repo.refreshDrive() }
+        // Nothing is imported until the user picks folders (unless some are already chosen).
+        if (settings.driveFolders.value.isNotEmpty()) viewModelScope.launch { repo.refreshDrive() }
     }
 
     fun refreshDrive() = viewModelScope.launch { repo.refreshDrive() }

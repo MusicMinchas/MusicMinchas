@@ -118,7 +118,7 @@ private fun EmptyLibrary(onOpenSources: () -> Unit) {
         Text("No music yet", style = MaterialTheme.typography.titleLarge)
         Spacer(Modifier.height(8.dp))
         Text(
-            "Allow access to music on this device, add a folder, or connect Google Drive.",
+            "Pick the folders on this device or in Google Drive that hold your music.",
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
         Spacer(Modifier.height(16.dp))

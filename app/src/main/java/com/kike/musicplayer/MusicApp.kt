@@ -21,6 +21,7 @@ import com.squareup.moshi.kotlin.reflect.KotlinJsonAdapterFactory
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import okhttp3.Dispatcher
 import okhttp3.OkHttpClient
 import retrofit2.Retrofit
 import retrofit2.converter.moshi.MoshiConverterFactory
@@ -58,6 +59,16 @@ class AppContainer(app: Application) {
     /** Used for the Drive API and for streaming Drive files in ExoPlayer. */
     val driveHttp: OkHttpClient = baseHttp.newBuilder()
         .addInterceptor(DriveAuthInterceptor(driveAuth))
+        .dispatcher(Dispatcher().apply { maxRequestsPerHost = 16 })
+        .build()
+
+    /**
+     * Drive tag scanning gets its own dispatcher: Media3's OkHttpDataSource goes through OkHttp's
+     * async queue, whose default of 5 requests per host would make the scan's parallel reads queue
+     * up and block streaming and API calls to the same host.
+     */
+    val driveScanHttp: OkHttpClient = driveHttp.newBuilder()
+        .dispatcher(Dispatcher().apply { maxRequestsPerHost = 32; maxRequests = 64 })
         .build()
 
     private val metadataHttp: OkHttpClient = baseHttp.newBuilder()
@@ -76,10 +87,9 @@ class AppContainer(app: Application) {
     private val musicBrainz = retrofit(MusicBrainzApi.BASE_URL, metadataHttp).create(MusicBrainzApi::class.java)
     private val coverArt = retrofit(CoverArtApi.BASE_URL, metadataHttp).create(CoverArtApi::class.java)
 
-    val enricher = MetadataEnricher(app, database.tracks(), settings, driveAuth, driveHttp, musicBrainz, coverArt)
+    val enricher = MetadataEnricher(app, database.tracks(), settings, driveAuth, driveScanHttp, musicBrainz, coverArt)
 
     val library = LibraryRepository(
-        context = app,
         dao = database.tracks(),
         settings = settings,
         local = LocalLibrary(app),

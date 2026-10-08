@@ -1,60 +1,16 @@
 package com.kike.musicplayer.data.local
 
-import android.content.ContentUris
 import android.content.Context
 import android.net.Uri
 import android.provider.DocumentsContract
-import android.provider.MediaStore
 import android.util.Log
 import com.kike.musicplayer.data.db.Track
 
-/** Indexes audio on the device: the shared MediaStore collection plus folders granted through SAF. */
+/**
+ * Indexes audio in folders the user picked with the Storage Access Framework. There is no
+ * device-wide MediaStore scan: that pulls in ringtones, notification sounds and app audio.
+ */
 class LocalLibrary(private val context: Context) {
-
-    fun scanMediaStore(): List<Track> {
-        val collection = MediaStore.Audio.Media.getContentUri(MediaStore.VOLUME_EXTERNAL)
-        val projection = arrayOf(
-            MediaStore.Audio.Media._ID,
-            MediaStore.Audio.Media.DISPLAY_NAME,
-            MediaStore.Audio.Media.TITLE,
-            MediaStore.Audio.Media.ARTIST,
-            MediaStore.Audio.Media.ALBUM,
-            MediaStore.Audio.Media.ALBUM_ARTIST,
-            MediaStore.Audio.Media.TRACK,
-            MediaStore.Audio.Media.YEAR,
-            MediaStore.Audio.Media.DURATION,
-            MediaStore.Audio.Media.MIME_TYPE,
-            MediaStore.Audio.Media.SIZE,
-        )
-        val result = mutableListOf<Track>()
-        context.contentResolver.query(
-            collection, projection, "${MediaStore.Audio.Media.IS_MUSIC} != 0", null, null
-        )?.use { c ->
-            while (c.moveToNext()) {
-                val id = c.getLong(0)
-                val name = c.getString(1) ?: continue
-                // MediaStore encodes disc and track together, e.g. 2005 = disc 2, track 5.
-                val rawTrack = c.getInt(6)
-                result += Track(
-                    id = "ms:$id",
-                    source = Track.SOURCE_MEDIASTORE,
-                    uri = ContentUris.withAppendedId(collection, id).toString(),
-                    fileName = name,
-                    mimeType = c.getString(9),
-                    sizeBytes = c.getLong(10),
-                    title = c.getString(2).cleanTag() ?: name.substringBeforeLast('.'),
-                    artist = c.getString(3).cleanTag(),
-                    album = c.getString(4).cleanTag(),
-                    albumArtist = c.getString(5).cleanTag(),
-                    trackNumber = (rawTrack % 1000).takeIf { it > 0 },
-                    discNumber = (rawTrack / 1000).takeIf { it > 0 },
-                    year = c.getInt(7).takeIf { it > 0 },
-                    durationMs = c.getLong(8),
-                )
-            }
-        }
-        return result
-    }
 
     /** Walks a folder tree the user granted with ACTION_OPEN_DOCUMENT_TREE. */
     fun scanTree(treeUri: Uri): List<Track> {
@@ -108,9 +64,5 @@ class LocalLibrary(private val context: Context) {
                 mime?.startsWith("audio/") == true ||
                     name.substringAfterLast('.', "").lowercase() in AUDIO_EXTENSIONS
                 )
-
-        /** MediaStore reports missing tags as "<unknown>". */
-        fun String?.cleanTag(): String? =
-            this?.trim()?.takeIf { it.isNotEmpty() && it != MediaStore.UNKNOWN_STRING }
     }
 }

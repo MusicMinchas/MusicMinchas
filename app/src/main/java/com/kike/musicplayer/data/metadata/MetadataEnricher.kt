@@ -97,6 +97,7 @@ class MetadataEnricher(
     private suspend fun localPass() = coroutineScope {
         val ids = dao.idsWithState(Track.META_NEW)
         if (ids.isEmpty()) return@coroutineScope
+        Log.i(TAG, "Reading tags of ${ids.size} files")
         val driveConnected = driveAuth.account.value != null
         val queue = Channel<String>(Channel.UNLIMITED).apply { ids.forEach { trySend(it) }; close() }
         val results = Channel<Track>(capacity = 64)
