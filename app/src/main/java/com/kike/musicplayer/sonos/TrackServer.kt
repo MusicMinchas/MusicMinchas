@@ -111,9 +111,8 @@ class TrackServer(
                     "a" -> serveArt(out, method, decode(parts[3]))
                     else -> respondStatus(out, 404)
                 }
-            } catch (e: IOException) {
+            } catch (_: IOException) {
                 // Sonos routinely closes a connection mid-transfer when it seeks or has buffered enough.
-                Log.d(TAG, "Client ${socket.inetAddress?.hostAddress}: ${e.message}")
             }
         }
     }

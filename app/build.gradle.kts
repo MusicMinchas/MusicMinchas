@@ -1,7 +1,16 @@
+import java.util.Properties
+
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.plugin.compose")
     id("com.google.devtools.ksp")
+}
+
+// Signing key details live in keystore.properties (git-ignored; master copy in ../MusicPlayer-signing).
+// Without it, builds fall back to the default debug key.
+val keystoreProps = Properties().apply {
+    val file = rootProject.file("keystore.properties")
+    if (file.exists()) file.inputStream().use { load(it) }
 }
 
 android {
@@ -12,13 +21,32 @@ android {
         applicationId = "com.kike.musicplayer"
         minSdk = 30
         targetSdk = 36
-        versionCode = 1
-        versionName = "0.1"
+        versionCode = 2
+        versionName = "1.0"
+    }
+
+    signingConfigs {
+        if (keystoreProps.isNotEmpty()) {
+            create("release") {
+                storeFile = file(keystoreProps.getProperty("storeFile"))
+                storePassword = keystoreProps.getProperty("storePassword")
+                keyAlias = keystoreProps.getProperty("keyAlias")
+                keyPassword = keystoreProps.getProperty("keyPassword")
+            }
+        }
     }
 
     buildTypes {
+        val releaseKey = signingConfigs.findByName("release")
         release {
+            // No R8: Moshi reads the API models by reflection and size doesn't matter for a sideloaded app.
             isMinifyEnabled = false
+            if (releaseKey != null) signingConfig = releaseKey
+        }
+        debug {
+            // Same key as release, so debug and release builds can replace each other and Drive
+            // sign-in (registered per signing certificate) works for both.
+            if (releaseKey != null) signingConfig = releaseKey
         }
     }
 

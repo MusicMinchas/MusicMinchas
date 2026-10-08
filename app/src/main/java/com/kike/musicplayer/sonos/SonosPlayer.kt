@@ -478,7 +478,6 @@ class SonosPlayer(
             val entryId = server.entryIdOf(p.trackUri)
             if (entryId == null) {
                 // Someone started other music on this speaker (e.g. from the Sonos app): the cast is over.
-                if (p.trackUri != null) Log.d(TAG, "Not our track: ${p.trackUri}")
                 if (p.trackUri != null && loadJob?.isCompleted == true && ++foreignPolls >= 3) {
                     lose("${group.name} is now playing something else")
                 }
