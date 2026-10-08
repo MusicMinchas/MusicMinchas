@@ -45,8 +45,8 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.foundation.background
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.graphics.Shadow
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.fillMaxHeight
@@ -370,7 +370,7 @@ private fun PlaylistsTab(
 
 /**
  * A playlist tile: a strip of covers fading from 30% transparency on the left to 80% on the right,
- * with the title on the right where the covers are faintest.
+ * with the title on a dark panel in the bottom-left corner and a play button bottom-right.
  */
 @Composable
 private fun PlaylistTile(title: String, subtitle: String, covers: List<String>, onOpen: () -> Unit, onPlay: (() -> Unit)?) {
@@ -402,31 +402,32 @@ private fun PlaylistTile(title: String, subtitle: String, covers: List<String>, 
                     }
                 }
             }
-            Row(
-                Modifier.align(Alignment.CenterEnd).padding(horizontal = 16.dp),
-                verticalAlignment = Alignment.CenterVertically,
+            // Title on a dark panel (20% transparent) in the bottom-left corner: readable over any cover.
+            Column(
+                Modifier.align(Alignment.BottomStart)
+                    .padding(12.dp)
+                    .background(TilePanel, RoundedCornerShape(10.dp))
+                    .padding(horizontal = 12.dp, vertical = 6.dp),
             ) {
-                Column(horizontalAlignment = Alignment.End) {
-                    // Bold, with a halo in the background colour, so the text stays readable over busy covers.
-                    val halo = Shadow(MaterialTheme.colorScheme.surface, blurRadius = 12f)
-                    Text(
-                        title,
-                        style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold, shadow = halo),
-                        textAlign = TextAlign.End,
-                    )
-                    Text(
-                        subtitle,
-                        style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.SemiBold, shadow = halo),
-                        color = MaterialTheme.colorScheme.onSurface,
-                    )
-                }
-                if (onPlay != null) {
-                    Spacer(Modifier.width(12.dp))
-                    FilledIconButton(onClick = onPlay) { Icon(Icons.Default.PlayArrow, "Play $title") }
+                Text(
+                    title,
+                    style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+                    color = Color.White,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                Text(subtitle, style = MaterialTheme.typography.bodySmall, color = Color.White.copy(alpha = 0.85f))
+            }
+            if (onPlay != null) {
+                FilledIconButton(onClick = onPlay, modifier = Modifier.align(Alignment.BottomEnd).padding(12.dp)) {
+                    Icon(Icons.Default.PlayArrow, "Play $title")
                 }
             }
         }
     }
 }
+
+/** Dark grey at 80% opacity (20% transparent). */
+private val TilePanel = Color(0xFF2A2A2A).copy(alpha = 0.8f)
 
 private const val TILE_COVERS = 4
