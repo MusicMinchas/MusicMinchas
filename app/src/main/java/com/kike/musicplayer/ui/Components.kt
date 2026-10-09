@@ -4,6 +4,7 @@ import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
@@ -118,6 +119,12 @@ fun TrackRow(
         }
     }
 }
+
+/**
+ * For screen top bars: the Scaffold's content padding already starts below the status bar, so an
+ * app bar adding the status bar height again left a large empty band above the title.
+ */
+val NoTopInsets = WindowInsets(0, 0, 0, 0)
 
 fun formatTime(ms: Long): String {
     val total = (ms / 1000).coerceAtLeast(0)

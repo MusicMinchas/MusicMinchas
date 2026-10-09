@@ -127,6 +127,7 @@ fun NowPlayingScreen(playerVm: PlayerViewModel, onBack: () -> Unit, onOpenQueue:
         ArtworkBackdrop(meta?.artworkUri)
         Column(Modifier.fillMaxSize().padding(contentPadding)) {
             TopAppBar(
+                windowInsets = NoTopInsets,
                 title = {},
                 colors = TopAppBarDefaults.topAppBarColors(containerColor = Color.Transparent),
                 navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.Default.KeyboardArrowDown, "Close") } },
@@ -356,6 +357,7 @@ fun QueueScreen(playerVm: PlayerViewModel, onBack: () -> Unit, contentPadding: P
 
     Column(Modifier.fillMaxSize().padding(contentPadding)) {
         TopAppBar(
+            windowInsets = NoTopInsets,
             title = { Text("Queue") },
             navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.Default.KeyboardArrowDown, "Close") } },
             actions = { if (s.upNext.isNotEmpty()) TextButton(onClick = { playerVm.clearUpNext() }) { Text("Clear") } },

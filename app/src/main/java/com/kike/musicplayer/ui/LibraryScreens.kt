@@ -104,6 +104,7 @@ fun LibraryScreen(
 
     Column(Modifier.fillMaxSize().padding(contentPadding)) {
         TopAppBar(
+            windowInsets = NoTopInsets,
             title = { Text(stringResource(R.string.app_name)) },
             actions = { IconButton(onClick = onOpenSources) { Icon(Icons.Default.Tune, "Sources & settings") } },
         )
@@ -163,7 +164,7 @@ fun LibraryScreen(
 
 private fun count(n: Int, noun: String) = if (n == 1) "1 $noun" else "$n ${noun}s"
 
-private val LIBRARY_TABS = listOf("Home", "Albums", "Artists", "Genres", "Songs", "Playlists")
+private val LIBRARY_TABS = listOf("Home", "Albums", "Artists", "Genres", "Playlists", "Songs")
 private const val SEARCH_ARTISTS = "Artists"
 private const val SEARCH_ALBUMS = "Albums"
 private const val SEARCH_SONGS = "Songs"
@@ -346,6 +347,7 @@ fun AlbumScreen(album: Album?, playerVm: PlayerViewModel, onBack: () -> Unit, co
     val player by playerVm.state.collectAsState()
     Column(Modifier.fillMaxSize().padding(contentPadding)) {
         TopAppBar(
+            windowInsets = NoTopInsets,
             title = { Text(album?.title ?: "", maxLines = 1, overflow = TextOverflow.Ellipsis) },
             navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back") } },
         )
@@ -405,6 +407,7 @@ fun TrackListScreen(
     val player by playerVm.state.collectAsState()
     Column(Modifier.fillMaxSize().padding(contentPadding)) {
         TopAppBar(
+            windowInsets = NoTopInsets,
             title = { Text(title, maxLines = 1, overflow = TextOverflow.Ellipsis) },
             navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back") } },
         )
@@ -444,6 +447,7 @@ fun AlbumListScreen(
 ) {
     Column(Modifier.fillMaxSize().padding(contentPadding)) {
         TopAppBar(
+            windowInsets = NoTopInsets,
             title = { Text(title, maxLines = 1, overflow = TextOverflow.Ellipsis) },
             navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back") } },
         )

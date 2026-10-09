@@ -74,6 +74,7 @@ fun SourcesScreen(
 
     Column(Modifier.fillMaxSize().padding(contentPadding)) {
         TopAppBar(
+            windowInsets = NoTopInsets,
             title = { Text("Sources & metadata") },
             navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back") } },
         )
@@ -224,6 +225,7 @@ fun DriveFolderPickerScreen(vm: LibraryViewModel, onClose: () -> Unit, contentPa
 
     Column(Modifier.fillMaxSize().padding(contentPadding)) {
         TopAppBar(
+            windowInsets = NoTopInsets,
             title = {
                 Text(current?.name ?: "Choose a Drive folder", maxLines = 1, overflow = TextOverflow.Ellipsis)
             },

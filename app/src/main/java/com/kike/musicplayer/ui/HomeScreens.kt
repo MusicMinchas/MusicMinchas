@@ -177,6 +177,7 @@ fun ReplayScreen(
     val player by playerVm.state.collectAsState()
     Column(Modifier.fillMaxSize().padding(contentPadding)) {
         TopAppBar(
+            windowInsets = NoTopInsets,
             title = { Text("Replay") },
             navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back") } },
         )
