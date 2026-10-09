@@ -5,6 +5,15 @@ import com.kike.musicplayer.data.db.Track
 import java.util.Locale
 import java.util.Random
 
+/**
+ * Lower-cased genre of a track: the file's genre tag, else its artist's top MusicBrainz tag.
+ * Shared by the genre mixes and the Genres view.
+ */
+fun effectiveGenreKey(t: Track, artistTags: Map<String, List<String>>): String? =
+    t.genre?.lowercase(Locale.ROOT)
+        ?: artistTags[(t.albumArtist ?: t.artist ?: "").lowercase(Locale.ROOT)]?.firstOrNull()
+        ?: t.artist?.let { artistTags[it.lowercase(Locale.ROOT)]?.firstOrNull() }
+
 /** A generated playlist on the Home tab. [id] is stable for a given mix kind and seed (artist, genre...). */
 data class Mix(val id: String, val title: String, val subtitle: String, val tracks: List<Track>) {
     val covers: List<String> get() = tracks.mapNotNull { it.artworkUri }.distinct().take(4)
@@ -82,31 +91,25 @@ class Recommender(
 
     /** The user's top genres (or the library's, with no history yet), each as a mix. */
     private fun genreMixes(): List<Mix> {
-        val tagScore = HashMap<String, Double>()
-        for ((artist, affinity) in artistAffinity) {
-            tagsOf(artist).take(TAGS_PER_ARTIST).forEachIndexed { i, tag -> tagScore.merge(tag, affinity / (i + 1), Double::plus) }
+        // Grouped by each track's genre: the file's tag, else the artist's top MusicBrainz tag.
+        val byGenre = usable.groupBy { genreKey(it) }.filterKeys { it != null }.mapKeys { it.key!! }
+        val score = byGenre.mapValues { (_, list) ->
+            if (stats.hasHistory) list.sumOf { (stats.recentWeight[it.id] ?: 0.0) + 0.1 * (stats.plays[it.id] ?: 0) } else list.size.toDouble()
         }
-        val chosen = mutableListOf<Pair<String, Set<String>>>()
-        for ((tag, _) in tagScore.entries.sortedByDescending { it.value }) {
-            if (chosen.size == 3) break
-            val artists = byArtist.keys.filter { tag in tagsOf(it).take(TAGS_PER_ARTIST) }.toSet()
-            if (artists.sumOf { byArtist[it]?.size ?: 0 } < MIN_POOL) continue
-            // Skip near-duplicates such as "metal" right after "heavy metal".
-            if (chosen.any { (_, other) -> overlap(artists, other) > 0.7 }) continue
-            chosen += tag to artists
-        }
-        return chosen.map { (tag, artists) ->
-            val random = random("genre:$tag")
-            val picked = pick(artists.flatMap { byArtist[it].orEmpty() }, MIX_SIZE, perArtist = 3, random) { t ->
-                0.6 * affinity(t) + 0.5 * novelty(t)
+        return score.entries.filter { it.value > 0 && (byGenre[it.key]?.size ?: 0) >= MIN_POOL }
+            .sortedByDescending { it.value }.take(3)
+            .map { (key, _) ->
+                val random = random("genre:$key")
+                val picked = pick(byGenre.getValue(key), MIX_SIZE, perArtist = 3, random) { t ->
+                    0.6 * affinity(t) + 0.5 * novelty(t)
+                }
+                Mix(
+                    id = "genre:$key",
+                    title = "${genreName(key, byGenre.getValue(key))} Mix",
+                    subtitle = artistSummary(picked),
+                    tracks = interleave(picked, random),
+                )
             }
-            Mix(
-                id = "genre:$tag",
-                title = "${titleCase(tag)} Mix",
-                subtitle = artistSummary(picked),
-                tracks = interleave(picked, random),
-            )
-        }
     }
 
     /** The decades the user plays most (or the library's biggest). */
@@ -167,7 +170,21 @@ class Recommender(
 
     private fun displayArtist(t: Track) = t.albumArtist ?: t.displayArtist
 
-    private fun tagsOf(artistKey: String) = artistTags[artistKey].orEmpty()
+    /** MusicBrainz tags of an artist, or its own file genres (most used first) when MusicBrainz has none. */
+    private fun tagsOf(artistKey: String) = effectiveTags.getOrPut(artistKey) {
+        artistTags[artistKey].orEmpty().ifEmpty {
+            byArtist[artistKey].orEmpty().mapNotNull { it.genre?.lowercase(Locale.ROOT) }
+                .groupingBy { it }.eachCount().entries.sortedByDescending { it.value }.map { it.key }
+        }
+    }
+    private val effectiveTags = HashMap<String, List<String>>()
+
+    private fun genreKey(t: Track): String? = effectiveGenreKey(t, artistTags)
+
+    /** The genre as the files write it most often ("Metal", not "metal"), else title-cased. */
+    private fun genreName(key: String, tracks: List<Track>) =
+        tracks.mapNotNull { it.genre }.filter { it.lowercase(Locale.ROOT) == key }
+            .groupingBy { it }.eachCount().maxByOrNull { it.value }?.key ?: titleCase(key)
 
     private fun affinity(t: Track) = (artistAffinity[artistKey(t)] ?: 0.0) / maxAffinity
 
@@ -233,8 +250,6 @@ class Recommender(
             val shared = wa.keys.intersect(wb.keys).sumOf { minOf(wa.getValue(it), wb.getValue(it)) }
             return shared / minOf(wa.values.sum(), wb.values.sum())
         }
-
-        fun overlap(a: Set<String>, b: Set<String>) = if (a.isEmpty() || b.isEmpty()) 0.0 else a.intersect(b).size.toDouble() / minOf(a.size, b.size)
 
         fun titleCase(tag: String) = tag.split(' ').joinToString(" ") { w -> w.replaceFirstChar { it.titlecase(Locale.ROOT) } }
     }

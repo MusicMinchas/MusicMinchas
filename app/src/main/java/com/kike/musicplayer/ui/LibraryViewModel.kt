@@ -15,6 +15,7 @@ import com.kike.musicplayer.recommend.ListeningStats
 import com.kike.musicplayer.recommend.Mix
 import com.kike.musicplayer.recommend.Ranked
 import com.kike.musicplayer.recommend.Recommender
+import com.kike.musicplayer.recommend.effectiveGenreKey
 import com.kike.musicplayer.recommend.Replay
 import com.kike.musicplayer.recommend.ReplayPeriod
 import com.kike.musicplayer.recommend.mostPlayed
@@ -56,6 +57,23 @@ data class DriveBrowserState(
     }
 }
 
+data class SearchResults(
+    val artists: List<Artist> = emptyList(),
+    val albums: List<Album> = emptyList(),
+    val songs: List<Track> = emptyList(),
+)
+
+data class Genre(
+    /** Lower-cased genre (or [UNKNOWN_GENRE]). */
+    val key: String,
+    val name: String,
+    val albums: List<Album>,
+    val songCount: Int,
+    val artistCount: Int,
+)
+
+const val UNKNOWN_GENRE = "\u0000unknown"
+
 /** The automatic playlists, built from the play history. */
 data class Playlists(
     val recentTracks: List<Track> = emptyList(),
@@ -84,16 +102,45 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
         .flowOn(Dispatchers.Default)
         .stateIn(viewModelScope, SharingStarted.Eagerly, Library())
 
-    val searchResults: StateFlow<List<Track>> = combine(repo.tracks, _query) { tracks, q ->
+    /** Library search, by artist name, album title and song title. */
+    val searchResults: StateFlow<SearchResults> = combine(library, _query) { lib, q ->
         val needle = q.trim().lowercase()
-        if (needle.isEmpty()) tracks
-        else tracks.filter { t -> listOfNotNull(t.title, t.artist, t.album, t.albumArtist).any { needle in it.lowercase() } }
-    }.flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
+        if (needle.isEmpty()) SearchResults()
+        else SearchResults(
+            artists = lib.artists.filter { needle in it.name.lowercase() },
+            albums = lib.albums.filter { needle in it.title.lowercase() },
+            songs = lib.tracks.filter { needle in it.title.lowercase() },
+        )
+    }.flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.Eagerly, SearchResults())
 
     private val history = container.database.history().observeAll()
 
     private val artistTags = container.database.artistInfo().observeAll()
-        .map { list -> list.associate { it.name to it.tagList } }
+        // One- and two-letter tags are country codes and the like ("be", "uk"), not genres.
+        .map { list -> list.associate { info -> info.name to info.tagList.filter { it.length > 2 } } }
+
+    /**
+     * Genres for the Genres tab: each track's file genre, else its artist's top MusicBrainz tag.
+     * An album is listed under the genre most of its songs have.
+     */
+    val genres: StateFlow<List<Genre>> = combine(library, artistTags) { lib, tags ->
+        val keyOf = lib.tracks.associate { it.id to (effectiveGenreKey(it, tags) ?: UNKNOWN_GENRE) }
+        val albumsByGenre = lib.albums.groupBy { album ->
+            album.tracks.groupingBy { keyOf.getValue(it.id) }.eachCount().maxByOrNull { it.value }?.key ?: UNKNOWN_GENRE
+        }
+        lib.tracks.groupBy { keyOf.getValue(it.id) }.map { (key, tracks) ->
+            val name = if (key == UNKNOWN_GENRE) "Unknown genre"
+            else tracks.mapNotNull { it.genre }.filter { it.lowercase() == key }.groupingBy { it }.eachCount()
+                .maxByOrNull { it.value }?.key ?: key.split(' ').joinToString(" ") { w -> w.replaceFirstChar(Char::titlecase) }
+            Genre(
+                key = key,
+                name = name,
+                albums = albumsByGenre[key].orEmpty(),
+                songCount = tracks.size,
+                artistCount = tracks.map { it.albumArtist ?: it.artist }.distinct().size,
+            )
+        }.sortedWith(compareBy({ it.key == UNKNOWN_GENRE }, { it.name.lowercase() }))
+    }.flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
 
     val playlists: StateFlow<Playlists> = combine(history, library) { history, lib ->
         val byId = lib.tracks.associateBy { it.id }

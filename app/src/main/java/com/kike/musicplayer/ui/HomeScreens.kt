@@ -64,6 +64,14 @@ fun HomeTab(
     LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(vertical = 16.dp)) {
         item {
             Column(Modifier.padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                val recent = playlists.recentTracks
+                PlaylistTile(
+                    title = "Recently Played",
+                    subtitle = if (recent.isEmpty()) "Nothing played yet" else "${recent.size} songs",
+                    covers = recent.mapNotNull { it.artworkUri }.distinct().take(4),
+                    onOpen = onOpenRecentTracks,
+                    onPlay = if (recent.isEmpty()) null else ({ playerVm.playTracks(recent, 0) }),
+                )
                 val r = replay
                 PlaylistTile(
                     title = "Replay ${r?.period?.year ?: ""}".trim(),
@@ -79,14 +87,6 @@ fun HomeTab(
                     covers = most.mapNotNull { it.item.artworkUri }.distinct().take(4),
                     onOpen = onOpenMostPlayed,
                     onPlay = if (most.isEmpty()) null else ({ playerVm.playTracks(most.map { it.item }, 0) }),
-                )
-                val recent = playlists.recentTracks
-                PlaylistTile(
-                    title = "Recently Played",
-                    subtitle = if (recent.isEmpty()) "Nothing played yet" else "${recent.size} songs",
-                    covers = recent.mapNotNull { it.artworkUri }.distinct().take(4),
-                    onOpen = onOpenRecentTracks,
-                    onPlay = if (recent.isEmpty()) null else ({ playerVm.playTracks(recent, 0) }),
                 )
             }
         }

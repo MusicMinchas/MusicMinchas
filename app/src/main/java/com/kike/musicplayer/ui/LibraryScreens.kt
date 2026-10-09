@@ -45,6 +45,9 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.activity.compose.BackHandler
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.material3.FilterChip
 import com.kike.musicplayer.R
 import androidx.compose.ui.res.stringResource
 import androidx.compose.foundation.background
@@ -82,29 +85,62 @@ fun LibraryScreen(
     onOpenReplay: () -> Unit,
     onOpenMostPlayed: () -> Unit,
     onOpenMix: (String) -> Unit,
+    onOpenGenre: (String) -> Unit,
     contentPadding: PaddingValues,
 ) {
     val library by libraryVm.library.collectAsState()
     val playlists by libraryVm.playlists.collectAsState()
+    val genres by libraryVm.genres.collectAsState()
     val results by libraryVm.searchResults.collectAsState()
     val query by libraryVm.query.collectAsState()
     val scanStatus by libraryVm.scanStatus.collectAsState()
     val progress by libraryVm.metadataProgress.collectAsState()
     val player by playerVm.state.collectAsState()
     var tab by rememberSaveable { mutableIntStateOf(0) }
+    // Search filters; none selected means all three kinds.
+    var filters by rememberSaveable { mutableStateOf(setOf<String>()) }
+    // With a search typed, Back clears it instead of leaving the app.
+    BackHandler(enabled = query.isNotEmpty()) { libraryVm.setQuery("") }
 
     Column(Modifier.fillMaxSize().padding(contentPadding)) {
         TopAppBar(
             title = { Text(stringResource(R.string.app_name)) },
             actions = { IconButton(onClick = onOpenSources) { Icon(Icons.Default.Tune, "Sources & settings") } },
         )
+        OutlinedTextField(
+            value = query,
+            onValueChange = libraryVm::setQuery,
+            placeholder = { Text("Search artists, albums, songs") },
+            leadingIcon = { Icon(Icons.Default.Search, null) },
+            trailingIcon = {
+                if (query.isNotEmpty()) IconButton(onClick = { libraryVm.setQuery("") }) { Icon(Icons.Default.Clear, "Clear") }
+            },
+            singleLine = true,
+            shape = RoundedCornerShape(28.dp),
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
+        )
+        if (query.isNotEmpty()) {
+            Row(Modifier.padding(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                listOf(SEARCH_ARTISTS, SEARCH_ALBUMS, SEARCH_SONGS).forEach { kind ->
+                    FilterChip(
+                        selected = kind in filters,
+                        onClick = { filters = if (kind in filters) filters - kind else filters + kind },
+                        label = { Text(kind) },
+                    )
+                }
+            }
+        }
         val busy = scanStatus ?: progress?.let { "${it.stage} ${it.done}/${it.total}" }
         if (busy != null) {
-            LinearProgressIndicator(Modifier.fillMaxWidth())
+            LinearProgressIndicator(Modifier.fillMaxWidth().padding(top = 4.dp))
             Text(busy, Modifier.padding(horizontal = 16.dp, vertical = 2.dp), style = MaterialTheme.typography.labelSmall)
         }
+        if (query.isNotEmpty()) {
+            SearchResultsList(results, filters, player.current?.mediaId, playerVm, onOpenArtist, onOpenAlbum)
+            return@Column
+        }
         PrimaryScrollableTabRow(selectedTabIndex = tab, edgePadding = 0.dp) {
-            listOf("Home", "Songs", "Albums", "Artists", "Playlists").forEachIndexed { i, label ->
+            LIBRARY_TABS.forEachIndexed { i, label ->
                 Tab(selected = tab == i, onClick = { tab = i }, text = { Text(label) })
             }
         }
@@ -112,26 +148,120 @@ fun LibraryScreen(
             EmptyLibrary(onOpenSources)
             return@Column
         }
-        when (tab) {
-            0 -> HomeTab(libraryVm, playerVm, onOpenReplay, onOpenMostPlayed, onOpenRecentTracks, onOpenMix, onOpenAlbum)
-            1 -> SongsTab(results, query, libraryVm::setQuery, player.current?.mediaId, playerVm)
-            2 -> AlbumsGrid(library.albums, onOpenAlbum)
-            3 -> LazyColumn(Modifier.fillMaxSize()) {
-                items(library.artists, key = { it.name }) { artist ->
-                    Column(
-                        Modifier.fillMaxWidth().clickable { onOpenArtist(artist.name) }
-                            .padding(horizontal = 16.dp, vertical = 10.dp)
-                    ) {
-                        Text(artist.name, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                        Text(
-                            "${artist.albumCount} albums · ${artist.tracks.size} songs",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
+        when (LIBRARY_TABS[tab]) {
+            "Home" -> HomeTab(libraryVm, playerVm, onOpenReplay, onOpenMostPlayed, onOpenRecentTracks, onOpenMix, onOpenAlbum)
+            "Albums" -> AlbumsGrid(library.albums, onOpenAlbum)
+            "Artists" -> LazyColumn(Modifier.fillMaxSize()) {
+                items(library.artists, key = { it.name }) { artist -> ArtistRow(artist) { onOpenArtist(artist.name) } }
+            }
+            "Genres" -> GenresTab(genres, onOpenGenre)
+            "Songs" -> SongsTab(library.tracks, player.current?.mediaId, playerVm)
+            "Playlists" -> PlaylistsTab(playlists, playerVm, onOpenRecentTracks, onOpenRecentAlbums, onOpenMostPlayed)
+        }
+    }
+}
+
+private fun count(n: Int, noun: String) = if (n == 1) "1 $noun" else "$n ${noun}s"
+
+private val LIBRARY_TABS = listOf("Home", "Albums", "Artists", "Genres", "Songs", "Playlists")
+private const val SEARCH_ARTISTS = "Artists"
+private const val SEARCH_ALBUMS = "Albums"
+private const val SEARCH_SONGS = "Songs"
+
+@Composable
+private fun ArtistRow(artist: Artist, onClick: () -> Unit) {
+    Column(Modifier.fillMaxWidth().clickable(onClick = onClick).padding(horizontal = 16.dp, vertical = 10.dp)) {
+        Text(artist.name, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        Text(
+            "${count(artist.albumCount, "album")} · ${count(artist.tracks.size, "song")}",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+    }
+}
+
+/** Search results by kind; the chips narrow them down. */
+@Composable
+private fun SearchResultsList(
+    results: SearchResults,
+    filters: Set<String>,
+    currentId: String?,
+    playerVm: PlayerViewModel,
+    onOpenArtist: (String) -> Unit,
+    onOpenAlbum: (String) -> Unit,
+) {
+    fun show(kind: String) = filters.isEmpty() || kind in filters
+    val artists = if (show(SEARCH_ARTISTS)) results.artists else emptyList()
+    val albums = if (show(SEARCH_ALBUMS)) results.albums else emptyList()
+    val songs = if (show(SEARCH_SONGS)) results.songs else emptyList()
+    if (artists.isEmpty() && albums.isEmpty() && songs.isEmpty()) {
+        Text("No matches", Modifier.padding(16.dp), color = MaterialTheme.colorScheme.onSurfaceVariant)
+        return
+    }
+    LazyColumn(Modifier.fillMaxSize()) {
+        if (artists.isNotEmpty()) {
+            item { ResultsHeader("Artists") }
+            items(artists, key = { "ar:" + it.name }) { artist -> ArtistRow(artist) { onOpenArtist(artist.name) } }
+        }
+        if (albums.isNotEmpty()) {
+            item { ResultsHeader("Albums") }
+            items(albums, key = { "al:" + it.key }) { album ->
+                Row(
+                    Modifier.fillMaxWidth().clickable { onOpenAlbum(album.key) }.padding(horizontal = 16.dp, vertical = 6.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Artwork(album.artworkUri, size = 48.dp)
+                    Column(Modifier.padding(start = 12.dp)) {
+                        Text(album.title, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        Text(album.artist, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                            style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                 }
             }
-            4 -> PlaylistsTab(playlists, playerVm, onOpenRecentTracks, onOpenRecentAlbums, onOpenMostPlayed)
+        }
+        if (songs.isNotEmpty()) {
+            item { ResultsHeader("Songs") }
+            itemsIndexed(songs, key = { _, t -> "so:" + t.id }) { index, track ->
+                TrackRow(
+                    track = track,
+                    isCurrent = track.id == currentId,
+                    onClick = { playerVm.playTracks(songs, index) },
+                    onPlayNext = { playerVm.playNext(track) },
+                    onAddToQueue = { playerVm.addToQueue(track) },
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun ResultsHeader(text: String) {
+    Text(
+        text, style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary,
+        modifier = Modifier.padding(start = 16.dp, top = 12.dp, bottom = 4.dp),
+    )
+}
+
+/** Genres A–Z with their size; tap for the genre's albums. */
+@Composable
+private fun GenresTab(genres: List<Genre>, onOpenGenre: (String) -> Unit) {
+    LazyColumn(Modifier.fillMaxSize()) {
+        items(genres, key = { it.key }) { genre ->
+            Row(
+                Modifier.fillMaxWidth().clickable { onOpenGenre(genre.key) }.padding(horizontal = 16.dp, vertical = 8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Artwork(genre.albums.firstNotNullOfOrNull { it.artworkUri }, size = 52.dp)
+                Column(Modifier.padding(start = 12.dp)) {
+                    Text(genre.name, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    Text(
+                        listOf(count(genre.artistCount, "artist"), count(genre.albums.size, "album"), count(genre.songCount, "song"))
+                            .joinToString(" · "),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
         }
     }
 }
@@ -155,27 +285,8 @@ private fun EmptyLibrary(onOpenSources: () -> Unit) {
 }
 
 @Composable
-private fun SongsTab(
-    tracks: List<Track>,
-    query: String,
-    onQuery: (String) -> Unit,
-    currentId: String?,
-    playerVm: PlayerViewModel,
-) {
+private fun SongsTab(tracks: List<Track>, currentId: String?, playerVm: PlayerViewModel) {
     LazyColumn(Modifier.fillMaxSize()) {
-        item {
-            OutlinedTextField(
-                value = query,
-                onValueChange = onQuery,
-                placeholder = { Text("Search songs, artists, albums") },
-                leadingIcon = { Icon(Icons.Default.Search, null) },
-                trailingIcon = {
-                    if (query.isNotEmpty()) IconButton(onClick = { onQuery("") }) { Icon(Icons.Default.Clear, "Clear") }
-                },
-                singleLine = true,
-                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
-            )
-        }
         item {
             PlayShuffleRow(
                 onPlay = { playerVm.playTracks(tracks, 0) },

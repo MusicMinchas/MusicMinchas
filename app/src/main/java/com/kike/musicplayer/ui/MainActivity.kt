@@ -36,6 +36,7 @@ private sealed interface Screen {
     data object Replay : Screen
     data object MostPlayed : Screen
     data class MixDetail(val id: String) : Screen
+    data class GenreDetail(val key: String) : Screen
 }
 
 class MainActivity : ComponentActivity() {
@@ -79,6 +80,7 @@ class MainActivity : ComponentActivity() {
         val library by libraryVm.library.collectAsState()
         val playlists by libraryVm.playlists.collectAsState()
         val mixes by libraryVm.mixes.collectAsState()
+        val genres by libraryVm.genres.collectAsState()
         val showMini = screen !is Screen.NowPlaying && screen !is Screen.Queue && screen !is Screen.DriveFolders
 
         Scaffold(bottomBar = { if (showMini) MiniPlayer(playerVm) { push(Screen.NowPlaying) } }) { padding: PaddingValues ->
@@ -94,6 +96,7 @@ class MainActivity : ComponentActivity() {
                         onOpenReplay = { push(Screen.Replay) },
                         onOpenMostPlayed = { push(Screen.MostPlayed) },
                         onOpenMix = { push(Screen.MixDetail(it)) },
+                        onOpenGenre = { push(Screen.GenreDetail(it)) },
                         contentPadding = padding,
                     )
                     is Screen.AlbumDetail -> AlbumScreen(
@@ -113,6 +116,13 @@ class MainActivity : ComponentActivity() {
                         }
                     }
                     Screen.Replay -> ReplayScreen(libraryVm, playerVm, onOpenAlbum = { push(Screen.AlbumDetail(it)) }, onBack = ::pop, contentPadding = padding)
+                    is Screen.GenreDetail -> {
+                        val genre = genres.firstOrNull { it.key == screen.key }
+                        AlbumListScreen(
+                            genre?.name ?: "", genre?.albums.orEmpty(), playerVm,
+                            onOpenAlbum = { push(Screen.AlbumDetail(it)) }, onBack = ::pop, contentPadding = padding,
+                        )
+                    }
                     is Screen.MixDetail -> {
                         val mix = mixes.firstOrNull { it.id == screen.id }
                         TrackListScreen(mix?.title ?: "", mix?.tracks, playerVm, ::pop, padding)

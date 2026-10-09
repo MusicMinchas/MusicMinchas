@@ -97,6 +97,7 @@ class MetadataEnricher(
                 // Files whose read failed in earlier versions were marked done with no tags (length 0).
                 dao.requeueUnread()
                 localPass()
+                genrePass()
                 if (settings.onlineMetadata.value) {
                     onlinePass()
                     artistPass()
@@ -151,6 +152,62 @@ class MetadataEnricher(
         writer.flush()
     }
 
+    /**
+     * Reads just the genre tag of tracks scanned before genres were stored. Same parallel reading
+     * as [localPass]; results are written in batches so the library isn't rebuilt per track.
+     */
+    private suspend fun genrePass() = coroutineScope {
+        val ids = dao.idsMissingGenre()
+        if (ids.isEmpty()) return@coroutineScope
+        Log.i(TAG, "Reading genres of ${ids.size} files")
+        val driveConnected = driveAuth.account.value != null
+        val queue = Channel<String>(Channel.UNLIMITED).apply { ids.forEach { trySend(it) }; close() }
+        val results = Channel<Pair<String, String?>?>(capacity = 64)
+        val workers = List(PARALLEL_READS) {
+            launch {
+                for (id in queue) {
+                    val track = dao.get(id) ?: continue
+                    if (track.source == Track.SOURCE_DRIVE && !driveConnected) continue
+                    // A failed read stays pending (genreRead = 0) and is retried on the next run.
+                    val genre = runCatching { readGenre(track) }
+                        .onFailure { Log.w(TAG, "Genre read failed for ${track.fileName}: $it") }
+                    results.send(genre.getOrNull()?.let { id to it.value })
+                }
+            }
+        }
+        launch {
+            workers.joinAll()
+            results.close()
+        }
+        val batch = ArrayList<Pair<String, String?>>()
+        var done = 0
+        for (result in results) {
+            _progress.value = Progress("Reading genres", ++done, ids.size)
+            if (result != null) batch += result
+            if (batch.size >= GENRE_BATCH) {
+                dao.setGenres(batch.toList())
+                batch.clear()
+            }
+        }
+        if (batch.isNotEmpty()) dao.setGenres(batch)
+    }
+
+    /** Wraps the genre so "read fine, no genre tag" (value = null) differs from a failed read. */
+    private class GenreTag(val value: String?)
+
+    private suspend fun readGenre(track: Track): GenreTag =
+        if (track.source == Track.SOURCE_DRIVE) {
+            GenreTag(readRemoteTags(track).genre)
+        } else {
+            val mmr = MediaMetadataRetriever()
+            try {
+                mmr.setDataSource(context, Uri.parse(track.uri))
+                GenreTag(normalizeGenre(mmr.extractMetadata(MediaMetadataRetriever.METADATA_KEY_GENRE)))
+            } finally {
+                mmr.release()
+            }
+        }
+
     private suspend fun onlinePass() {
         val ids = dao.idsWithState(Track.META_LOCAL_DONE)
         val albums = HashMap<String, AlbumMatch?>()
@@ -203,7 +260,7 @@ class MetadataEnricher(
                 .filter { it.count > 0 }
                 .sortedByDescending { it.count }
                 .map { it.name.lowercase(Locale.ROOT).trim() }
-                .filter { it.length > 1 && it !in NON_GENRE_TAGS }
+                .filter { it.length > 2 && it !in NON_GENRE_TAGS }
                 .distinct()
                 .take(8)
             artistDao.upsert(ArtistInfo(name.lowercase(Locale.ROOT), artist?.id, tags.joinToString(","), System.currentTimeMillis()))
@@ -243,6 +300,7 @@ class MetadataEnricher(
         val discNumber: Int?,
         val year: Int?,
         val durationMs: Long?,
+        val genre: String?,
         val picture: () -> ByteArray?,
     )
 
@@ -272,6 +330,7 @@ class MetadataEnricher(
             year = tag(MediaMetadataRetriever.METADATA_KEY_YEAR)?.leadingInt()
                 ?: tag(MediaMetadataRetriever.METADATA_KEY_DATE)?.take(4)?.toIntOrNull(),
             durationMs = tag(MediaMetadataRetriever.METADATA_KEY_DURATION)?.toLongOrNull(),
+            genre = normalizeGenre(tag(MediaMetadataRetriever.METADATA_KEY_GENRE)),
             picture = { mmr.embeddedPicture },
         )
     }
@@ -314,6 +373,7 @@ class MetadataEnricher(
                     discNumber = md.discNumber,
                     year = md.recordingYear ?: md.releaseYear,
                     durationMs = durationUs?.takeIf { it != C.TIME_UNSET && it > 0 }?.let { it / 1000 },
+                    genre = normalizeGenre(md.genre?.toString()),
                     picture = { md.artworkData },
                 )
             }
@@ -349,6 +409,8 @@ class MetadataEnricher(
             discNumber = tags.discNumber ?: track.discNumber,
             year = tags.year ?: track.year,
             durationMs = tags.durationMs ?: track.durationMs,
+            genre = tags.genre ?: track.genre,
+            genreRead = true,
             artworkUri = artwork,
         )
     }
@@ -479,6 +541,34 @@ class MetadataEnricher(
         private const val HEADER_CAP_BYTES = 1024 * 1024L
         private const val FLUSH_INTERVAL_MS = 2_000L
         private const val MIN_SCORE = 90
+        private const val GENRE_BATCH = 100
+
+        /** ID3v1 genre numbers, still found in old MP3s as "(17)" or "17". */
+        private val ID3_GENRES = listOf(
+            "Blues", "Classic Rock", "Country", "Dance", "Disco", "Funk", "Grunge", "Hip-Hop", "Jazz", "Metal",
+            "New Age", "Oldies", "Other", "Pop", "R&B", "Rap", "Reggae", "Rock", "Techno", "Industrial",
+            "Alternative", "Ska", "Death Metal", "Pranks", "Soundtrack", "Euro-Techno", "Ambient", "Trip-Hop",
+            "Vocal", "Jazz+Funk", "Fusion", "Trance", "Classical", "Instrumental", "Acid", "House", "Game",
+            "Sound Clip", "Gospel", "Noise", "AlternRock", "Bass", "Soul", "Punk", "Space", "Meditative",
+            "Instrumental Pop", "Instrumental Rock", "Ethnic", "Gothic", "Darkwave", "Techno-Industrial",
+            "Electronic", "Pop-Folk", "Eurodance", "Dream", "Southern Rock", "Comedy", "Cult", "Gangsta", "Top 40",
+            "Christian Rap", "Pop/Funk", "Jungle", "Native American", "Cabaret", "New Wave", "Psychadelic", "Rave",
+            "Showtunes", "Trailer", "Lo-Fi", "Tribal", "Acid Punk", "Acid Jazz", "Polka", "Retro", "Musical",
+            "Rock & Roll", "Hard Rock",
+        )
+
+        /** First genre of a tag value, with ID3v1 numbers ("(17)", "17") turned into names. */
+        fun normalizeGenre(raw: String?): String? {
+            val first = raw?.split(';', '\u0000')?.map { it.trim() }?.firstOrNull { it.isNotEmpty() } ?: return null
+            // "(17)", "(17)Rock" or a bare "17" (but not e.g. "80s Pop").
+            Regex("^\\((\\d+)\\)(.*)$|^(\\d+)$").matchEntire(first)?.let { m ->
+                val rest = m.groupValues[2].trim()
+                if (rest.isNotEmpty()) return rest.replace(Regex("\\s+"), " ")
+                val number = m.groupValues[1].ifEmpty { m.groupValues[3] }.toIntOrNull()
+                return number?.let { ID3_GENRES.getOrNull(it) }
+            }
+            return first.replace(Regex("\\s+"), " ")
+        }
 
         /** Community tags that describe places or opinions rather than the music. */
         private val NON_GENRE_TAGS = setOf(

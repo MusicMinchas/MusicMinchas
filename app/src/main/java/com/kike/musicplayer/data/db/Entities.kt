@@ -26,6 +26,10 @@ data class Track(
     val trackNumber: Int? = null,
     val discNumber: Int? = null,
     val year: Int? = null,
+    /** Genre from the file's own tag (first one if several), as written there. */
+    val genre: String? = null,
+    /** Whether [genre] has been read from the file (libraries scanned before genres were read get a backfill). */
+    @ColumnInfo(defaultValue = "0") val genreRead: Boolean = false,
     /** 0 = not read yet; [DURATION_UNPLAYABLE] = no playable audio (e.g. DRM-protected). */
     val durationMs: Long = 0,
     /** file:// of art extracted from the file, or an https Cover Art Archive URL. */

@@ -85,6 +85,15 @@ class RecommenderTest {
     }
 
     @Test
+    fun `genre mixes use the file's genre tag before MusicBrainz tags`() {
+        val tagged = tracks.map { if (it.artist!!.startsWith("Metal")) it.copy(genre = "Power Metal") else it }
+        val history = (1..20).map { play("m${it % 6 + 1}-1-1", it.toDouble()) }
+        val genre = Recommender(tagged, history, tags, now).mixes().first { it.id.startsWith("genre:") }
+        assertEquals("genre:power metal", genre.id)
+        assertEquals("Power Metal Mix", genre.title)
+    }
+
+    @Test
     fun `without history the library itself drives the mixes`() {
         val mixes = Recommender(tracks, emptyList(), tags, now).mixes()
         assertTrue(mixes.any { it.id.startsWith("genre:") })

@@ -37,6 +37,19 @@ interface TrackDao {
     )
     suspend fun artistNames(): List<String>
 
+    /** Tracks whose tags were read before the genre tag was: they need a genre-only read. */
+    @Query("SELECT id FROM tracks WHERE genreRead = 0 AND durationMs >= 0 AND metadataState != ${Track.META_NEW}")
+    suspend fun idsMissingGenre(): List<String>
+
+    @Query("UPDATE tracks SET genre = :genre, genreRead = 1 WHERE id = :id")
+    suspend fun setGenre(id: String, genre: String?)
+
+    /** One transaction, so the library is refreshed once per batch rather than once per track. */
+    @Transaction
+    suspend fun setGenres(genres: List<Pair<String, String?>>) {
+        genres.forEach { (id, genre) -> setGenre(id, genre) }
+    }
+
     @Query("SELECT id FROM tracks WHERE metadataState = :state")
     suspend fun idsWithState(state: Int): List<String>
 
