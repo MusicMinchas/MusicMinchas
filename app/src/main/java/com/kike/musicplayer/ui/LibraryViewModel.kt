@@ -11,6 +11,14 @@ import com.kike.musicplayer.container
 import com.kike.musicplayer.data.DriveSyncMode
 import com.kike.musicplayer.data.db.Track
 import com.kike.musicplayer.data.drive.DriveFolder
+import com.kike.musicplayer.recommend.ListeningStats
+import com.kike.musicplayer.recommend.Mix
+import com.kike.musicplayer.recommend.Ranked
+import com.kike.musicplayer.recommend.Recommender
+import com.kike.musicplayer.recommend.Replay
+import com.kike.musicplayer.recommend.ReplayPeriod
+import com.kike.musicplayer.recommend.mostPlayed
+import com.kike.musicplayer.recommend.replay
 import com.kike.musicplayer.playback.albumTrackOrder
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -52,6 +60,8 @@ data class DriveBrowserState(
 data class Playlists(
     val recentTracks: List<Track> = emptyList(),
     val recentAlbums: List<Album> = emptyList(),
+    /** Counted plays (half the track listened), most first. */
+    val mostPlayed: List<Ranked<Track>> = emptyList(),
 )
 
 data class Library(
@@ -80,15 +90,40 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
         else tracks.filter { t -> listOfNotNull(t.title, t.artist, t.album, t.albumArtist).any { needle in it.lowercase() } }
     }.flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
 
-    val playlists: StateFlow<Playlists> = combine(container.database.history().observeRecent(HISTORY_WINDOW), library) { history, lib ->
+    private val history = container.database.history().observeAll()
+
+    private val artistTags = container.database.artistInfo().observeAll()
+        .map { list -> list.associate { it.name to it.tagList } }
+
+    val playlists: StateFlow<Playlists> = combine(history, library) { history, lib ->
         val byId = lib.tracks.associateBy { it.id }
         val albumsByKey = lib.albums.associateBy { it.key }
+        val stats = ListeningStats(history, System.currentTimeMillis())
         Playlists(
             recentTracks = history.asSequence().map { it.trackId }.distinct().mapNotNull { byId[it] }.take(RECENT_TRACKS).toList(),
             recentAlbums = history.asSequence().mapNotNull { byId[it.trackId]?.albumKey }.distinct()
                 .mapNotNull { albumsByKey[it] }.take(RECENT_ALBUMS).toList(),
+            mostPlayed = mostPlayed(byId, stats),
         )
     }.flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.Eagerly, Playlists())
+
+    /** Generated mixes for the Home tab. */
+    val mixes: StateFlow<List<Mix>> = combine(library, history, artistTags) { lib, history, tags ->
+        // Recommendations are a nice-to-have: a bug there must never take the app down.
+        runCatching { Recommender(lib.tracks, history, tags).mixes() }
+            .onFailure { Log.w(TAG, "Recommender failed", it) }
+            .getOrDefault(emptyList())
+    }.flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
+
+    private val replayPeriod = MutableStateFlow<ReplayPeriod?>(null)
+
+    val replay: StateFlow<Replay?> = combine(library, history, replayPeriod) { lib, history, period ->
+        replay(history, lib.tracks.associateBy { it.id }, period)
+    }.flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.Eagerly, null)
+
+    fun setReplayPeriod(period: ReplayPeriod) {
+        replayPeriod.value = period
+    }
 
     val syncMode = settings.syncMode
     val lastDriveSync = settings.lastDriveSync
@@ -271,6 +306,5 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
         const val TAG = "LibraryViewModel"
         const val RECENT_TRACKS = 30
         const val RECENT_ALBUMS = 10
-        const val HISTORY_WINDOW = 500
     }
 }

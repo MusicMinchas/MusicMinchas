@@ -14,6 +14,14 @@ interface MusicBrainzApi {
         @Query("fmt") format: String = "json",
     ): MbRecordingSearch
 
+    /** Artist search results carry the community tags (genres, but also places etc.) with vote counts. */
+    @GET("ws/2/artist")
+    suspend fun searchArtists(
+        @Query("query") query: String,
+        @Query("limit") limit: Int = 3,
+        @Query("fmt") format: String = "json",
+    ): MbArtistSearch
+
     @GET("ws/2/release")
     suspend fun searchReleases(
         @Query("query") query: String,
@@ -29,6 +37,12 @@ interface MusicBrainzApi {
 data class MbRecordingSearch(val recordings: List<MbRecording> = emptyList())
 
 data class MbReleaseSearch(val releases: List<MbRelease> = emptyList())
+
+data class MbArtistSearch(val artists: List<MbArtist> = emptyList())
+
+data class MbArtist(val id: String, val name: String, val score: Int? = null, val tags: List<MbTag>? = null)
+
+data class MbTag(val name: String, val count: Int = 0)
 
 data class MbRecording(
     val id: String,

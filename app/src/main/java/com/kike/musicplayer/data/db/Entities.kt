@@ -1,5 +1,6 @@
 package com.kike.musicplayer.data.db
 
+import androidx.room.ColumnInfo
 import androidx.room.Entity
 import androidx.room.Index
 import androidx.room.PrimaryKey
@@ -73,10 +74,28 @@ data class SessionState(
     val repeatMode: Int,
 )
 
-/** One play of a track (recorded when it starts playing); feeds the automatic playlists. */
+/**
+ * One play of a track, recorded when it starts playing (on the phone or on Sonos). [listenedMs] is
+ * the time actually listened (seeking doesn't add to it); the play [counted] once that reached half
+ * the track, like Spotify's Wrapped. Feeds Recently Played, Most Played, Replay and the recommender.
+ */
 @Entity(tableName = "play_history", indices = [Index("playedAt")])
 data class PlayHistory(
     @PrimaryKey(autoGenerate = true) val id: Long = 0,
     val trackId: String,
     val playedAt: Long,
+    @ColumnInfo(defaultValue = "0") val listenedMs: Long = 0,
+    @ColumnInfo(defaultValue = "0") val counted: Boolean = false,
 )
+
+/** Genre-like tags for an artist, from MusicBrainz; [name] is the lower-cased artist name. */
+@Entity(tableName = "artist_info")
+data class ArtistInfo(
+    @PrimaryKey val name: String,
+    val mbid: String?,
+    /** Comma-separated, most-voted first; empty when MusicBrainz knows no tags (or no such artist). */
+    val tags: String,
+    val fetchedAt: Long,
+) {
+    val tagList: List<String> get() = if (tags.isEmpty()) emptyList() else tags.split(',')
+}

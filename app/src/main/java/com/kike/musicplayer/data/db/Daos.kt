@@ -30,6 +30,13 @@ interface TrackDao {
     @Query("SELECT * FROM tracks WHERE id IN (:ids)")
     suspend fun getByIdsChunk(ids: List<String>): List<Track>
 
+    /** Every artist and album artist in the library (for the genre lookup). */
+    @Query(
+        "SELECT DISTINCT artist FROM tracks WHERE artist IS NOT NULL AND durationMs >= 0 " +
+            "UNION SELECT DISTINCT albumArtist FROM tracks WHERE albumArtist IS NOT NULL AND durationMs >= 0"
+    )
+    suspend fun artistNames(): List<String>
+
     @Query("SELECT id FROM tracks WHERE metadataState = :state")
     suspend fun idsWithState(state: Int): List<String>
 
@@ -100,12 +107,25 @@ interface QueueDao {
 @Dao
 interface HistoryDao {
     @Insert
-    suspend fun insert(entry: PlayHistory)
+    suspend fun insert(entry: PlayHistory): Long
 
-    @Query("SELECT * FROM play_history ORDER BY playedAt DESC LIMIT :limit")
-    fun observeRecent(limit: Int): Flow<List<PlayHistory>>
+    @Query("UPDATE play_history SET listenedMs = :listenedMs, counted = :counted WHERE id = :id")
+    suspend fun updateListening(id: Long, listenedMs: Long, counted: Boolean)
 
-    /** Keeps the newest [keep] plays; older ones can't affect the playlists any more. */
-    @Query("DELETE FROM play_history WHERE id NOT IN (SELECT id FROM play_history ORDER BY playedAt DESC LIMIT :keep)")
-    suspend fun prune(keep: Int)
+    /** The whole history, newest first (kept forever: Replay looks back years). */
+    @Transaction
+    @Query("SELECT * FROM play_history ORDER BY playedAt DESC")
+    fun observeAll(): Flow<List<PlayHistory>>
+}
+
+@Dao
+interface ArtistInfoDao {
+    @Query("SELECT * FROM artist_info")
+    fun observeAll(): Flow<List<ArtistInfo>>
+
+    @Query("SELECT name FROM artist_info")
+    suspend fun names(): List<String>
+
+    @Upsert
+    suspend fun upsert(info: ArtistInfo)
 }

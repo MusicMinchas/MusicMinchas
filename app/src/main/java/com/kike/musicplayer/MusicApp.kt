@@ -89,7 +89,7 @@ class AppContainer(app: Application) {
     private val musicBrainz = retrofit(MusicBrainzApi.BASE_URL, metadataHttp).create(MusicBrainzApi::class.java)
     private val coverArt = retrofit(CoverArtApi.BASE_URL, metadataHttp).create(CoverArtApi::class.java)
 
-    val enricher = MetadataEnricher(app, database.tracks(), settings, driveAuth, driveScanHttp, musicBrainz, coverArt)
+    val enricher = MetadataEnricher(app, database.tracks(), settings, driveAuth, driveScanHttp, database.artistInfo(), musicBrainz, coverArt)
 
     /** Lets Sonos fetch tracks from the phone while casting. */
     val trackServer = TrackServer(

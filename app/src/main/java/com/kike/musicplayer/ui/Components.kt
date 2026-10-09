@@ -71,6 +71,8 @@ fun TrackRow(
     onAddToQueue: () -> Unit,
     showArtwork: Boolean = true,
     leading: String? = null,
+    /** Short label shown before the menu, e.g. a play count. */
+    badge: String? = null,
 ) {
     var menu by remember { mutableStateOf(false) }
     Row(
@@ -99,6 +101,10 @@ fun TrackRow(
                 maxLines = 1, overflow = TextOverflow.Ellipsis,
                 style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
+        }
+        badge?.let {
+            Text(it, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.padding(horizontal = 6.dp))
         }
         if (track.source == Track.SOURCE_DRIVE) {
             Icon(Icons.Default.Cloud, "Google Drive", Modifier.size(16.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)

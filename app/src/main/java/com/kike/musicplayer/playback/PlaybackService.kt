@@ -4,6 +4,7 @@ import android.app.PendingIntent
 import android.content.Intent
 import android.net.wifi.WifiManager
 import android.os.PowerManager
+import android.os.SystemClock
 import android.util.Log
 import androidx.annotation.OptIn
 import androidx.media3.common.AudioAttributes
@@ -36,7 +37,9 @@ import com.kike.musicplayer.sonos.SonosPlayer
 import com.kike.musicplayer.ui.MainActivity
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.async
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
@@ -67,24 +70,80 @@ class PlaybackService : MediaLibraryService(), CastHost {
     private val historyDao by lazy { container.database.history() }
 
     /**
-     * Records a play when a track starts playing (on the phone or on Sonos): once per time it
-     * becomes the current item, so pausing and resuming doesn't count twice.
+     * Records plays from whichever player the session uses (phone or Sonos). A play is stored when a
+     * track starts; the time actually listened accumulates while it plays (seeking doesn't count),
+     * and the play is "counted" for Most Played and Replay once that reaches half the track.
      */
-    private val historyListener = object : Player.Listener {
-        private var recorded: String? = null
+    private val playTracker = object : Player.Listener {
+        private var mediaId: String? = null
+        private var rowId: Deferred<Long>? = null
+        private var durationMs = 0L
+        private var listenedMs = 0L
+        private var playingSince = 0L
+        private var counted = false
 
         override fun onEvents(player: Player, events: Player.Events) {
-            if (events.contains(Player.EVENT_MEDIA_ITEM_TRANSITION)) recorded = null
+            // The paused phone player keeps reporting while Sonos plays; only follow the active one.
+            if (!::session.isInitialized || player !== session.player) return
             if (!events.containsAny(Player.EVENT_IS_PLAYING_CHANGED, Player.EVENT_MEDIA_ITEM_TRANSITION)) return
-            val mediaId = player.currentMediaItem?.mediaId ?: return
-            if (!player.isPlaying || recorded == mediaId) return
-            recorded = mediaId
-            val entry = PlayHistory(trackId = trackIdOf(mediaId), playedAt = System.currentTimeMillis())
+            val current = player.currentMediaItem?.mediaId
+            if (events.contains(Player.EVENT_MEDIA_ITEM_TRANSITION) || current != mediaId) finish()
+            if (player.isPlaying && current != null) {
+                if (mediaId == null) begin(player, current)
+                if (playingSince == 0L) playingSince = SystemClock.elapsedRealtime()
+            } else {
+                pause()
+            }
+        }
+
+        /** Called every few seconds: counts the play as soon as half has been listened to. */
+        fun tick() {
+            if (playingSince == 0L || counted) return
+            if (listened() >= threshold()) {
+                counted = true
+                persist()
+            }
+        }
+
+        /** Ends the current play, e.g. when playback moves to another player. */
+        fun finish() {
+            pause()
+            if (mediaId != null) persist()
+            mediaId = null
+            rowId = null
+        }
+
+        private fun begin(player: Player, id: String) {
+            mediaId = id
+            durationMs = player.duration.takeIf { it > 0 } ?: player.currentMediaItem?.mediaMetadata?.durationMs ?: 0
+            listenedMs = 0
+            counted = false
+            val entry = PlayHistory(trackId = trackIdOf(id), playedAt = System.currentTimeMillis())
+            rowId = scope.async(Dispatchers.IO) { historyDao.insert(entry) }
+        }
+
+        private fun pause() {
+            if (playingSince != 0L) {
+                listenedMs += SystemClock.elapsedRealtime() - playingSince
+                playingSince = 0L
+                if (!counted && listenedMs >= threshold()) counted = true
+                persist()
+            }
+        }
+
+        private fun listened() =
+            listenedMs + if (playingSince != 0L) SystemClock.elapsedRealtime() - playingSince else 0
+
+        /** Half the track; 30 s when the length is unknown. */
+        private fun threshold() = if (durationMs > 0) durationMs / 2 else UNKNOWN_LENGTH_THRESHOLD_MS
+
+        private fun persist() {
+            val row = rowId ?: return
+            val ms = listened()
+            val isCounted = counted
             scope.launch(Dispatchers.IO) {
-                runCatching {
-                    historyDao.insert(entry)
-                    historyDao.prune(HISTORY_KEEP)
-                }.onFailure { Log.w(TAG, "Recording play failed", it) }
+                runCatching { historyDao.updateListening(row.await(), ms, isCounted) }
+                    .onFailure { Log.w(TAG, "Recording play failed", it) }
             }
         }
     }
@@ -134,7 +193,7 @@ class PlaybackService : MediaLibraryService(), CastHost {
                 Log.w(TAG, "Playback error on ${player.currentMediaItem?.mediaId}", error)
             }
         })
-        player.addListener(historyListener)
+        player.addListener(playTracker)
 
         val sessionActivity = PendingIntent.getActivity(
             this, 0, Intent(this, MainActivity::class.java),
@@ -145,6 +204,12 @@ class PlaybackService : MediaLibraryService(), CastHost {
             .build()
 
         scope.launch { restoreQueue() }
+        scope.launch {
+            while (true) {
+                delay(TRACKER_TICK_MS)
+                playTracker.tick()
+            }
+        }
         container.castManager.host = this
     }
 
@@ -160,6 +225,7 @@ class PlaybackService : MediaLibraryService(), CastHost {
     }
 
     override fun onDestroy() {
+        playTracker.finish()
         stopCast()
         if (container.castManager.host === this) container.castManager.host = null
         saveNow()
@@ -178,6 +244,7 @@ class PlaybackService : MediaLibraryService(), CastHost {
             container.castManager.onCastEnded("Play something first, then cast it")
             return
         }
+        playTracker.finish()
         val items = (0 until source.mediaItemCount).map { source.getMediaItemAt(it) }
         val index = source.currentMediaItemIndex
         val position = source.currentPosition
@@ -196,7 +263,7 @@ class PlaybackService : MediaLibraryService(), CastHost {
         val server = container.trackServer
         server.start()
         val sonos = SonosPlayer(group, server, dao) { message -> endCast(message) }
-        sonos.addListener(historyListener)
+        sonos.addListener(playTracker)
         // Mode and play state first: with an empty queue they don't reach the speaker, and the
         // queue load then starts playback (or not) accordingly.
         sonos.repeatMode = repeat
@@ -216,6 +283,7 @@ class PlaybackService : MediaLibraryService(), CastHost {
         val sonos = sonosPlayer ?: return
         Log.i(TAG, "Ending cast: ${message ?: "stopped by user"}")
         val ip = container.castManager.active.value?.coordinatorIp
+        playTracker.finish()
         val (items, index, position) = sonos.snapshot()
         val repeat = sonos.repeatMode
         val shuffle = sonos.shuffleModeEnabled
@@ -452,8 +520,8 @@ class PlaybackService : MediaLibraryService(), CastHost {
 
     companion object {
         private const val TAG = "PlaybackService"
-        /** Enough plays to always find 30 different songs and 10 different albums. */
-        private const val HISTORY_KEEP = 500
+        private const val TRACKER_TICK_MS = 5_000L
+        private const val UNKNOWN_LENGTH_THRESHOLD_MS = 30_000L
         private const val ROOT = "root"
         private const val SONGS = "songs"
         private const val ALBUMS = "albums"

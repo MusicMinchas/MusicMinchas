@@ -33,7 +33,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.PrimaryTabRow
+import androidx.compose.material3.PrimaryScrollableTabRow
 import androidx.compose.material3.Tab
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
@@ -79,6 +79,9 @@ fun LibraryScreen(
     onOpenSources: () -> Unit,
     onOpenRecentTracks: () -> Unit,
     onOpenRecentAlbums: () -> Unit,
+    onOpenReplay: () -> Unit,
+    onOpenMostPlayed: () -> Unit,
+    onOpenMix: (String) -> Unit,
     contentPadding: PaddingValues,
 ) {
     val library by libraryVm.library.collectAsState()
@@ -100,8 +103,8 @@ fun LibraryScreen(
             LinearProgressIndicator(Modifier.fillMaxWidth())
             Text(busy, Modifier.padding(horizontal = 16.dp, vertical = 2.dp), style = MaterialTheme.typography.labelSmall)
         }
-        PrimaryTabRow(selectedTabIndex = tab) {
-            listOf("Songs", "Albums", "Artists", "Playlists").forEachIndexed { i, label ->
+        PrimaryScrollableTabRow(selectedTabIndex = tab, edgePadding = 0.dp) {
+            listOf("Home", "Songs", "Albums", "Artists", "Playlists").forEachIndexed { i, label ->
                 Tab(selected = tab == i, onClick = { tab = i }, text = { Text(label) })
             }
         }
@@ -110,9 +113,10 @@ fun LibraryScreen(
             return@Column
         }
         when (tab) {
-            0 -> SongsTab(results, query, libraryVm::setQuery, player.current?.mediaId, playerVm)
-            1 -> AlbumsGrid(library.albums, onOpenAlbum)
-            2 -> LazyColumn(Modifier.fillMaxSize()) {
+            0 -> HomeTab(libraryVm, playerVm, onOpenReplay, onOpenMostPlayed, onOpenRecentTracks, onOpenMix, onOpenAlbum)
+            1 -> SongsTab(results, query, libraryVm::setQuery, player.current?.mediaId, playerVm)
+            2 -> AlbumsGrid(library.albums, onOpenAlbum)
+            3 -> LazyColumn(Modifier.fillMaxSize()) {
                 items(library.artists, key = { it.name }) { artist ->
                     Column(
                         Modifier.fillMaxWidth().clickable { onOpenArtist(artist.name) }
@@ -127,7 +131,7 @@ fun LibraryScreen(
                     }
                 }
             }
-            3 -> PlaylistsTab(playlists, playerVm, onOpenRecentTracks, onOpenRecentAlbums)
+            4 -> PlaylistsTab(playlists, playerVm, onOpenRecentTracks, onOpenRecentAlbums, onOpenMostPlayed)
         }
     }
 }
@@ -285,6 +289,7 @@ fun TrackListScreen(
     playerVm: PlayerViewModel,
     onBack: () -> Unit,
     contentPadding: PaddingValues,
+    badge: (Track) -> String? = { null },
 ) {
     val player by playerVm.state.collectAsState()
     Column(Modifier.fillMaxSize().padding(contentPadding)) {
@@ -308,6 +313,7 @@ fun TrackListScreen(
                     onClick = { playerVm.playTracks(tracks, index) },
                     onPlayNext = { playerVm.playNext(track) },
                     onAddToQueue = { playerVm.addToQueue(track) },
+                    badge = badge(track),
                 )
             }
         }
@@ -346,6 +352,7 @@ private fun PlaylistsTab(
     playerVm: PlayerViewModel,
     onOpenRecentTracks: () -> Unit,
     onOpenRecentAlbums: () -> Unit,
+    onOpenMostPlayed: () -> Unit,
 ) {
     val tracks = playlists.recentTracks
     val albums = playlists.recentAlbums
@@ -367,6 +374,14 @@ private fun PlaylistsTab(
             onOpen = onOpenRecentAlbums,
             onPlay = if (albums.isEmpty()) null else ({ playerVm.playTracks(albums.flatMap { it.tracks }, 0) }),
         )
+        val most = playlists.mostPlayed
+        PlaylistTile(
+            title = "Most Played",
+            subtitle = if (most.isEmpty()) "Nothing played through yet" else "${most.size} songs",
+            covers = most.mapNotNull { it.item.artworkUri }.distinct().take(TILE_COVERS),
+            onOpen = onOpenMostPlayed,
+            onPlay = if (most.isEmpty()) null else ({ playerVm.playTracks(most.map { it.item }, 0) }),
+        )
     }
 }
 
@@ -375,7 +390,7 @@ private fun PlaylistsTab(
  * with the title on a dark panel in the bottom-left corner and a play button bottom-right.
  */
 @Composable
-private fun PlaylistTile(title: String, subtitle: String, covers: List<String>, onOpen: () -> Unit, onPlay: (() -> Unit)?) {
+internal fun PlaylistTile(title: String, subtitle: String, covers: List<String>, onOpen: () -> Unit, onPlay: (() -> Unit)?) {
     Card(
         onClick = onOpen,
         modifier = Modifier.fillMaxWidth().height(128.dp),

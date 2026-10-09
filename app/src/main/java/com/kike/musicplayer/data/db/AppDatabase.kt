@@ -7,11 +7,15 @@ import androidx.room.RoomDatabase
 import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
 
-@Database(entities = [Track::class, QueueItem::class, SessionState::class, PlayHistory::class], version = 2)
+@Database(
+    entities = [Track::class, QueueItem::class, SessionState::class, PlayHistory::class, ArtistInfo::class],
+    version = 3,
+)
 abstract class AppDatabase : RoomDatabase() {
     abstract fun tracks(): TrackDao
     abstract fun queue(): QueueDao
     abstract fun history(): HistoryDao
+    abstract fun artistInfo(): ArtistInfoDao
 
     companion object {
         /** Adds the play history. Real migrations keep the scanned library (tags, covers) intact. */
@@ -25,9 +29,21 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        /** Listening time and the 50% "counted" flag per play; artist genres for the recommender. */
+        private val MIGRATION_2_3 = object : Migration(2, 3) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE `play_history` ADD COLUMN `listenedMs` INTEGER NOT NULL DEFAULT 0")
+                db.execSQL("ALTER TABLE `play_history` ADD COLUMN `counted` INTEGER NOT NULL DEFAULT 0")
+                db.execSQL(
+                    "CREATE TABLE IF NOT EXISTS `artist_info` (`name` TEXT NOT NULL, `mbid` TEXT, `tags` TEXT NOT NULL, " +
+                        "`fetchedAt` INTEGER NOT NULL, PRIMARY KEY(`name`))"
+                )
+            }
+        }
+
         fun create(context: Context): AppDatabase =
             Room.databaseBuilder(context, AppDatabase::class.java, "music.db")
-                .addMigrations(MIGRATION_1_2)
+                .addMigrations(MIGRATION_1_2, MIGRATION_2_3)
                 .build()
     }
 }

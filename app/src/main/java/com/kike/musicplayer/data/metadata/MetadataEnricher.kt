@@ -15,6 +15,8 @@ import androidx.media3.datasource.okhttp.OkHttpDataSource
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.inspector.MetadataRetriever
 import com.kike.musicplayer.data.Settings
+import com.kike.musicplayer.data.db.ArtistInfo
+import com.kike.musicplayer.data.db.ArtistInfoDao
 import com.kike.musicplayer.data.db.Track
 import com.kike.musicplayer.data.db.TrackDao
 import com.kike.musicplayer.data.drive.DriveAuth
@@ -36,6 +38,7 @@ import retrofit2.HttpException
 import java.io.File
 import java.io.IOException
 import java.security.MessageDigest
+import java.util.Locale
 
 /**
  * Two-tier metadata pipeline:
@@ -55,6 +58,7 @@ class MetadataEnricher(
     private val settings: Settings,
     private val driveAuth: DriveAuth,
     private val driveHttp: OkHttpClient,
+    private val artistDao: ArtistInfoDao,
     private val musicBrainz: MusicBrainzApi,
     private val coverArt: CoverArtApi,
 ) {
@@ -93,7 +97,10 @@ class MetadataEnricher(
                 // Files whose read failed in earlier versions were marked done with no tags (length 0).
                 dao.requeueUnread()
                 localPass()
-                if (settings.onlineMetadata.value) onlinePass()
+                if (settings.onlineMetadata.value) {
+                    onlinePass()
+                    artistPass()
+                }
             } finally {
                 _progress.value = null
             }
@@ -167,6 +174,39 @@ class MetadataEnricher(
             }
         } finally {
             writer.flush()
+        }
+    }
+
+    /**
+     * Genre tags per artist for the recommender: one MusicBrainz artist search each, results kept
+     * (also when nothing is found), so only new artists are looked up later.
+     */
+    private suspend fun artistPass() {
+        val known = artistDao.names().toHashSet()
+        val names = dao.artistNames().map { it.trim() }.filter { it.isNotEmpty() }
+            .distinctBy { it.lowercase(Locale.ROOT) }
+            .filter { it.lowercase(Locale.ROOT) !in known && !it.equals("Various Artists", ignoreCase = true) }
+        names.forEachIndexed { i, name ->
+            if (!settings.onlineMetadata.value) return
+            _progress.value = Progress("Fetching genres", i, names.size)
+            val artist = try {
+                mbCall { musicBrainz.searchArtists("artist:${quote(name)}").artists }
+                    .firstOrNull { (it.score ?: 0) >= MIN_SCORE && similar(it.name, name) }
+            } catch (e: IOException) {
+                Log.w(TAG, "Genre lookup stopped: $e")
+                return
+            } catch (e: Exception) {
+                Log.w(TAG, "Genre lookup failed for $name", e)
+                null
+            }
+            val tags = artist?.tags.orEmpty()
+                .filter { it.count > 0 }
+                .sortedByDescending { it.count }
+                .map { it.name.lowercase(Locale.ROOT).trim() }
+                .filter { it.length > 1 && it !in NON_GENRE_TAGS }
+                .distinct()
+                .take(8)
+            artistDao.upsert(ArtistInfo(name.lowercase(Locale.ROOT), artist?.id, tags.joinToString(","), System.currentTimeMillis()))
         }
     }
 
@@ -439,6 +479,19 @@ class MetadataEnricher(
         private const val HEADER_CAP_BYTES = 1024 * 1024L
         private const val FLUSH_INTERVAL_MS = 2_000L
         private const val MIN_SCORE = 90
+
+        /** Community tags that describe places or opinions rather than the music. */
+        private val NON_GENRE_TAGS = setOf(
+            "seen live", "favorites", "favourites", "favorite", "awesome", "love", "beautiful", "male vocalists",
+            "female vocalists", "vocalists", "composer", "producer", "rapper", "dj", "band", "group",
+            "american", "usa", "united states", "british", "uk", "english", "england", "scottish", "welsh", "irish",
+            "canadian", "australian", "swedish", "sweden", "norwegian", "norway", "finnish", "finland", "danish",
+            "denmark", "icelandic", "german", "germany", "dutch", "netherlands", "belgian", "french", "france",
+            "italian", "italy", "spanish", "spain", "español", "portuguese", "brazilian", "brazil", "mexican",
+            "argentinian", "japanese", "japan", "korean", "chinese", "russian", "polish", "greek", "austrian",
+            "swiss", "gothenburg", "stockholm", "london", "los angeles", "new york", "california", "seattle",
+            "1960s", "1970s", "1980s", "1990s", "2000s", "2010s", "2020s", "60s", "70s", "80s", "90s", "00s",
+        )
         private const val MB_INTERVAL_MS = 1_100L
 
         /** Lucene phrase with special characters escaped. */

@@ -33,6 +33,9 @@ private sealed interface Screen {
     data object DriveFolders : Screen
     data object RecentTracks : Screen
     data object RecentAlbums : Screen
+    data object Replay : Screen
+    data object MostPlayed : Screen
+    data class MixDetail(val id: String) : Screen
 }
 
 class MainActivity : ComponentActivity() {
@@ -75,6 +78,7 @@ class MainActivity : ComponentActivity() {
 
         val library by libraryVm.library.collectAsState()
         val playlists by libraryVm.playlists.collectAsState()
+        val mixes by libraryVm.mixes.collectAsState()
         val showMini = screen !is Screen.NowPlaying && screen !is Screen.Queue && screen !is Screen.DriveFolders
 
         Scaffold(bottomBar = { if (showMini) MiniPlayer(playerVm) { push(Screen.NowPlaying) } }) { padding: PaddingValues ->
@@ -87,6 +91,9 @@ class MainActivity : ComponentActivity() {
                         onOpenSources = { push(Screen.Sources) },
                         onOpenRecentTracks = { push(Screen.RecentTracks) },
                         onOpenRecentAlbums = { push(Screen.RecentAlbums) },
+                        onOpenReplay = { push(Screen.Replay) },
+                        onOpenMostPlayed = { push(Screen.MostPlayed) },
+                        onOpenMix = { push(Screen.MixDetail(it)) },
                         contentPadding = padding,
                     )
                     is Screen.AlbumDetail -> AlbumScreen(
@@ -99,6 +106,17 @@ class MainActivity : ComponentActivity() {
                     Screen.Queue -> QueueScreen(playerVm, ::pop, padding)
                     Screen.DriveFolders -> DriveFolderPickerScreen(libraryVm, ::pop, padding)
                     Screen.RecentTracks -> TrackListScreen("Recently Played", playlists.recentTracks, playerVm, ::pop, padding)
+                    Screen.MostPlayed -> {
+                        val counts = playlists.mostPlayed.associate { it.item.id to it.plays }
+                        TrackListScreen("Most Played", playlists.mostPlayed.map { it.item }, playerVm, ::pop, padding) { t ->
+                            counts[t.id]?.let { if (it == 1) "1 play" else "$it plays" }
+                        }
+                    }
+                    Screen.Replay -> ReplayScreen(libraryVm, playerVm, onOpenAlbum = { push(Screen.AlbumDetail(it)) }, onBack = ::pop, contentPadding = padding)
+                    is Screen.MixDetail -> {
+                        val mix = mixes.firstOrNull { it.id == screen.id }
+                        TrackListScreen(mix?.title ?: "", mix?.tracks, playerVm, ::pop, padding)
+                    }
                     Screen.RecentAlbums -> AlbumListScreen(
                         "Recently Played Albums", playlists.recentAlbums, playerVm,
                         onOpenAlbum = { push(Screen.AlbumDetail(it)) }, onBack = ::pop, contentPadding = padding,
