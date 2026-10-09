@@ -20,6 +20,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import com.kike.musicplayer.ui.theme.MusicPlayerTheme
 
 private sealed interface Screen {
@@ -48,8 +49,13 @@ class MainActivity : ComponentActivity() {
     private fun App() {
         val backStack = remember { mutableStateListOf<Screen>(Screen.Library) }
         val screen = backStack.last()
+        // Keeps each screen's saved UI state (selected tab, scroll positions) while it is in the back
+        // stack; without it, returning from an album rebuilt the library on the Songs tab, at the top.
+        val savedStates = rememberSaveableStateHolder()
         fun push(s: Screen) = backStack.add(s)
-        fun pop() { if (backStack.size > 1) backStack.removeAt(backStack.lastIndex) }
+        fun pop() {
+            if (backStack.size > 1) savedStates.removeState(backStack.removeAt(backStack.lastIndex).toString())
+        }
         BackHandler(enabled = backStack.size > 1) { pop() }
 
         val notificationPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) {}
@@ -72,45 +78,47 @@ class MainActivity : ComponentActivity() {
         val showMini = screen !is Screen.NowPlaying && screen !is Screen.Queue && screen !is Screen.DriveFolders
 
         Scaffold(bottomBar = { if (showMini) MiniPlayer(playerVm) { push(Screen.NowPlaying) } }) { padding: PaddingValues ->
-            when (screen) {
-                Screen.Library -> LibraryScreen(
-                    libraryVm, playerVm,
-                    onOpenAlbum = { push(Screen.AlbumDetail(it)) },
-                    onOpenArtist = { push(Screen.ArtistDetail(it)) },
-                    onOpenSources = { push(Screen.Sources) },
-                    onOpenRecentTracks = { push(Screen.RecentTracks) },
-                    onOpenRecentAlbums = { push(Screen.RecentAlbums) },
-                    contentPadding = padding,
-                )
-                is Screen.AlbumDetail -> AlbumScreen(
-                    library.albums.firstOrNull { it.key == screen.key }, playerVm, ::pop, padding,
-                )
-                is Screen.ArtistDetail -> ArtistScreen(
-                    library.artists.firstOrNull { it.name == screen.name }, playerVm, ::pop, padding,
-                )
-                Screen.NowPlaying -> NowPlayingScreen(playerVm, ::pop, { push(Screen.Queue) }, padding)
-                Screen.Queue -> QueueScreen(playerVm, ::pop, padding)
-                Screen.DriveFolders -> DriveFolderPickerScreen(libraryVm, ::pop, padding)
-                Screen.RecentTracks -> TrackListScreen("Recently Played", playlists.recentTracks, playerVm, ::pop, padding)
-                Screen.RecentAlbums -> AlbumListScreen(
-                    "Recently Played Albums", playlists.recentAlbums, playerVm,
-                    onOpenAlbum = { push(Screen.AlbumDetail(it)) }, onBack = ::pop, contentPadding = padding,
-                )
-                Screen.Sources -> SourcesScreen(
-                    libraryVm,
-                    onBack = ::pop,
-                    onAddFolder = { folderPicker.launch(null) },
-                    onConnectDrive = {
-                        libraryVm.connectDrive { pending ->
-                            driveConsent.launch(IntentSenderRequest.Builder(pending.intentSender).build())
-                        }
-                    },
-                    onAddDriveFolder = {
-                        libraryVm.openDriveBrowser()
-                        push(Screen.DriveFolders)
-                    },
-                    contentPadding = padding,
-                )
+            savedStates.SaveableStateProvider(screen.toString()) {
+                when (screen) {
+                    Screen.Library -> LibraryScreen(
+                        libraryVm, playerVm,
+                        onOpenAlbum = { push(Screen.AlbumDetail(it)) },
+                        onOpenArtist = { push(Screen.ArtistDetail(it)) },
+                        onOpenSources = { push(Screen.Sources) },
+                        onOpenRecentTracks = { push(Screen.RecentTracks) },
+                        onOpenRecentAlbums = { push(Screen.RecentAlbums) },
+                        contentPadding = padding,
+                    )
+                    is Screen.AlbumDetail -> AlbumScreen(
+                        library.albums.firstOrNull { it.key == screen.key }, playerVm, ::pop, padding,
+                    )
+                    is Screen.ArtistDetail -> ArtistScreen(
+                        library.artists.firstOrNull { it.name == screen.name }, playerVm, ::pop, padding,
+                    )
+                    Screen.NowPlaying -> NowPlayingScreen(playerVm, ::pop, { push(Screen.Queue) }, padding)
+                    Screen.Queue -> QueueScreen(playerVm, ::pop, padding)
+                    Screen.DriveFolders -> DriveFolderPickerScreen(libraryVm, ::pop, padding)
+                    Screen.RecentTracks -> TrackListScreen("Recently Played", playlists.recentTracks, playerVm, ::pop, padding)
+                    Screen.RecentAlbums -> AlbumListScreen(
+                        "Recently Played Albums", playlists.recentAlbums, playerVm,
+                        onOpenAlbum = { push(Screen.AlbumDetail(it)) }, onBack = ::pop, contentPadding = padding,
+                    )
+                    Screen.Sources -> SourcesScreen(
+                        libraryVm,
+                        onBack = ::pop,
+                        onAddFolder = { folderPicker.launch(null) },
+                        onConnectDrive = {
+                            libraryVm.connectDrive { pending ->
+                                driveConsent.launch(IntentSenderRequest.Builder(pending.intentSender).build())
+                            }
+                        },
+                        onAddDriveFolder = {
+                            libraryVm.openDriveBrowser()
+                            push(Screen.DriveFolders)
+                        },
+                        contentPadding = padding,
+                    )
+                }
             }
         }
     }
