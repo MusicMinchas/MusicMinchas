@@ -84,6 +84,7 @@ fun LibraryScreen(
     onOpenRecentAlbums: () -> Unit,
     onOpenReplay: () -> Unit,
     onOpenMostPlayed: () -> Unit,
+    onOpenFavourites: () -> Unit,
     onOpenMix: (String) -> Unit,
     onOpenGenre: (String) -> Unit,
     contentPadding: PaddingValues,
@@ -150,14 +151,14 @@ fun LibraryScreen(
             return@Column
         }
         when (LIBRARY_TABS[tab]) {
-            "Home" -> HomeTab(libraryVm, playerVm, onOpenReplay, onOpenMostPlayed, onOpenRecentTracks, onOpenMix, onOpenAlbum)
+            "Home" -> HomeTab(libraryVm, playerVm, onOpenReplay, onOpenMostPlayed, onOpenFavourites, onOpenRecentTracks, onOpenMix, onOpenAlbum)
             "Albums" -> AlbumsGrid(library.albums, onOpenAlbum)
             "Artists" -> LazyColumn(Modifier.fillMaxSize()) {
                 items(library.artists, key = { it.name }) { artist -> ArtistRow(artist) { onOpenArtist(artist.name) } }
             }
             "Genres" -> GenresTab(genres, onOpenGenre)
             "Songs" -> SongsTab(library.tracks, player.current?.mediaId, playerVm)
-            "Playlists" -> PlaylistsTab(playlists, playerVm, onOpenRecentTracks, onOpenRecentAlbums, onOpenMostPlayed)
+            "Playlists" -> PlaylistsTab(playlists, playerVm, onOpenRecentTracks, onOpenRecentAlbums, onOpenMostPlayed, onOpenFavourites)
         }
     }
 }
@@ -483,6 +484,7 @@ private fun PlaylistsTab(
     onOpenRecentTracks: () -> Unit,
     onOpenRecentAlbums: () -> Unit,
     onOpenMostPlayed: () -> Unit,
+    onOpenFavourites: () -> Unit,
 ) {
     val tracks = playlists.recentTracks
     val albums = playlists.recentAlbums
@@ -512,7 +514,20 @@ private fun PlaylistsTab(
             onOpen = onOpenMostPlayed,
             onPlay = if (most.isEmpty()) null else ({ playerVm.playTracks(most.map { it.item }, 0) }),
         )
+        FavouritesTile(playlists.favourites, playerVm, onOpenFavourites)
     }
+}
+
+/** The Favourite Songs tile, on Home and in Playlists. */
+@Composable
+internal fun FavouritesTile(favourites: List<Track>, playerVm: PlayerViewModel, onOpen: () -> Unit) {
+    PlaylistTile(
+        title = "Favourite Songs",
+        subtitle = if (favourites.isEmpty()) "Tap the heart on a song to add it" else count(favourites.size, "song"),
+        covers = favourites.mapNotNull { it.artworkUri }.distinct().take(TILE_COVERS),
+        onOpen = onOpen,
+        onPlay = if (favourites.isEmpty()) null else ({ playerVm.playTracks(favourites, 0) }),
+    )
 }
 
 /**

@@ -14,6 +14,7 @@ import androidx.media3.session.SessionToken
 import com.google.common.util.concurrent.ListenableFuture
 import com.google.common.util.concurrent.MoreExecutors
 import com.kike.musicplayer.container
+import com.kike.musicplayer.data.db.Favourite
 import com.kike.musicplayer.data.db.Track
 import com.kike.musicplayer.sonos.SonosGroup
 import com.kike.musicplayer.playback.PlaybackService
@@ -24,6 +25,9 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 
@@ -184,6 +188,22 @@ class PlayerViewModel(app: Application) : AndroidViewModel(app) {
     fun discoverSpeakers() = cast.discover()
     fun castTo(group: SonosGroup) = cast.cast(group)
     fun stopCasting() = cast.stopCast()
+
+    // ---- Favourites ----
+
+    private val favouriteDao = app.container.database.favourites()
+
+    /** Track ids of the favourite songs. */
+    val favourites: StateFlow<Set<String>> = favouriteDao.observeAll()
+        .map { list -> list.mapTo(HashSet()) { it.trackId } }
+        .stateIn(viewModelScope, SharingStarted.Eagerly, emptySet())
+
+    fun toggleFavourite(trackId: String) {
+        val add = trackId !in favourites.value
+        viewModelScope.launch {
+            if (add) favouriteDao.insert(Favourite(trackId, System.currentTimeMillis())) else favouriteDao.delete(trackId)
+        }
+    }
 
     fun setRemoteVolume(volume: Int) {
         controller?.setDeviceVolume(volume, 0)

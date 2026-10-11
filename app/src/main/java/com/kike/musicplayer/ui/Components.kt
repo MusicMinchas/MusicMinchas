@@ -23,6 +23,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -62,6 +63,11 @@ private fun ArtworkPlaceholder() {
     }
 }
 
+/** The favourite songs and how to toggle one; provided once at the top of the UI for the track menus. */
+class Favourites(val ids: Set<String>, val toggle: (trackId: String) -> Unit)
+
+val LocalFavourites = compositionLocalOf { Favourites(emptySet()) {} }
+
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun TrackRow(
@@ -76,6 +82,7 @@ fun TrackRow(
     badge: String? = null,
 ) {
     var menu by remember { mutableStateOf(false) }
+    val favourites = LocalFavourites.current
     Row(
         Modifier
             .combinedClickable(onClick = onClick, onLongClick = { menu = true })
@@ -115,6 +122,10 @@ fun TrackRow(
             DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
                 DropdownMenuItem(text = { Text("Play next") }, onClick = { menu = false; onPlayNext() })
                 DropdownMenuItem(text = { Text("Add to queue") }, onClick = { menu = false; onAddToQueue() })
+                DropdownMenuItem(
+                    text = { Text(if (track.id in favourites.ids) "Remove from Favourites" else "Add to Favourites") },
+                    onClick = { menu = false; favourites.toggle(track.id) },
+                )
             }
         }
     }

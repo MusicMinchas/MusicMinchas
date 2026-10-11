@@ -21,8 +21,8 @@ android {
         applicationId = "com.kike.musicplayer"
         minSdk = 30
         targetSdk = 36
-        versionCode = 12
-        versionName = "1.2.7"
+        versionCode = 13
+        versionName = "1.3"
     }
 
     signingConfigs {

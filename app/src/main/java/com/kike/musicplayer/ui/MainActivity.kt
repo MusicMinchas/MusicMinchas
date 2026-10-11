@@ -15,6 +15,7 @@ import androidx.activity.viewModels
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.material3.Scaffold
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -36,6 +37,7 @@ private sealed interface Screen {
     data object RecentAlbums : Screen
     data object Replay : Screen
     data object MostPlayed : Screen
+    data object Favourites : Screen
     data class MixDetail(val id: String) : Screen
     data class GenreDetail(val key: String) : Screen
 }
@@ -84,77 +86,82 @@ class MainActivity : ComponentActivity() {
         val genres by libraryVm.genres.collectAsState()
         val showMini = screen !is Screen.NowPlaying && screen !is Screen.Queue && screen !is Screen.DriveFolders
 
-        Scaffold(bottomBar = { if (showMini) MiniPlayer(playerVm) { push(Screen.NowPlaying) } }) { padding: PaddingValues ->
-            savedStates.SaveableStateProvider(screen.toString()) {
-                when (screen) {
-                    Screen.Library -> LibraryScreen(
-                        libraryVm, playerVm,
-                        onOpenAlbum = { push(Screen.AlbumDetail(it)) },
-                        onOpenArtist = { push(Screen.ArtistDetail(it)) },
-                        onOpenSources = { push(Screen.Sources) },
-                        onOpenRecentTracks = { push(Screen.RecentTracks) },
-                        onOpenRecentAlbums = { push(Screen.RecentAlbums) },
-                        onOpenReplay = { push(Screen.Replay) },
-                        onOpenMostPlayed = { push(Screen.MostPlayed) },
-                        onOpenMix = { push(Screen.MixDetail(it)) },
-                        onOpenGenre = { push(Screen.GenreDetail(it)) },
-                        contentPadding = padding,
-                    )
-                    is Screen.AlbumDetail -> {
-                        val full = library.albums.firstOrNull { it.key == screen.key }
-                        val genre = screen.genreKey?.let { key -> genres.firstOrNull { it.key == key } }
-                        val album = genre?.albums?.firstOrNull { it.key == screen.key } ?: full
-                        AlbumScreen(
-                            album, playerVm, ::pop, padding,
-                            note = if (genre != null && full != null && album !== full) {
-                                "Only ${genre.name} songs · ${full.tracks.size} on the album"
-                            } else null,
+        val favouriteIds by playerVm.favourites.collectAsState()
+        CompositionLocalProvider(LocalFavourites provides Favourites(favouriteIds, playerVm::toggleFavourite)) {
+            Scaffold(bottomBar = { if (showMini) MiniPlayer(playerVm) { push(Screen.NowPlaying) } }) { padding: PaddingValues ->
+                savedStates.SaveableStateProvider(screen.toString()) {
+                    when (screen) {
+                        Screen.Library -> LibraryScreen(
+                            libraryVm, playerVm,
+                            onOpenAlbum = { push(Screen.AlbumDetail(it)) },
+                            onOpenArtist = { push(Screen.ArtistDetail(it)) },
+                            onOpenSources = { push(Screen.Sources) },
+                            onOpenRecentTracks = { push(Screen.RecentTracks) },
+                            onOpenRecentAlbums = { push(Screen.RecentAlbums) },
+                            onOpenReplay = { push(Screen.Replay) },
+                            onOpenMostPlayed = { push(Screen.MostPlayed) },
+                            onOpenFavourites = { push(Screen.Favourites) },
+                            onOpenMix = { push(Screen.MixDetail(it)) },
+                            onOpenGenre = { push(Screen.GenreDetail(it)) },
+                            contentPadding = padding,
                         )
-                    }
-                    is Screen.ArtistDetail -> ArtistScreen(
-                        library.artists.firstOrNull { it.name == screen.name }, playerVm, ::pop, padding,
-                    )
-                    Screen.NowPlaying -> NowPlayingScreen(playerVm, ::pop, { push(Screen.Queue) }, padding)
-                    Screen.Queue -> QueueScreen(playerVm, ::pop, padding)
-                    Screen.DriveFolders -> DriveFolderPickerScreen(libraryVm, ::pop, padding)
-                    Screen.RecentTracks -> TrackListScreen("Recently Played", playlists.recentTracks, playerVm, ::pop, padding)
-                    Screen.MostPlayed -> {
-                        val counts = playlists.mostPlayed.associate { it.item.id to it.plays }
-                        TrackListScreen("Most Played", playlists.mostPlayed.map { it.item }, playerVm, ::pop, padding) { t ->
-                            counts[t.id]?.let { if (it == 1) "1 play" else "$it plays" }
+                        is Screen.AlbumDetail -> {
+                            val full = library.albums.firstOrNull { it.key == screen.key }
+                            val genre = screen.genreKey?.let { key -> genres.firstOrNull { it.key == key } }
+                            val album = genre?.albums?.firstOrNull { it.key == screen.key } ?: full
+                            AlbumScreen(
+                                album, playerVm, ::pop, padding,
+                                note = if (genre != null && full != null && album !== full) {
+                                    "Only ${genre.name} songs · ${full.tracks.size} on the album"
+                                } else null,
+                            )
                         }
-                    }
-                    Screen.Replay -> ReplayScreen(libraryVm, playerVm, onOpenAlbum = { push(Screen.AlbumDetail(it)) }, onBack = ::pop, contentPadding = padding)
-                    is Screen.GenreDetail -> {
-                        val genre = genres.firstOrNull { it.key == screen.key }
-                        AlbumListScreen(
-                            genre?.name ?: "", genre?.albums.orEmpty(), playerVm,
-                            onOpenAlbum = { push(Screen.AlbumDetail(it, genreKey = screen.key)) }, onBack = ::pop, contentPadding = padding,
+                        is Screen.ArtistDetail -> ArtistScreen(
+                            library.artists.firstOrNull { it.name == screen.name }, playerVm, ::pop, padding,
+                        )
+                        Screen.NowPlaying -> NowPlayingScreen(playerVm, ::pop, { push(Screen.Queue) }, padding)
+                        Screen.Queue -> QueueScreen(playerVm, ::pop, padding)
+                        Screen.DriveFolders -> DriveFolderPickerScreen(libraryVm, ::pop, padding)
+                        Screen.RecentTracks -> TrackListScreen("Recently Played", playlists.recentTracks, playerVm, ::pop, padding)
+                        Screen.MostPlayed -> {
+                            val counts = playlists.mostPlayed.associate { it.item.id to it.plays }
+                            TrackListScreen("Most Played", playlists.mostPlayed.map { it.item }, playerVm, ::pop, padding) { t ->
+                                counts[t.id]?.let { if (it == 1) "1 play" else "$it plays" }
+                            }
+                        }
+                        Screen.Favourites -> TrackListScreen("Favourite Songs", playlists.favourites, playerVm, ::pop, padding)
+                        Screen.Replay -> ReplayScreen(libraryVm, playerVm, onOpenAlbum = { push(Screen.AlbumDetail(it)) }, onBack = ::pop, contentPadding = padding)
+                        is Screen.GenreDetail -> {
+                            val genre = genres.firstOrNull { it.key == screen.key }
+                            AlbumListScreen(
+                                genre?.name ?: "", genre?.albums.orEmpty(), playerVm,
+                                onOpenAlbum = { push(Screen.AlbumDetail(it, genreKey = screen.key)) }, onBack = ::pop, contentPadding = padding,
+                            )
+                        }
+                        is Screen.MixDetail -> {
+                            val mix = mixes.firstOrNull { it.id == screen.id }
+                            TrackListScreen(mix?.title ?: "", mix?.tracks, playerVm, ::pop, padding)
+                        }
+                        Screen.RecentAlbums -> AlbumListScreen(
+                            "Recently Played Albums", playlists.recentAlbums, playerVm,
+                            onOpenAlbum = { push(Screen.AlbumDetail(it)) }, onBack = ::pop, contentPadding = padding,
+                        )
+                        Screen.Sources -> SourcesScreen(
+                            libraryVm,
+                            onBack = ::pop,
+                            onAddFolder = { folderPicker.launch(null) },
+                            onConnectDrive = {
+                                libraryVm.connectDrive { pending ->
+                                    driveConsent.launch(IntentSenderRequest.Builder(pending.intentSender).build())
+                                }
+                            },
+                            onAddDriveFolder = {
+                                libraryVm.openDriveBrowser()
+                                push(Screen.DriveFolders)
+                            },
+                            contentPadding = padding,
                         )
                     }
-                    is Screen.MixDetail -> {
-                        val mix = mixes.firstOrNull { it.id == screen.id }
-                        TrackListScreen(mix?.title ?: "", mix?.tracks, playerVm, ::pop, padding)
-                    }
-                    Screen.RecentAlbums -> AlbumListScreen(
-                        "Recently Played Albums", playlists.recentAlbums, playerVm,
-                        onOpenAlbum = { push(Screen.AlbumDetail(it)) }, onBack = ::pop, contentPadding = padding,
-                    )
-                    Screen.Sources -> SourcesScreen(
-                        libraryVm,
-                        onBack = ::pop,
-                        onAddFolder = { folderPicker.launch(null) },
-                        onConnectDrive = {
-                            libraryVm.connectDrive { pending ->
-                                driveConsent.launch(IntentSenderRequest.Builder(pending.intentSender).build())
-                            }
-                        },
-                        onAddDriveFolder = {
-                            libraryVm.openDriveBrowser()
-                            push(Screen.DriveFolders)
-                        },
-                        contentPadding = padding,
-                    )
                 }
             }
         }

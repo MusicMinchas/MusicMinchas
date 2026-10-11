@@ -94,6 +94,13 @@ data class PlayHistory(
     @ColumnInfo(defaultValue = "0") val counted: Boolean = false,
 )
 
+/** A song marked as favourite; kept by track id, so it survives rescans. */
+@Entity(tableName = "favourites")
+data class Favourite(
+    @PrimaryKey val trackId: String,
+    val addedAt: Long,
+)
+
 /** Genre-like tags for an artist, from MusicBrainz; [name] is the lower-cased artist name. */
 @Entity(tableName = "artist_info")
 data class ArtistInfo(

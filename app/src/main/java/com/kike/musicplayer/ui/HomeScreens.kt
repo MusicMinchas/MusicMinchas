@@ -46,13 +46,14 @@ import java.time.Month
 import java.time.format.TextStyle
 import java.util.Locale
 
-/** Home: Replay, Most Played and Recently Played tiles, generated mixes, recently played albums. */
+/** Home: Recently Played, Replay, Most Played and Favourite Songs tiles, generated mixes, recently played albums. */
 @Composable
 fun HomeTab(
     libraryVm: LibraryViewModel,
     playerVm: PlayerViewModel,
     onOpenReplay: () -> Unit,
     onOpenMostPlayed: () -> Unit,
+    onOpenFavourites: () -> Unit,
     onOpenRecentTracks: () -> Unit,
     onOpenMix: (String) -> Unit,
     onOpenAlbum: (String) -> Unit,
@@ -88,6 +89,7 @@ fun HomeTab(
                     onOpen = onOpenMostPlayed,
                     onPlay = if (most.isEmpty()) null else ({ playerVm.playTracks(most.map { it.item }, 0) }),
                 )
+                FavouritesTile(playlists.favourites, playerVm, onOpenFavourites)
             }
         }
         item { SectionTitle("Made for you") }

@@ -80,6 +80,8 @@ data class Playlists(
     val recentAlbums: List<Album> = emptyList(),
     /** Counted plays (half the track listened), most first. */
     val mostPlayed: List<Ranked<Track>> = emptyList(),
+    /** Favourite songs, most recently added first. */
+    val favourites: List<Track> = emptyList(),
 )
 
 data class Library(
@@ -146,7 +148,7 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
         }.sortedWith(compareBy({ it.key == UNKNOWN_GENRE }, { it.name.lowercase() }))
     }.flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
 
-    val playlists: StateFlow<Playlists> = combine(history, library) { history, lib ->
+    val playlists: StateFlow<Playlists> = combine(history, library, container.database.favourites().observeAll()) { history, lib, favourites ->
         val byId = lib.tracks.associateBy { it.id }
         val albumsByKey = lib.albums.associateBy { it.key }
         val stats = ListeningStats(history, System.currentTimeMillis())
@@ -155,6 +157,7 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
             recentAlbums = history.asSequence().mapNotNull { byId[it.trackId]?.albumKey }.distinct()
                 .mapNotNull { albumsByKey[it] }.take(RECENT_ALBUMS).toList(),
             mostPlayed = mostPlayed(byId, stats),
+            favourites = favourites.mapNotNull { byId[it.trackId] },
         )
     }.flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.Eagerly, Playlists())
 

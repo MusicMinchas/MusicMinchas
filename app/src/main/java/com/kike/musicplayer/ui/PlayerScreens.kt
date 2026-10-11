@@ -21,6 +21,8 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.QueueMusic
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Favorite
+import androidx.compose.material.icons.filled.FavoriteBorder
 import androidx.compose.material.icons.filled.DragHandle
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.Pause
@@ -67,6 +69,8 @@ import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import com.kike.musicplayer.playback.PlaybackService
+import androidx.compose.foundation.layout.offset
 import androidx.compose.ui.graphics.CompositingStrategy
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
@@ -120,8 +124,10 @@ private fun PlayPauseIcon(s: PlayerUiState, onClick: () -> Unit) {
 fun NowPlayingScreen(playerVm: PlayerViewModel, onBack: () -> Unit, onOpenQueue: () -> Unit, contentPadding: PaddingValues) {
     val s by playerVm.state.collectAsState()
     val castTo by playerVm.castActive.collectAsState()
+    val favourites by playerVm.favourites.collectAsState()
     var showCast by remember { mutableStateOf(false) }
     val meta = s.current?.mediaMetadata
+    val trackId = s.current?.mediaId?.let(PlaybackService::trackIdOf)
     if (showCast) CastSheet(playerVm) { showCast = false }
     Box(Modifier.fillMaxSize()) {
         ArtworkBackdrop(meta?.artworkUri)
@@ -149,10 +155,28 @@ fun NowPlayingScreen(playerVm: PlayerViewModel, onBack: () -> Unit, onOpenQueue:
                     shape = RoundedCornerShape(12.dp),
                 )
                 Spacer(Modifier.height(24.dp))
-                Text(
-                    meta?.title?.toString() ?: "Nothing playing", style = MaterialTheme.typography.headlineSmall,
-                    maxLines = 2, overflow = TextOverflow.Ellipsis, textAlign = TextAlign.Center,
-                )
+                // Title centred; the heart sits at the cover's right edge.
+                Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
+                    Text(
+                        meta?.title?.toString() ?: "Nothing playing", style = MaterialTheme.typography.headlineSmall,
+                        maxLines = 2, overflow = TextOverflow.Ellipsis, textAlign = TextAlign.Center,
+                        modifier = Modifier.padding(horizontal = 40.dp),
+                    )
+                    if (trackId != null) {
+                        val favourite = trackId in favourites
+                        IconButton(
+                            onClick = { playerVm.toggleFavourite(trackId) },
+                            // The icon's edge, not the touch target's, lines up with the cover.
+                            modifier = Modifier.align(Alignment.CenterEnd).offset(x = 12.dp),
+                        ) {
+                            Icon(
+                                if (favourite) Icons.Default.Favorite else Icons.Default.FavoriteBorder,
+                                if (favourite) "Remove from Favourites" else "Add to Favourites",
+                                tint = if (favourite) FAVOURITE_RED else MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                    }
+                }
                 Text(
                     listOfNotNull(meta?.artist, meta?.albumTitle).joinToString(" · "),
                     color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis,
@@ -210,6 +234,8 @@ fun NowPlayingScreen(playerVm: PlayerViewModel, onBack: () -> Unit, onOpenQueue:
         }
     }
 }
+
+private val FAVOURITE_RED = Color(0xFFE53935)
 
 /** Speaker volume while casting; sent when the finger lifts so Sonos isn't flooded with commands. */
 @Composable

@@ -133,6 +133,19 @@ interface HistoryDao {
 }
 
 @Dao
+interface FavouriteDao {
+    /** Newest first. */
+    @Query("SELECT * FROM favourites ORDER BY addedAt DESC")
+    fun observeAll(): Flow<List<Favourite>>
+
+    @Insert(onConflict = OnConflictStrategy.IGNORE)
+    suspend fun insert(favourite: Favourite)
+
+    @Query("DELETE FROM favourites WHERE trackId = :trackId")
+    suspend fun delete(trackId: String)
+}
+
+@Dao
 interface ArtistInfoDao {
     @Query("SELECT * FROM artist_info")
     fun observeAll(): Flow<List<ArtistInfo>>
