@@ -25,7 +25,8 @@ import com.kike.musicplayer.ui.theme.MusicPlayerTheme
 
 private sealed interface Screen {
     data object Library : Screen
-    data class AlbumDetail(val key: String) : Screen
+    /** An album; opened from a genre ([genreKey]), it shows only that genre's songs. */
+    data class AlbumDetail(val key: String, val genreKey: String? = null) : Screen
     data class ArtistDetail(val name: String) : Screen
     data object NowPlaying : Screen
     data object Queue : Screen
@@ -99,9 +100,17 @@ class MainActivity : ComponentActivity() {
                         onOpenGenre = { push(Screen.GenreDetail(it)) },
                         contentPadding = padding,
                     )
-                    is Screen.AlbumDetail -> AlbumScreen(
-                        library.albums.firstOrNull { it.key == screen.key }, playerVm, ::pop, padding,
-                    )
+                    is Screen.AlbumDetail -> {
+                        val full = library.albums.firstOrNull { it.key == screen.key }
+                        val genre = screen.genreKey?.let { key -> genres.firstOrNull { it.key == key } }
+                        val album = genre?.albums?.firstOrNull { it.key == screen.key } ?: full
+                        AlbumScreen(
+                            album, playerVm, ::pop, padding,
+                            note = if (genre != null && full != null && album !== full) {
+                                "Only ${genre.name} songs · ${full.tracks.size} on the album"
+                            } else null,
+                        )
+                    }
                     is Screen.ArtistDetail -> ArtistScreen(
                         library.artists.firstOrNull { it.name == screen.name }, playerVm, ::pop, padding,
                     )
@@ -120,7 +129,7 @@ class MainActivity : ComponentActivity() {
                         val genre = genres.firstOrNull { it.key == screen.key }
                         AlbumListScreen(
                             genre?.name ?: "", genre?.albums.orEmpty(), playerVm,
-                            onOpenAlbum = { push(Screen.AlbumDetail(it)) }, onBack = ::pop, contentPadding = padding,
+                            onOpenAlbum = { push(Screen.AlbumDetail(it, genreKey = screen.key)) }, onBack = ::pop, contentPadding = padding,
                         )
                     }
                     is Screen.MixDetail -> {

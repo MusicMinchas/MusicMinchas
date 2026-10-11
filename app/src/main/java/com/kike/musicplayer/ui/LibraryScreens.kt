@@ -343,7 +343,14 @@ internal fun AlbumsGrid(albums: List<Album>, onOpenAlbum: (String) -> Unit) {
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun AlbumScreen(album: Album?, playerVm: PlayerViewModel, onBack: () -> Unit, contentPadding: PaddingValues) {
+fun AlbumScreen(
+    album: Album?,
+    playerVm: PlayerViewModel,
+    onBack: () -> Unit,
+    contentPadding: PaddingValues,
+    /** Shown under the album info, e.g. when only some of its songs are listed. */
+    note: String? = null,
+) {
     val player by playerVm.state.collectAsState()
     Column(Modifier.fillMaxSize().padding(contentPadding)) {
         TopAppBar(
@@ -360,11 +367,19 @@ fun AlbumScreen(album: Album?, playerVm: PlayerViewModel, onBack: () -> Unit, co
                         Text(album.title, style = MaterialTheme.typography.titleLarge)
                         Text(album.artist, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         Text(
-                            listOfNotNull(album.year?.toString(), "${album.tracks.size} songs",
+                            listOfNotNull(album.year?.toString(), count(album.tracks.size, "song"),
                                 formatTime(album.tracks.sumOf { it.durationMs })).joinToString(" · "),
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
+                        note?.let {
+                            Text(
+                                it,
+                                Modifier.padding(top = 4.dp),
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.primary,
+                            )
+                        }
                     }
                 }
             }
