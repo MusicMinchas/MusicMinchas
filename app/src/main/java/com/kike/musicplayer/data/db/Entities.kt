@@ -114,6 +114,21 @@ data class LastFmOutboxItem(
     }
 }
 
+/**
+ * A scrobble imported from Last.fm, one per user and second ([uts]). [trackId] is the library song
+ * it matched (then it was also added as a play), or null while the song isn't in the library.
+ */
+@Entity(tableName = "lastfm_scrobbles", primaryKeys = ["user", "uts"], indices = [Index("trackId")])
+data class LastFmScrobble(
+    val user: String,
+    val uts: Long,
+    val artist: String,
+    val track: String,
+    val album: String?,
+    val mbid: String?,
+    val trackId: String? = null,
+)
+
 /** A song marked as favourite; kept by track id, so it survives rescans. */
 @Entity(tableName = "favourites")
 data class Favourite(

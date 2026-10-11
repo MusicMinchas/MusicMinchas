@@ -5,6 +5,7 @@ import androidx.room.Insert
 import androidx.room.OnConflictStrategy
 import androidx.room.Query
 import androidx.room.Transaction
+import androidx.room.Update
 import androidx.room.Upsert
 import kotlinx.coroutines.flow.Flow
 
@@ -123,6 +124,13 @@ interface HistoryDao {
     @Insert
     suspend fun insert(entry: PlayHistory): Long
 
+    @Insert
+    suspend fun insertAll(entries: List<PlayHistory>)
+
+    /** Start times of every play, to spot imported duplicates. */
+    @Query("SELECT playedAt FROM play_history")
+    suspend fun allPlayedAt(): List<Long>
+
     @Query("UPDATE play_history SET listenedMs = :listenedMs, counted = :counted WHERE id = :id")
     suspend fun updateListening(id: Long, listenedMs: Long, counted: Boolean)
 
@@ -146,6 +154,27 @@ interface LastFmOutboxDao {
 
     @Query("SELECT COUNT(*) FROM lastfm_outbox WHERE action = :action")
     fun observeCount(action: String): Flow<Int>
+}
+
+data class ScrobbleCounts(val total: Int, val unmatched: Int)
+
+@Dao
+interface LastFmScrobbleDao {
+    @Insert(onConflict = OnConflictStrategy.IGNORE)
+    suspend fun insertAll(scrobbles: List<LastFmScrobble>)
+
+    /** Time of the newest imported scrobble, so the next import only fetches what came after. */
+    @Query("SELECT MAX(uts) FROM lastfm_scrobbles WHERE user = :user")
+    suspend fun latest(user: String): Long?
+
+    @Query("SELECT * FROM lastfm_scrobbles WHERE trackId IS NULL")
+    suspend fun unmatched(): List<LastFmScrobble>
+
+    @Update
+    suspend fun setTrackIds(scrobbles: List<LastFmScrobble>)
+
+    @Query("SELECT COUNT(*) AS total, COALESCE(SUM(trackId IS NULL), 0) AS unmatched FROM lastfm_scrobbles WHERE user = :user")
+    fun observeCounts(user: String): Flow<ScrobbleCounts>
 }
 
 @Dao

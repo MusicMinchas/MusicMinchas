@@ -29,6 +29,10 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.debounce
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
@@ -341,6 +345,25 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
     val scrobbleSettings = lastFm.scrobbleSettings
     val pendingScrobbles = container.scrobbler.pending.stateIn(viewModelScope, SharingStarted.Eagerly, 0)
     fun setScrobbleSettings(settings: com.kike.musicplayer.data.lastfm.ScrobbleSettings) = lastFm.setScrobbleSettings(settings)
+
+    private val importer = container.scrobbleImporter
+    val importStatus = importer.status
+
+    /** Imported scrobbles of the connected user: total, and how many aren't in the library. */
+    @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
+    val scrobbleCounts = lastFm.state.map { it.user }.distinctUntilChanged()
+        .flatMapLatest { user -> if (user == null) flowOf(null) else importer.counts(user) }
+        .stateIn(viewModelScope, SharingStarted.Eagerly, null)
+
+    fun importScrobbles(everything: Boolean) = importer.import(everything)
+
+    init {
+        // Songs added to the library may be ones Last.fm scrobbles are waiting for.
+        @OptIn(kotlinx.coroutines.FlowPreview::class)
+        viewModelScope.launch {
+            repo.tracks.map { it.size }.distinctUntilChanged().debounce(30_000).collect { importer.rematch() }
+        }
+    }
 
     fun setOnlineMetadata(enabled: Boolean) {
         settings.setOnlineMetadata(enabled)

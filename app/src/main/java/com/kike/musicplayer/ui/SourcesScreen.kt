@@ -45,6 +45,9 @@ import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import com.kike.musicplayer.data.lastfm.ScrobbleRule
+import com.kike.musicplayer.data.lastfm.ImportStatus
+import com.kike.musicplayer.data.db.ScrobbleCounts
+import androidx.compose.foundation.layout.size
 import com.kike.musicplayer.data.lastfm.ScrobbleSettings
 import kotlin.math.roundToInt
 import androidx.compose.ui.platform.LocalUriHandler
@@ -82,6 +85,8 @@ fun SourcesScreen(
     val lastFm by vm.lastFmState.collectAsState()
     val scrobbling by vm.scrobbleSettings.collectAsState()
     val pendingScrobbles by vm.pendingScrobbles.collectAsState()
+    val importStatus by vm.importStatus.collectAsState()
+    val scrobbleCounts by vm.scrobbleCounts.collectAsState()
     val uriHandler = LocalUriHandler.current
 
     Column(Modifier.fillMaxSize().padding(contentPadding)) {
@@ -178,6 +183,7 @@ fun SourcesScreen(
                 when {
                     lastFm.user != null -> {
                         ScrobbleControls(scrobbling, pendingScrobbles, vm::setScrobbleSettings)
+                        HistoryImport(scrobbleCounts, importStatus, vm::importScrobbles)
                         OutlinedButton(onClick = vm::disconnectLastFm) { Text("Disconnect") }
                     }
                     lastFm.awaitingApproval -> Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -240,6 +246,34 @@ private fun ScrobbleControls(settings: ScrobbleSettings, pending: Int, onChange:
         style = MaterialTheme.typography.bodySmall,
         color = MaterialTheme.colorScheme.onSurfaceVariant,
     )
+}
+
+/** Importing the Last.fm history as plays. */
+@Composable
+private fun HistoryImport(counts: ScrobbleCounts?, status: ImportStatus, onImport: (everything: Boolean) -> Unit) {
+    HorizontalDivider(Modifier.padding(vertical = 4.dp))
+    Text("Listening history", style = MaterialTheme.typography.labelLarge)
+    Text(
+        when {
+            counts == null || counts.total == 0 ->
+                "Import your scrobbles: plays of songs in your library are added to your plays " +
+                    "(Replay, Most Played, mixes)."
+            else -> "${counts.total} scrobbles imported" +
+                if (counts.unmatched > 0) " · ${counts.unmatched} of songs not in your library yet " +
+                    "(added as plays when you add those songs)" else ""
+        },
+        style = MaterialTheme.typography.bodySmall,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+    )
+    status.text?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary) }
+    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+        val first = counts == null || counts.total == 0
+        Button(onClick = { onImport(first) }, enabled = !status.running) {
+            Text(if (first) "Import history" else "Import new scrobbles")
+        }
+        if (!first) OutlinedButton(onClick = { onImport(true) }, enabled = !status.running) { Text("Import all again") }
+        if (status.running) CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp)
+    }
 }
 
 /** The time slider's last position: no time limit. */

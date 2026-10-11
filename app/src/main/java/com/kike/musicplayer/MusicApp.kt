@@ -11,6 +11,7 @@ import com.kike.musicplayer.data.db.AppDatabase
 import com.kike.musicplayer.data.drive.DriveApi
 import com.kike.musicplayer.data.lastfm.LastFm
 import com.kike.musicplayer.data.lastfm.LastFmClient
+import com.kike.musicplayer.data.lastfm.ScrobbleImporter
 import com.kike.musicplayer.data.lastfm.Scrobbler
 import com.kike.musicplayer.data.drive.DriveAuth
 import com.kike.musicplayer.data.drive.DriveAuthInterceptor
@@ -107,6 +108,7 @@ class AppContainer(app: Application) {
         lastFm.onConnected = scrobbler::flush
         scrobbler.flush() // whatever was left unsent last time
     }
+    val scrobbleImporter = ScrobbleImporter(lastFm, database.lastFmScrobbles(), database.history(), database.tracks(), appScope)
 
     val library = LibraryRepository(
         dao = database.tracks(),
