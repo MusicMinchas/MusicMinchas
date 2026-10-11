@@ -1,6 +1,7 @@
 package com.kike.musicplayer.ui
 
 import android.Manifest
+import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
@@ -50,6 +51,23 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         setContent { MusicPlayerTheme { App() } }
+        handleLastFmCallback(intent)
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        handleLastFmCallback(intent)
+    }
+
+    override fun onResume() {
+        super.onResume()
+        // Back from Last.fm's approval page (whether or not it sent the callback link).
+        libraryVm.finishLastFmConnect(null)
+    }
+
+    private fun handleLastFmCallback(intent: Intent?) {
+        val uri = intent?.data ?: return
+        if (uri.scheme == "musicminchas" && uri.host == "lastfm") libraryVm.finishLastFmConnect(uri.getQueryParameter("token"))
     }
 
     @Composable

@@ -324,6 +324,20 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
 
     fun disconnectDrive() = viewModelScope.launch { repo.removeDrive() }
 
+    // ---- Last.fm ----
+
+    private val lastFm = container.lastFm
+    val lastFmState = lastFm.state
+
+    /** Gets a sign-in token and hands over the Last.fm approval page to open in the browser. */
+    fun connectLastFm(open: (android.net.Uri) -> Unit) = viewModelScope.launch {
+        lastFm.startConnect()?.let(open)
+    }
+
+    fun finishLastFmConnect(token: String?) = viewModelScope.launch { lastFm.finishConnect(token) }
+    fun cancelLastFmConnect() = lastFm.cancelConnect()
+    fun disconnectLastFm() = lastFm.disconnect()
+
     fun setOnlineMetadata(enabled: Boolean) {
         settings.setOnlineMetadata(enabled)
         if (enabled) repo.enrich()

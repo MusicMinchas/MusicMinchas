@@ -9,6 +9,8 @@ import com.kike.musicplayer.data.LibraryRepository
 import com.kike.musicplayer.data.Settings
 import com.kike.musicplayer.data.db.AppDatabase
 import com.kike.musicplayer.data.drive.DriveApi
+import com.kike.musicplayer.data.lastfm.LastFm
+import com.kike.musicplayer.data.lastfm.LastFmClient
 import com.kike.musicplayer.data.drive.DriveAuth
 import com.kike.musicplayer.data.drive.DriveAuthInterceptor
 import com.kike.musicplayer.data.drive.DriveLibrary
@@ -98,6 +100,8 @@ class AppContainer(app: Application) {
         driveHttp.newBuilder().readTimeout(10, TimeUnit.MINUTES).build(),
     )
     val castManager = CastManager(app, appScope)
+
+    val lastFm = LastFm(app, LastFmClient(baseHttp, moshi, BuildConfig.LASTFM_API_KEY, BuildConfig.LASTFM_SECRET))
 
     val library = LibraryRepository(
         dao = database.tracks(),

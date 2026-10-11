@@ -40,6 +40,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.material3.RadioButton
 import com.kike.musicplayer.data.DriveSyncMode
@@ -71,6 +72,8 @@ fun SourcesScreen(
     val syncMode by vm.syncMode.collectAsState()
     val lastSync by vm.lastDriveSync.collectAsState()
     val counts = library.tracks.groupingBy { it.source }.eachCount()
+    val lastFm by vm.lastFmState.collectAsState()
+    val uriHandler = LocalUriHandler.current
 
     Column(Modifier.fillMaxSize().padding(contentPadding)) {
         TopAppBar(
@@ -151,6 +154,25 @@ fun SourcesScreen(
                         )
                     }
                     OutlinedButton(onClick = { vm.disconnectDrive() }) { Text("Disconnect") }
+                }
+            }
+
+            SourceCard(
+                "Last.fm",
+                when {
+                    lastFm.user != null -> "Connected as ${lastFm.user}"
+                    lastFm.awaitingApproval -> "Approve MusicMinchas on the Last.fm page, then come back here"
+                    else -> "Scrobble what you play and bring in your Last.fm history and loved tracks"
+                },
+            ) {
+                lastFm.message?.let { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) }
+                when {
+                    lastFm.user != null -> OutlinedButton(onClick = vm::disconnectLastFm) { Text("Disconnect") }
+                    lastFm.awaitingApproval -> Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Button(onClick = { vm.connectLastFm { uriHandler.openUri(it.toString()) } }) { Text("Open Last.fm again") }
+                        OutlinedButton(onClick = vm::cancelLastFmConnect) { Text("Cancel") }
+                    }
+                    else -> Button(onClick = { vm.connectLastFm { uriHandler.openUri(it.toString()) } }) { Text("Connect Last.fm") }
                 }
             }
 

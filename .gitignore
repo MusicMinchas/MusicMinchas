@@ -8,3 +8,4 @@ captures/
 keystore.properties
 *.jks
 releases/
+lastfm.properties
