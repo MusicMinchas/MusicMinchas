@@ -19,6 +19,7 @@ import androidx.media3.datasource.okhttp.OkHttpDataSource
 import androidx.media3.exoplayer.DefaultLoadControl
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
+import androidx.media3.exoplayer.source.ShuffleOrder
 import androidx.media3.session.LibraryResult
 import androidx.media3.session.MediaLibraryService
 import androidx.media3.session.MediaSession
@@ -31,6 +32,7 @@ import com.kike.musicplayer.data.db.SessionState
 import com.kike.musicplayer.data.db.Track
 import com.kike.musicplayer.data.db.getByIds
 import com.kike.musicplayer.sonos.CastHost
+import com.kike.musicplayer.sonos.QueueSnapshot
 import com.kike.musicplayer.sonos.Sonos
 import com.kike.musicplayer.sonos.SonosGroup
 import com.kike.musicplayer.sonos.SonosPlayer
@@ -245,9 +247,7 @@ class PlaybackService : MediaLibraryService(), CastHost {
             return
         }
         playTracker.finish()
-        val items = (0 until source.mediaItemCount).map { source.getMediaItemAt(it) }
-        val index = source.currentMediaItemIndex
-        val position = source.currentPosition
+        val queue = (source as? SonosPlayer)?.snapshot() ?: phoneQueue(source)
         val playing = source.playWhenReady
         val repeat = source.repeatMode
         val shuffle = source.shuffleModeEnabled
@@ -269,7 +269,8 @@ class PlaybackService : MediaLibraryService(), CastHost {
         sonos.repeatMode = repeat
         sonos.shuffleModeEnabled = shuffle
         sonos.playWhenReady = playing
-        sonos.setMediaItems(items, index, position)
+        sonos.pendingPlayOrder = queue.playOrder
+        sonos.setMediaItems(queue.items, queue.index, queue.positionMs)
         sonosPlayer = sonos
         session.player = sonos
         acquireCastLocks()
@@ -278,13 +279,26 @@ class PlaybackService : MediaLibraryService(), CastHost {
 
     override fun stopCast() = endCast(null)
 
+    /** The phone player's queue, with its shuffle order when shuffled. */
+    private fun phoneQueue(p: Player): QueueSnapshot {
+        val playOrder = if (!p.shuffleModeEnabled) null else buildList<Int> {
+            val timeline = p.currentTimeline
+            var i = timeline.getFirstWindowIndex(true)
+            while (i != C.INDEX_UNSET) {
+                add(i)
+                i = timeline.getNextWindowIndex(i, Player.REPEAT_MODE_OFF, true)
+            }
+        }
+        return QueueSnapshot((0 until p.mediaItemCount).map(p::getMediaItemAt), p.currentMediaItemIndex, p.currentPosition, playOrder)
+    }
+
     /** Hands the queue back to the phone, paused where Sonos was, and stops the speaker. */
     private fun endCast(message: String?) {
         val sonos = sonosPlayer ?: return
         Log.i(TAG, "Ending cast: ${message ?: "stopped by user"}")
         val ip = container.castManager.active.value?.coordinatorIp
         playTracker.finish()
-        val (items, index, position) = sonos.snapshot()
+        val (items, index, position, playOrder) = sonos.snapshot()
         val repeat = sonos.repeatMode
         val shuffle = sonos.shuffleModeEnabled
         sonosPlayer = null
@@ -295,6 +309,10 @@ class PlaybackService : MediaLibraryService(), CastHost {
             player.setMediaItems(items, index.coerceIn(0, items.lastIndex), position)
             player.repeatMode = repeat
             player.shuffleModeEnabled = shuffle
+            // Keep the shuffle order Sonos was playing.
+            if (shuffle && playOrder != null) {
+                player.setShuffleOrder(ShuffleOrder.DefaultShuffleOrder(playOrder.toIntArray(), System.nanoTime()))
+            }
             player.prepare()
         }
         container.trackServer.stop()

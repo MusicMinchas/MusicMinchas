@@ -21,6 +21,7 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
@@ -36,6 +37,10 @@ import java.io.IOException
  * Sonos queue, Sonos fetches each track from [TrackServer] and plays it itself, and this player
  * polls the speaker to reflect position, track changes and volume back to the session (UI,
  * notification, lock screen, hardware volume keys).
+ *
+ * Shuffle is done here, not by Sonos: Sonos' own shuffle reorders its queue and jumps to a random
+ * track, and its track numbers then follow the shuffled order. Instead the Sonos queue always
+ * holds the play order, shuffled or not, and Sonos only gets the repeat mode.
  */
 @OptIn(UnstableApi::class)
 class SonosPlayer(
@@ -75,7 +80,19 @@ class SonosPlayer(
     private var failedPolls = 0
     private var foreignPolls = 0
 
-    /** Loads the Sonos queue; queue edits wait for it. */
+    /**
+     * While shuffle is on: the queue in its unshuffled order. [entries] is then the shuffled play
+     * order, which is also the Sonos queue's order.
+     */
+    private var unshuffled: List<Entry>? = null
+
+    /**
+     * Play order for the next [setMediaItems] when shuffle is on, as indices into its items, so a
+     * cast keeps the shuffle order it had on the phone. Used once.
+     */
+    var pendingPlayOrder: List<Int>? = null
+
+    /** Loads (or rebuilds) the Sonos queue; queue edits wait for it. */
     private var loadJob: Job? = null
 
     /** Entry IDs in Sonos queue order; only touched on [sonosThread]. */
@@ -117,8 +134,20 @@ class SonosPlayer(
 
     override fun handleSetMediaItems(mediaItems: List<MediaItem>, startIndex: Int, startPositionMs: Long): ListenableFuture<*> {
         loadJob?.cancel()
-        entries = mediaItems.map { Entry(nextId++, it) }
-        currentIndex = if (startIndex == C.INDEX_UNSET) 0 else startIndex.coerceIn(0, (entries.size - 1).coerceAtLeast(0))
+        val all = mediaItems.map { Entry(nextId++, it) }
+        val first = if (startIndex == C.INDEX_UNSET) 0 else startIndex.coerceIn(0, (all.size - 1).coerceAtLeast(0))
+        val order = pendingPlayOrder?.takeIf { shuffle && it.sorted() == all.indices.toList() }
+            ?: if (shuffle && all.isNotEmpty()) listOf(first) + all.indices.filter { it != first }.shuffled() else null
+        pendingPlayOrder = null
+        if (order != null) {
+            unshuffled = all
+            entries = order.map { all[it] }
+            currentIndex = order.indexOf(first)
+        } else {
+            unshuffled = null
+            entries = all
+            currentIndex = first
+        }
         positionMs = if (startPositionMs == C.TIME_UNSET) 0 else startPositionMs
         positionAt = SystemClock.elapsedRealtime()
         playbackState = if (entries.isEmpty()) Player.STATE_IDLE else Player.STATE_BUFFERING
@@ -170,9 +199,10 @@ class SonosPlayer(
                 if (!started) {
                     started = true
                     Sonos.useQueue(ip, group.uuid)
+                    // Before picking the track: leaving a Sonos shuffle mode reorders the queue and jumps.
+                    applyPlayMode()
                     Sonos.seekTrack(ip, 1)
                     if (startPositionMs > 1000) seekTimeVerified(startPositionMs)
-                    applyPlayMode()
                     val play = withContext(Dispatchers.Main) {
                         playbackState = Player.STATE_READY
                         // Adding tracks to the queue resets a stopped track to 0:00, so while
@@ -221,6 +251,7 @@ class SonosPlayer(
             val loaded = withContext(sonosThread) { sonosOrder.toSet() }
             val current = entries.getOrNull(currentIndex)
             entries = entries.filter { it.id in loaded }
+            unshuffled = unshuffled?.filter { it.id in loaded }
             currentIndex = entries.indexOf(current).coerceAtLeast(0)
             invalidateState()
         }
@@ -280,12 +311,104 @@ class SonosPlayer(
 
     override fun handleSetShuffleModeEnabled(shuffleModeEnabled: Boolean): ListenableFuture<*> {
         shuffle = shuffleModeEnabled
-        hold()
-        return command { applyPlayMode() }
+        val current = entries.getOrNull(currentIndex)
+        if (current == null) {
+            unshuffled = null
+            return Futures.immediateVoidFuture()
+        }
+        val previous = unshuffled
+        when {
+            // The playing track stays; the rest follows it in random order.
+            shuffleModeEnabled && previous == null -> {
+                unshuffled = entries
+                entries = listOf(current) + entries.filter { it !== current }.shuffled()
+            }
+            !shuffleModeEnabled && previous != null -> {
+                entries = previous
+                unshuffled = null
+            }
+            else -> return Futures.immediateVoidFuture()
+        }
+        currentIndex = entries.indexOf(current)
+        rebuildAround(current.id)
+        return Futures.immediateVoidFuture()
+    }
+
+    /**
+     * Puts the Sonos queue in the order of [entries] without interrupting the playing track: every
+     * other track is removed and added back around it, the way the initial load does.
+     */
+    private fun rebuildAround(currentId: Long) {
+        val previous = loadJob
+        val order = entries
+        val playing = playWhenReady
+        val resumeAt = currentPosition
+        // Paused, Sonos may reset the track's position while its queue changes; restored below.
+        hold(if (playing) 2_000 else HOLD_WHILE_LOADING_MS)
+        loadJob = scope.launch {
+            previous?.join()
+            try {
+                withContext(sonosThread) {
+                    val base = server.baseUrl() ?: throw IOException("the phone has no Wi-Fi address")
+                    val p = sonosOrder.indexOf(currentId)
+                    if (p < 0) return@withContext
+                    if (p + 1 < sonosOrder.size) Sonos.removeFromQueue(ip, p + 2, sonosOrder.size - p - 1)
+                    if (p > 0) Sonos.removeFromQueue(ip, 1, p)
+                    sonosOrder.clear()
+                    sonosOrder += currentId
+                    val tracks = dao.getByIds(order.map { trackIdOf(it.item) }).associateBy { it.id }
+                    fun items(batch: List<Entry>) =
+                        batch.mapNotNull { e -> tracks[trackIdOf(e.item)]?.let { e.id to queueItem(base, e.id, it) } }
+                    val i = order.indexOfFirst { it.id == currentId }
+                    for (batch in order.subList(i + 1, order.size).chunked(Sonos.MAX_URIS_PER_ADD)) {
+                        val added = items(batch)
+                        if (added.isNotEmpty()) {
+                            try {
+                                Sonos.addToQueue(ip, added.map { it.second })
+                                sonosOrder += added.map { it.first }
+                            } catch (e: IOException) {
+                                Log.w(TAG, "Skipped ${added.size} tracks that Sonos refused", e)
+                            }
+                        }
+                        yield()
+                    }
+                    var position = 1
+                    for (batch in order.subList(0, i).chunked(Sonos.MAX_URIS_PER_ADD)) {
+                        val added = items(batch)
+                        if (added.isNotEmpty()) {
+                            try {
+                                Sonos.addToQueue(ip, added.map { it.second }, position)
+                                sonosOrder.addAll(position - 1, added.map { it.first })
+                                position += added.size
+                            } catch (e: IOException) {
+                                Log.w(TAG, "Skipped ${added.size} tracks that Sonos refused", e)
+                            }
+                        }
+                        yield()
+                    }
+                    if (!playing) {
+                        val now = Sonos.position(ip)
+                        if (server.entryIdOf(now.trackUri) != currentId) Sonos.seekTrack(ip, sonosOrder.indexOf(currentId) + 1)
+                        if (resumeAt > 1000 && kotlin.math.abs(Sonos.position(ip).relTimeMs - resumeAt) > 3_000) seekTimeVerified(resumeAt)
+                    }
+                }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                Log.w(TAG, "Reordering the Sonos queue failed", e)
+            } finally {
+                withContext(NonCancellable + Dispatchers.Main) { hold() }
+            }
+        }
     }
 
     override fun handleAddMediaItems(index: Int, mediaItems: List<MediaItem>): ListenableFuture<*> {
         val added = mediaItems.map { Entry(nextId++, it) }
+        // Shuffled, the unshuffled order gets them after the same track as the play order.
+        unshuffled = unshuffled?.let { u ->
+            val after = entries.getOrNull(index - 1)
+            u.toMutableList().apply { addAll(if (after == null) 0 else u.indexOf(after) + 1, added) }
+        }
         entries = entries.toMutableList().apply { addAll(index.coerceIn(0, size), added) }
         if (index <= currentIndex && entries.size > added.size) currentIndex += added.size
         return queueEdit {
@@ -307,6 +430,7 @@ class SonosPlayer(
         val removed = entries.subList(fromIndex, toIndex).map { it.id }
         val current = entries.getOrNull(currentIndex)
         entries = entries.filterIndexed { i, _ -> i !in fromIndex until toIndex }
+        unshuffled = unshuffled?.filter { it.id !in removed }
         currentIndex = when {
             current != null && current.id !in removed -> entries.indexOf(current)
             else -> fromIndex.coerceAtMost((entries.size - 1).coerceAtLeast(0))
@@ -366,8 +490,17 @@ class SonosPlayer(
         return Futures.immediateVoidFuture()
     }
 
-    /** Current app-side state, for handing playback back to the phone. */
-    fun snapshot(): Triple<List<MediaItem>, Int, Long> = Triple(entries.map { it.item }, currentIndex, currentPosition)
+    /** Current app-side state, for handing playback back to the phone (or to another group). */
+    fun snapshot(): QueueSnapshot {
+        val u = unshuffled ?: return QueueSnapshot(entries.map { it.item }, currentIndex, currentPosition, null)
+        val positionOf = u.withIndex().associate { (i, e) -> e.id to i }
+        return QueueSnapshot(
+            items = u.map { it.item },
+            index = entries.getOrNull(currentIndex)?.let { positionOf[it.id] } ?: 0,
+            positionMs = currentPosition,
+            playOrder = entries.mapNotNull { positionOf[it.id] },
+        )
+    }
 
     // ---- Helpers ----
 
@@ -416,14 +549,11 @@ class SonosPlayer(
         Log.w(TAG, "Sonos didn't take the seek to $positionMs ms")
     }
 
+    /** Repeat only: shuffle is already in the queue's order (see the class comment). */
     private suspend fun applyPlayMode() {
-        val (repeat, shuffled) = withContext(Dispatchers.Main) { repeatMode to shuffle }
-        val mode = when {
-            shuffled && repeat == Player.REPEAT_MODE_ALL -> "SHUFFLE"
-            shuffled && repeat == Player.REPEAT_MODE_ONE -> "SHUFFLE_REPEAT_ONE"
-            shuffled -> "SHUFFLE_NOREPEAT"
-            repeat == Player.REPEAT_MODE_ALL -> "REPEAT_ALL"
-            repeat == Player.REPEAT_MODE_ONE -> "REPEAT_ONE"
+        val mode = when (withContext(Dispatchers.Main) { repeatMode }) {
+            Player.REPEAT_MODE_ALL -> "REPEAT_ALL"
+            Player.REPEAT_MODE_ONE -> "REPEAT_ONE"
             else -> "NORMAL"
         }
         Sonos.setPlayMode(ip, mode)
@@ -468,7 +598,9 @@ class SonosPlayer(
             if (SystemClock.elapsedRealtime() < holdUntil) continue
             vol?.let { volume = it }
             mode?.let {
-                shuffle = it.startsWith("SHUFFLE")
+                // Shuffled from elsewhere (e.g. the Sonos app): Sonos reordered its queue, so it no
+                // longer matches ours. Turn its shuffle off again; the app's shuffle button is the one.
+                if (it.startsWith("SHUFFLE")) command { applyPlayMode() }
                 repeatMode = when (it) {
                     "REPEAT_ALL", "SHUFFLE" -> Player.REPEAT_MODE_ALL
                     "REPEAT_ONE", "SHUFFLE_REPEAT_ONE" -> Player.REPEAT_MODE_ONE
@@ -535,3 +667,6 @@ class SonosPlayer(
         fun trackIdOf(item: MediaItem) = PlaybackService.trackIdOf(item.mediaId)
     }
 }
+
+/** A queue handed between players: [items] in queue order, plus the play order (indices into [items]) while shuffled. */
+data class QueueSnapshot(val items: List<MediaItem>, val index: Int, val positionMs: Long, val playOrder: List<Int>?)
