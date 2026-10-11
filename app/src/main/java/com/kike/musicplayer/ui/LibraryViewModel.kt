@@ -121,12 +121,14 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
 
     /**
      * Genres for the Genres tab: each track's file genre, else its artist's top MusicBrainz tag.
-     * An album is listed under the genre most of its songs have.
+     * An album is listed under every genre one of its songs has, so no genre is left without albums.
      */
     val genres: StateFlow<List<Genre>> = combine(library, artistTags) { lib, tags ->
         val keyOf = lib.tracks.associate { it.id to (effectiveGenreKey(it, tags) ?: UNKNOWN_GENRE) }
-        val albumsByGenre = lib.albums.groupBy { album ->
-            album.tracks.groupingBy { keyOf.getValue(it.id) }.eachCount().maxByOrNull { it.value }?.key ?: UNKNOWN_GENRE
+        val albumsByGenre = HashMap<String, MutableList<Album>>()
+        for (album in lib.albums) {
+            album.tracks.mapTo(LinkedHashSet()) { keyOf.getValue(it.id) }
+                .forEach { albumsByGenre.getOrPut(it) { mutableListOf() } += album }
         }
         lib.tracks.groupBy { keyOf.getValue(it.id) }.map { (key, tracks) ->
             val name = if (key == UNKNOWN_GENRE) "Unknown genre"

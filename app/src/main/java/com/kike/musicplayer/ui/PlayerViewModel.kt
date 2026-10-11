@@ -53,7 +53,11 @@ data class PlayerUiState(
 /** UI-side MediaController, connected asynchronously to [PlaybackService]. */
 class PlayerViewModel(app: Application) : AndroidViewModel(app) {
     private val controllerFuture: ListenableFuture<MediaController> =
-        MediaController.Builder(app, SessionToken(app, ComponentName(app, PlaybackService::class.java))).buildAsync()
+        MediaController.Builder(app, SessionToken(app, ComponentName(app, PlaybackService::class.java)))
+            // Media3 drops the device volume commands while the player is local and doesn't restore
+            // them when the session switches to Sonos, which left the speaker volume slider dead.
+            .setAllowDeviceVolumeCommandsForLocalPlayback(true)
+            .buildAsync()
     private var controller: MediaController? = null
 
     private val cast = app.container.castManager
