@@ -90,8 +90,8 @@ class ScrobbleImporter(
                     val loved = downloadLoved(user)
                     val matcher = TrackMatcher(tracks.getAll())
                     val matches = loved.mapNotNull { l -> matcher.match(l.artist, l.track, null, l.mbid)?.let { Favourite(it.id, l.uts * 1000) } }
-                        .distinctBy { it.trackId }
-                    val added = favourites.insertAll(matches).count { it != -1L }
+                    // Two loves can be the same library song (e.g. loved under two spellings): one favourite.
+                    val added = favourites.insertAll(matches.distinctBy { it.trackId }).count { it != -1L }
                     Triple(loved.size, added, loved.size - matches.size)
                 }
                 _status.value = result.fold(
