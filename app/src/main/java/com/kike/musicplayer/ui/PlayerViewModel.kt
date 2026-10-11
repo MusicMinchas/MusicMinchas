@@ -203,6 +203,8 @@ class PlayerViewModel(app: Application) : AndroidViewModel(app) {
         viewModelScope.launch {
             if (add) favouriteDao.insert(Favourite(trackId, System.currentTimeMillis())) else favouriteDao.delete(trackId)
         }
+        // Loved / unloved on Last.fm too, when connected.
+        getApplication<Application>().container.scrobbler.love(trackId, add)
     }
 
     fun setRemoteVolume(volume: Int) {

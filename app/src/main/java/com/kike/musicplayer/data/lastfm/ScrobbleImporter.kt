@@ -1,6 +1,8 @@
 package com.kike.musicplayer.data.lastfm
 
 import android.util.Log
+import com.kike.musicplayer.data.db.Favourite
+import com.kike.musicplayer.data.db.FavouriteDao
 import com.kike.musicplayer.data.db.HistoryDao
 import com.kike.musicplayer.data.db.LastFmScrobble
 import com.kike.musicplayer.data.db.LastFmScrobbleDao
@@ -18,8 +20,8 @@ import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import java.io.IOException
 
-/** What the import shows in the settings. */
-data class ImportStatus(val running: Boolean = false, val text: String? = null)
+/** What the import shows in the settings; [loved] tells which section it belongs to. */
+data class ImportStatus(val running: Boolean = false, val text: String? = null, val loved: Boolean = false)
 
 /**
  * Brings the user's Last.fm history into the app. Every scrobble is kept in its own table, one per
@@ -33,6 +35,8 @@ class ScrobbleImporter(
     private val scrobbles: LastFmScrobbleDao,
     private val history: HistoryDao,
     private val tracks: TrackDao,
+    private val favourites: FavouriteDao,
+    private val scrobbler: Scrobbler,
     private val scope: CoroutineScope,
 ) {
     private val mutex = Mutex()
@@ -68,6 +72,75 @@ class ScrobbleImporter(
                 )
             }
         }
+    }
+
+    /**
+     * Adds the user's Last.fm loved tracks that are in the library to the favourites, dated when
+     * they were loved. Loves/unloves still waiting to be sent go first, so a song just removed from
+     * the favourites doesn't come straight back.
+     */
+    fun importLoved() {
+        val user = lastFm.state.value.user ?: return
+        if (mutex.isLocked) return
+        scope.launch {
+            mutex.withLock {
+                _status.value = ImportStatus(running = true, text = "Downloading loved tracks…", loved = true)
+                val result = runCatching {
+                    scrobbler.send()
+                    val loved = downloadLoved(user)
+                    val matcher = TrackMatcher(tracks.getAll())
+                    val matches = loved.mapNotNull { l -> matcher.match(l.artist, l.track, null, l.mbid)?.let { Favourite(it.id, l.uts * 1000) } }
+                        .distinctBy { it.trackId }
+                    val added = favourites.insertAll(matches).count { it != -1L }
+                    Triple(loved.size, added, loved.size - matches.size)
+                }
+                _status.value = result.fold(
+                    onSuccess = { (loved, added, missing) ->
+                        ImportStatus(loved = true, text = when (loved) {
+                            0 -> "No loved tracks on Last.fm"
+                            else -> "${count(loved, "loved track")}: ${count(added, "new favourite")}" +
+                                if (missing > 0) ", $missing not in your library" else ""
+                        })
+                    },
+                    onFailure = {
+                        Log.w(TAG, "Loved tracks import failed", it)
+                        ImportStatus(loved = true, text = "Importing loved tracks stopped: ${it.message}")
+                    },
+                )
+            }
+        }
+    }
+
+    private class Loved(val uts: Long, val artist: String, val track: String, val mbid: String?)
+
+    private suspend fun downloadLoved(user: String): List<Loved> {
+        val loved = mutableListOf<Loved>()
+        var page = 1
+        var totalPages = 1
+        while (page <= totalPages) {
+            val params = mapOf("user" to user, "limit" to PAGE_SIZE.toString(), "page" to page.toString())
+            val json = withRetries { lastFm.client.call("user.getLovedTracks", params) }
+            val root = lastFm.client.moshi.adapter(Map::class.java).fromJson(json) as Map<*, *>
+            val list = root["lovedtracks"] as? Map<*, *> ?: throw IOException("Unexpected Last.fm response")
+            totalPages = ((list["@attr"] as? Map<*, *>)?.get("totalPages") as? String)?.toIntOrNull() ?: 1
+            val items = when (val t = list["track"]) {
+                is List<*> -> t
+                is Map<*, *> -> listOf(t)
+                else -> emptyList()
+            }
+            items.mapNotNullTo(loved) { item ->
+                val m = item as? Map<*, *> ?: return@mapNotNullTo null
+                Loved(
+                    uts = ((m["date"] as? Map<*, *>)?.get("uts") as? String)?.toLongOrNull() ?: (System.currentTimeMillis() / 1000),
+                    artist = ((m["artist"] as? Map<*, *>)?.get("name") as? String)?.takeIf { it.isNotBlank() } ?: return@mapNotNullTo null,
+                    track = (m["name"] as? String)?.takeIf { it.isNotBlank() } ?: return@mapNotNullTo null,
+                    mbid = (m["mbid"] as? String)?.takeIf { it.isNotBlank() },
+                )
+            }
+            page++
+            delay(REQUEST_INTERVAL_MS)
+        }
+        return loved
     }
 
     /** Matches waiting scrobbles against the library again (it changed). */

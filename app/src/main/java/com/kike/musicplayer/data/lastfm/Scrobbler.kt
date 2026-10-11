@@ -15,9 +15,9 @@ import kotlinx.coroutines.sync.withLock
 import java.io.IOException
 
 /**
- * Sends plays to Last.fm. Scrobbles go through an outbox table first, so they survive being
- * offline and app restarts, and are sent oldest first in batches of up to 50, as Last.fm asks
- * (https://www.last.fm/api/scrobbling).
+ * Sends plays, loves and unloves to Last.fm. They go through an outbox table first, so they survive
+ * being offline and app restarts; scrobbles are sent oldest first in batches of up to 50, as
+ * Last.fm asks (https://www.last.fm/api/scrobbling), loves one by one in the order they were made.
  */
 class Scrobbler(
     private val lastFm: LastFm,
@@ -76,12 +76,72 @@ class Scrobbler(
         }
     }
 
+    /** Loves (or unloves) [trackId] on Last.fm: a song was added to (removed from) the favourites. */
+    fun love(trackId: String, loved: Boolean) {
+        if (lastFm.sessionKey == null) return
+        scope.launch {
+            val t = tracks.getByIds(listOf(trackId)).firstOrNull() ?: return@launch
+            outbox.insert(
+                LastFmOutboxItem(
+                    action = if (loved) LastFmOutboxItem.LOVE else LastFmOutboxItem.UNLOVE,
+                    artist = t.artist ?: t.albumArtist ?: return@launch,
+                    track = t.title,
+                    album = t.album,
+                    albumArtist = t.albumArtist,
+                    durationSec = null,
+                    timestamp = System.currentTimeMillis() / 1000,
+                )
+            )
+            send()
+        }
+    }
+
     /** Sends whatever is waiting (at app start, after reconnecting, on retry). */
     fun flush() {
         scope.launch { send() }
     }
 
-    private suspend fun send() = mutex.withLock {
+    /** Sends what's waiting and returns when done (or when it has to wait for Last.fm). */
+    suspend fun send() {
+        sendScrobbles()
+        sendLoves()
+    }
+
+    private suspend fun sendLoves() = mutex.withLock {
+        while (true) {
+            val sk = lastFm.sessionKey ?: return@withLock
+            val item = outbox.pendingLoves(1).firstOrNull() ?: return@withLock
+            try {
+                lastFm.client.call(
+                    if (item.action == LastFmOutboxItem.LOVE) "track.love" else "track.unlove",
+                    mapOf("artist" to item.artist, "track" to item.track),
+                    sessionKey = sk, post = true,
+                )
+                outbox.delete(listOf(item.id))
+            } catch (e: LastFmException) {
+                when {
+                    e.code == LastFmException.INVALID_SESSION -> {
+                        lastFm.onSessionInvalid()
+                        return@withLock
+                    }
+                    e.isTemporary -> {
+                        retryLater()
+                        return@withLock
+                    }
+                    else -> {
+                        Log.w(TAG, "Last.fm refused ${item.action} of ${item.artist} - ${item.track}; dropping it", e)
+                        outbox.delete(listOf(item.id))
+                    }
+                }
+            } catch (e: IOException) {
+                Log.i(TAG, "Love postponed: $e")
+                retryLater()
+                return@withLock
+            }
+        }
+    }
+
+    private suspend fun sendScrobbles() = mutex.withLock {
         while (true) {
             val sk = lastFm.sessionKey ?: return@withLock
             val batch = outbox.pending(LastFmOutboxItem.SCROBBLE, BATCH)

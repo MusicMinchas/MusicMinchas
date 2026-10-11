@@ -184,6 +184,7 @@ fun SourcesScreen(
                     lastFm.user != null -> {
                         ScrobbleControls(scrobbling, pendingScrobbles, vm::setScrobbleSettings)
                         HistoryImport(scrobbleCounts, importStatus, vm::importScrobbles)
+                        LovedTracks(importStatus, vm::importLoved)
                         OutlinedButton(onClick = vm::disconnectLastFm) { Text("Disconnect") }
                     }
                     lastFm.awaitingApproval -> Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -265,14 +266,32 @@ private fun HistoryImport(counts: ScrobbleCounts?, status: ImportStatus, onImpor
         style = MaterialTheme.typography.bodySmall,
         color = MaterialTheme.colorScheme.onSurfaceVariant,
     )
-    status.text?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary) }
+    status.text?.takeIf { !status.loved }?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary) }
     Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
         val first = counts == null || counts.total == 0
         Button(onClick = { onImport(first) }, enabled = !status.running) {
             Text(if (first) "Import history" else "Import new scrobbles")
         }
         if (!first) OutlinedButton(onClick = { onImport(true) }, enabled = !status.running) { Text("Import all again") }
-        if (status.running) CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp)
+        if (status.running && !status.loved) CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp)
+    }
+}
+
+/** Favourites and Last.fm loved tracks. */
+@Composable
+private fun LovedTracks(status: ImportStatus, onImport: () -> Unit) {
+    HorizontalDivider(Modifier.padding(vertical = 4.dp))
+    Text("Loved tracks", style = MaterialTheme.typography.labelLarge)
+    Text(
+        "Favouriting a song loves it on Last.fm, and removing it unloves it. Import your loved tracks " +
+            "to add those in your library to your favourites.",
+        style = MaterialTheme.typography.bodySmall,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+    )
+    status.text?.takeIf { status.loved }?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary) }
+    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+        OutlinedButton(onClick = onImport, enabled = !status.running) { Text("Import loved tracks") }
+        if (status.running && status.loved) CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp)
     }
 }
 

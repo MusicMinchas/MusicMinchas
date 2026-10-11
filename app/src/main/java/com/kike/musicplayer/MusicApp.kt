@@ -108,7 +108,9 @@ class AppContainer(app: Application) {
         lastFm.onConnected = scrobbler::flush
         scrobbler.flush() // whatever was left unsent last time
     }
-    val scrobbleImporter = ScrobbleImporter(lastFm, database.lastFmScrobbles(), database.history(), database.tracks(), appScope)
+    val scrobbleImporter = ScrobbleImporter(
+        lastFm, database.lastFmScrobbles(), database.history(), database.tracks(), database.favourites(), scrobbler, appScope,
+    )
 
     val library = LibraryRepository(
         dao = database.tracks(),

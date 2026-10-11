@@ -95,8 +95,9 @@ data class PlayHistory(
 )
 
 /**
- * Something waiting to be sent to Last.fm (a scrobble now; loves later), kept until Last.fm has it so
- * nothing is lost offline or across restarts. [timestamp] is in seconds: a scrobble's start time.
+ * Something waiting to be sent to Last.fm (a scrobble, love or unlove), kept until Last.fm has it so
+ * nothing is lost offline or across restarts. [timestamp] is in seconds: a scrobble's start time, or
+ * when a love/unlove was asked for.
  */
 @Entity(tableName = "lastfm_outbox")
 data class LastFmOutboxItem(
@@ -111,6 +112,8 @@ data class LastFmOutboxItem(
 ) {
     companion object {
         const val SCROBBLE = "scrobble"
+        const val LOVE = "love"
+        const val UNLOVE = "unlove"
     }
 }
 

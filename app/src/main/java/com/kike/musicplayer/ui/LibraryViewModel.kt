@@ -356,6 +356,7 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
         .stateIn(viewModelScope, SharingStarted.Eagerly, null)
 
     fun importScrobbles(everything: Boolean) = importer.import(everything)
+    fun importLoved() = importer.importLoved()
 
     init {
         // Songs added to the library may be ones Last.fm scrobbles are waiting for.

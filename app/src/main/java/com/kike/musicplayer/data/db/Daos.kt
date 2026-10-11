@@ -149,6 +149,10 @@ interface LastFmOutboxDao {
     @Query("SELECT * FROM lastfm_outbox WHERE action = :action ORDER BY id LIMIT :limit")
     suspend fun pending(action: String, limit: Int): List<LastFmOutboxItem>
 
+    /** Loves and unloves, in the order they were asked for. */
+    @Query("SELECT * FROM lastfm_outbox WHERE action IN ('love', 'unlove') ORDER BY id LIMIT :limit")
+    suspend fun pendingLoves(limit: Int): List<LastFmOutboxItem>
+
     @Query("DELETE FROM lastfm_outbox WHERE id IN (:ids)")
     suspend fun delete(ids: List<Long>)
 
@@ -185,6 +189,10 @@ interface FavouriteDao {
 
     @Insert(onConflict = OnConflictStrategy.IGNORE)
     suspend fun insert(favourite: Favourite)
+
+    /** Returns the row ids, -1 for songs that were favourites already. */
+    @Insert(onConflict = OnConflictStrategy.IGNORE)
+    suspend fun insertAll(favourites: List<Favourite>): List<Long>
 
     @Query("DELETE FROM favourites WHERE trackId = :trackId")
     suspend fun delete(trackId: String)
