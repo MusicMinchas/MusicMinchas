@@ -256,7 +256,7 @@ class PlaybackService : MediaLibraryService(), CastHost {
         sonosPlayer?.let { old ->
             val oldIp = (container.castManager.active.value ?: group).coordinatorIp
             old.release()
-            scope.launch(Dispatchers.IO) { runCatching { Sonos.pause(oldIp) } }
+            scope.launch(Dispatchers.IO) { silence(oldIp) }
         }
         player.pause()
 
@@ -278,6 +278,21 @@ class PlaybackService : MediaLibraryService(), CastHost {
     }
 
     override fun stopCast() = endCast(null)
+
+    /**
+     * Stops a speaker the cast left. Sonos refuses Pause while it is still loading a track (e.g.
+     * right after a skip), and it keeps playing what it has buffered, so retry until it's quiet.
+     */
+    private suspend fun silence(ip: String) {
+        repeat(20) { attempt ->
+            val state = runCatching { Sonos.position(ip).transportState }.getOrNull()
+            if (state == "PAUSED_PLAYBACK" || state == "STOPPED") return
+            runCatching { if (attempt < 10) Sonos.pause(ip) else Sonos.stop(ip) }
+                .onFailure { Log.w(TAG, "Couldn't pause $ip ($state): $it") }
+            delay(500)
+        }
+        Log.w(TAG, "$ip kept playing after the cast ended")
+    }
 
     /** The phone player's queue, with its shuffle order when shuffled. */
     private fun phoneQueue(p: Player): QueueSnapshot {
@@ -304,7 +319,7 @@ class PlaybackService : MediaLibraryService(), CastHost {
         sonosPlayer = null
         session.player = player
         sonos.release()
-        ip?.let { scope.launch(Dispatchers.IO) { runCatching { Sonos.pause(it) } } }
+        ip?.let { scope.launch(Dispatchers.IO) { silence(it) } }
         if (items.isNotEmpty()) {
             player.setMediaItems(items, index.coerceIn(0, items.lastIndex), position)
             player.repeatMode = repeat
