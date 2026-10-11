@@ -15,6 +15,10 @@ class GenreTagTest {
         assertEquals("Rock", normalizeGenre(" Rock ; Pop"))
         assertEquals("Drum & Bass", normalizeGenre("Drum  &  Bass"))
         assertEquals(null, normalizeGenre("  "))
+        assertEquals("Folk", normalizeGenre("(80)"))
+        assertEquals("Gothic Rock", normalizeGenre("(91)"))
+        assertEquals("Psychedelic Rock", normalizeGenre("93"))
+        assertEquals("Psybient", normalizeGenre("(191)"))
         assertEquals(null, normalizeGenre("(255)"))
     }
 }

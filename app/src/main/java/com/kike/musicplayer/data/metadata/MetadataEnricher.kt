@@ -13,6 +13,7 @@ import androidx.media3.common.util.UnstableApi
 import androidx.media3.datasource.DefaultDataSource
 import androidx.media3.datasource.okhttp.OkHttpDataSource
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
+import androidx.media3.extractor.metadata.id3.TextInformationFrame
 import androidx.media3.inspector.MetadataRetriever
 import com.kike.musicplayer.data.Settings
 import com.kike.musicplayer.data.db.ArtistInfo
@@ -358,11 +359,17 @@ class MetadataEnricher(
                 if (groups.length == 0) return null
                 val durationUs = runCatching { r.retrieveDurationUs().await() }.getOrNull()
                 val builder = MediaMetadata.Builder()
+                val frames = mutableListOf<TextInformationFrame>()
                 for (g in 0 until groups.length) {
                     val group = groups[g]
-                    for (i in 0 until group.length) group.getFormat(i).metadata?.let { builder.populateFromMetadata(it) }
+                    for (i in 0 until group.length) group.getFormat(i).metadata?.let { metadata ->
+                        builder.populateFromMetadata(metadata)
+                        for (e in 0 until metadata.length()) (metadata[e] as? TextInformationFrame)?.let(frames::add)
+                    }
                 }
                 val md = builder.build()
+                // ID3v2.2 frames Media3 doesn't map; iTunes writes v2.2 tags in the MP3s it encodes.
+                fun v22(id: String) = frames.firstOrNull { it.id == id }?.values?.firstOrNull()
                 fun CharSequence?.clean() = this?.toString()?.trim()?.takeIf { it.isNotEmpty() }
                 return Tags(
                     title = md.title.clean(),
@@ -370,10 +377,10 @@ class MetadataEnricher(
                     album = md.albumTitle.clean(),
                     albumArtist = md.albumArtist.clean(),
                     trackNumber = md.trackNumber,
-                    discNumber = md.discNumber,
+                    discNumber = md.discNumber ?: v22("TPA")?.substringBefore('/')?.trim()?.toIntOrNull(),
                     year = md.recordingYear ?: md.releaseYear,
                     durationMs = durationUs?.takeIf { it != C.TIME_UNSET && it > 0 }?.let { it / 1000 },
-                    genre = normalizeGenre(md.genre?.toString()),
+                    genre = normalizeGenre(md.genre?.toString() ?: v22("TCO")),
                     picture = { md.artworkData },
                 )
             }
@@ -543,7 +550,10 @@ class MetadataEnricher(
         private const val MIN_SCORE = 90
         private const val GENRE_BATCH = 100
 
-        /** ID3v1 genre numbers, still found in old MP3s as "(17)" or "17". */
+        /**
+         * ID3v1 genre numbers, still found in old MP3s as "(17)" or "17": the 80 standard ones, then
+         * Winamp's extensions (80-191), which iTunes writes too (e.g. "(91)" is Gothic Rock).
+         */
         private val ID3_GENRES = listOf(
             "Blues", "Classic Rock", "Country", "Dance", "Disco", "Funk", "Grunge", "Hip-Hop", "Jazz", "Metal",
             "New Age", "Oldies", "Other", "Pop", "R&B", "Rap", "Reggae", "Rock", "Techno", "Industrial",
@@ -555,6 +565,21 @@ class MetadataEnricher(
             "Christian Rap", "Pop/Funk", "Jungle", "Native American", "Cabaret", "New Wave", "Psychadelic", "Rave",
             "Showtunes", "Trailer", "Lo-Fi", "Tribal", "Acid Punk", "Acid Jazz", "Polka", "Retro", "Musical",
             "Rock & Roll", "Hard Rock",
+            "Folk", "Folk-Rock", "National Folk", "Swing", "Fast Fusion", "Bebop", "Latin", "Revival", "Celtic",
+            "Bluegrass", "Avantgarde", "Gothic Rock", "Progressive Rock", "Psychedelic Rock", "Symphonic Rock",
+            "Slow Rock", "Big Band", "Chorus", "Easy Listening", "Acoustic", "Humour", "Speech", "Chanson",
+            "Opera", "Chamber Music", "Sonata", "Symphony", "Booty Bass", "Primus", "Porn Groove", "Satire",
+            "Slow Jam", "Club", "Tango", "Samba", "Folklore", "Ballad", "Power Ballad", "Rhythmic Soul",
+            "Freestyle", "Duet", "Punk Rock", "Drum Solo", "A cappella", "Euro-House", "Dance Hall", "Goa",
+            "Drum & Bass", "Club-House", "Hardcore Techno", "Terror", "Indie", "BritPop", "Afro-Punk",
+            "Polsk Punk", "Beat", "Christian Gangsta Rap", "Heavy Metal", "Black Metal", "Crossover",
+            "Contemporary Christian", "Christian Rock", "Merengue", "Salsa", "Thrash Metal", "Anime", "JPop",
+            "Synthpop", "Abstract", "Art Rock", "Baroque", "Bhangra", "Big Beat", "Breakbeat", "Chillout",
+            "Downtempo", "Dub", "EBM", "Eclectic", "Electro", "Electroclash", "Emo", "Experimental", "Garage",
+            "Global", "IDM", "Illbient", "Industro-Goth", "Jam Band", "Krautrock", "Leftfield", "Lounge",
+            "Math Rock", "New Romantic", "Nu-Breakz", "Post-Punk", "Post-Rock", "Psytrance", "Shoegaze",
+            "Space Rock", "Trop Rock", "World Music", "Neoclassical", "Audiobook", "Audio Theatre",
+            "Neue Deutsche Welle", "Podcast", "Indie Rock", "G-Funk", "Dubstep", "Garage Rock", "Psybient",
         )
 
         /** First genre of a tag value, with ID3v1 numbers ("(17)", "17") turned into names. */

@@ -9,7 +9,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
 
 @Database(
     entities = [Track::class, QueueItem::class, SessionState::class, PlayHistory::class, ArtistInfo::class],
-    version = 5,
+    version = 7,
 )
 abstract class AppDatabase : RoomDatabase() {
     abstract fun tracks(): TrackDao
@@ -55,9 +55,23 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        /** MP3s with ID3v2.2 tags had their genre missed (TCO frame): read their genres again. */
+        private val MIGRATION_5_6 = object : Migration(5, 6) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("UPDATE `tracks` SET `genreRead` = 0 WHERE `genre` IS NULL AND `mimeType` = 'audio/mpeg'")
+            }
+        }
+
+        /** ...and again, now that ID3v1 genre numbers above 79 ("(91)" = Gothic Rock) are known. */
+        private val MIGRATION_6_7 = object : Migration(6, 7) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("UPDATE `tracks` SET `genreRead` = 0 WHERE `genre` IS NULL AND `mimeType` = 'audio/mpeg'")
+            }
+        }
+
         fun create(context: Context): AppDatabase =
             Room.databaseBuilder(context, AppDatabase::class.java, "music.db")
-                .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5)
+                .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7)
                 .build()
     }
 }
