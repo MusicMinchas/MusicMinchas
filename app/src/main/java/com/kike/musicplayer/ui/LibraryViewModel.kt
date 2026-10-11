@@ -338,6 +338,10 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
     fun cancelLastFmConnect() = lastFm.cancelConnect()
     fun disconnectLastFm() = lastFm.disconnect()
 
+    val scrobbleSettings = lastFm.scrobbleSettings
+    val pendingScrobbles = container.scrobbler.pending.stateIn(viewModelScope, SharingStarted.Eagerly, 0)
+    fun setScrobbleSettings(settings: com.kike.musicplayer.data.lastfm.ScrobbleSettings) = lastFm.setScrobbleSettings(settings)
+
     fun setOnlineMetadata(enabled: Boolean) {
         settings.setOnlineMetadata(enabled)
         if (enabled) repo.enrich()

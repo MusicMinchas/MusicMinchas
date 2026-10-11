@@ -40,6 +40,13 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.material3.Slider
+import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import com.kike.musicplayer.data.lastfm.ScrobbleRule
+import com.kike.musicplayer.data.lastfm.ScrobbleSettings
+import kotlin.math.roundToInt
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.material3.RadioButton
@@ -73,6 +80,8 @@ fun SourcesScreen(
     val lastSync by vm.lastDriveSync.collectAsState()
     val counts = library.tracks.groupingBy { it.source }.eachCount()
     val lastFm by vm.lastFmState.collectAsState()
+    val scrobbling by vm.scrobbleSettings.collectAsState()
+    val pendingScrobbles by vm.pendingScrobbles.collectAsState()
     val uriHandler = LocalUriHandler.current
 
     Column(Modifier.fillMaxSize().padding(contentPadding)) {
@@ -167,7 +176,10 @@ fun SourcesScreen(
             ) {
                 lastFm.message?.let { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) }
                 when {
-                    lastFm.user != null -> OutlinedButton(onClick = vm::disconnectLastFm) { Text("Disconnect") }
+                    lastFm.user != null -> {
+                        ScrobbleControls(scrobbling, pendingScrobbles, vm::setScrobbleSettings)
+                        OutlinedButton(onClick = vm::disconnectLastFm) { Text("Disconnect") }
+                    }
                     lastFm.awaitingApproval -> Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         Button(onClick = { vm.connectLastFm { uriHandler.openUri(it.toString()) } }) { Text("Open Last.fm again") }
                         OutlinedButton(onClick = vm::cancelLastFmConnect) { Text("Cancel") }
@@ -195,6 +207,43 @@ fun SourcesScreen(
         }
     }
 }
+
+/** Scrobbling on/off and when: X% of the song or Y minutes, whichever comes first (never below 50% / 4 min). */
+@Composable
+private fun ScrobbleControls(settings: ScrobbleSettings, pending: Int, onChange: (ScrobbleSettings) -> Unit) {
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Text("Scrobble plays", Modifier.weight(1f))
+        Switch(checked = settings.enabled, onCheckedChange = { onChange(settings.copy(enabled = it)) })
+    }
+    if (!settings.enabled) return
+    // Local slider positions while dragging; saved when the finger lifts.
+    var percent by remember(settings.rule.percent) { mutableFloatStateOf(settings.rule.percent.toFloat()) }
+    var cap by remember(settings.rule.capMinutes) { mutableFloatStateOf((settings.rule.capMinutes ?: NO_CAP).toFloat()) }
+    fun save() = onChange(
+        settings.copy(rule = ScrobbleRule(percent.roundToInt(), cap.roundToInt().takeIf { it < NO_CAP }))
+    )
+    Text("After ${percent.roundToInt()}% of the song", style = MaterialTheme.typography.bodyMedium)
+    Slider(
+        value = percent, onValueChange = { percent = it }, onValueChangeFinished = ::save,
+        valueRange = ScrobbleRule.MIN_PERCENT.toFloat()..100f, steps = 9,
+    )
+    val capLabel = cap.roundToInt().let { if (it >= NO_CAP) "no time limit" else "$it minutes" }
+    Text("…or after $capLabel, whichever comes first", style = MaterialTheme.typography.bodyMedium)
+    Slider(
+        value = cap, onValueChange = { cap = it }, onValueChangeFinished = ::save,
+        valueRange = ScrobbleRule.MIN_CAP_MINUTES.toFloat()..NO_CAP.toFloat(),
+        steps = NO_CAP - ScrobbleRule.MIN_CAP_MINUTES - 1,
+    )
+    Text(
+        "Songs of 30 seconds or less aren't scrobbled." +
+            if (pending > 0) " $pending ${if (pending == 1) "scrobble" else "scrobbles"} waiting to be sent." else "",
+        style = MaterialTheme.typography.bodySmall,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+    )
+}
+
+/** The time slider's last position: no time limit. */
+private const val NO_CAP = ScrobbleRule.MAX_CAP_MINUTES + 1
 
 @Composable
 private fun FolderRow(icon: androidx.compose.ui.graphics.vector.ImageVector, label: String, onRemove: () -> Unit) {

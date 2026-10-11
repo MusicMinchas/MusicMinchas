@@ -11,6 +11,9 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 
+/** Whether plays are scrobbled, and when. */
+data class ScrobbleSettings(val enabled: Boolean = true, val rule: ScrobbleRule = ScrobbleRule())
+
 /** What the Last.fm section of the settings shows. */
 data class LastFmState(
     /** Connected Last.fm user, or null. */
@@ -33,6 +36,31 @@ class LastFm(context: Context, val client: LastFmClient) {
         LastFmState(user = prefs.getString(KEY_USER, null), awaitingApproval = prefs.getString(KEY_TOKEN, null) != null)
     )
     val state: StateFlow<LastFmState> = _state.asStateFlow()
+
+    private val _scrobbleSettings = MutableStateFlow(
+        ScrobbleSettings(
+            enabled = prefs.getBoolean(KEY_SCROBBLE, true),
+            rule = runCatching {
+                ScrobbleRule(
+                    percent = prefs.getInt(KEY_PERCENT, ScrobbleRule.MIN_PERCENT),
+                    capMinutes = prefs.getInt(KEY_CAP, ScrobbleRule.MIN_CAP_MINUTES).takeIf { it > 0 },
+                )
+            }.getOrDefault(ScrobbleRule()),
+        )
+    )
+    val scrobbleSettings: StateFlow<ScrobbleSettings> = _scrobbleSettings.asStateFlow()
+
+    fun setScrobbleSettings(settings: ScrobbleSettings) {
+        prefs.edit {
+            putBoolean(KEY_SCROBBLE, settings.enabled)
+            putInt(KEY_PERCENT, settings.rule.percent)
+            putInt(KEY_CAP, settings.rule.capMinutes ?: 0)
+        }
+        _scrobbleSettings.value = settings
+    }
+
+    /** Called once connected, e.g. to send scrobbles kept while signed out. */
+    var onConnected: (() -> Unit)? = null
 
     /** Session key for signed calls, or null when not connected. */
     val sessionKey: String? get() = prefs.getString(KEY_SESSION, null)
@@ -73,6 +101,7 @@ class LastFm(context: Context, val client: LastFmClient) {
                 remove(KEY_TOKEN)
             }
             _state.value = LastFmState(user = session.name)
+            onConnected?.invoke()
         } catch (e: LastFmException) {
             when (e.code) {
                 LastFmException.TOKEN_NOT_AUTHORIZED -> Unit // not approved yet: keep waiting
@@ -119,5 +148,8 @@ class LastFm(context: Context, val client: LastFmClient) {
         private const val KEY_USER = "user"
         private const val KEY_SESSION = "session_key"
         private const val KEY_TOKEN = "pending_token"
+        private const val KEY_SCROBBLE = "scrobble"
+        private const val KEY_PERCENT = "scrobble_percent"
+        private const val KEY_CAP = "scrobble_cap_minutes"
     }
 }

@@ -133,6 +133,22 @@ interface HistoryDao {
 }
 
 @Dao
+interface LastFmOutboxDao {
+    @Insert
+    suspend fun insert(item: LastFmOutboxItem)
+
+    /** Oldest first. */
+    @Query("SELECT * FROM lastfm_outbox WHERE action = :action ORDER BY id LIMIT :limit")
+    suspend fun pending(action: String, limit: Int): List<LastFmOutboxItem>
+
+    @Query("DELETE FROM lastfm_outbox WHERE id IN (:ids)")
+    suspend fun delete(ids: List<Long>)
+
+    @Query("SELECT COUNT(*) FROM lastfm_outbox WHERE action = :action")
+    fun observeCount(action: String): Flow<Int>
+}
+
+@Dao
 interface FavouriteDao {
     /** Newest first. */
     @Query("SELECT * FROM favourites ORDER BY addedAt DESC")

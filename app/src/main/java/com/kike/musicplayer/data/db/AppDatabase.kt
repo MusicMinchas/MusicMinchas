@@ -8,8 +8,8 @@ import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
 
 @Database(
-    entities = [Track::class, QueueItem::class, SessionState::class, PlayHistory::class, ArtistInfo::class, Favourite::class],
-    version = 8,
+    entities = [Track::class, QueueItem::class, SessionState::class, PlayHistory::class, ArtistInfo::class, Favourite::class, LastFmOutboxItem::class],
+    version = 9,
 )
 abstract class AppDatabase : RoomDatabase() {
     abstract fun tracks(): TrackDao
@@ -17,6 +17,7 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun history(): HistoryDao
     abstract fun artistInfo(): ArtistInfoDao
     abstract fun favourites(): FavouriteDao
+    abstract fun lastFmOutbox(): LastFmOutboxDao
 
     companion object {
         /** Adds the play history. Real migrations keep the scanned library (tags, covers) intact. */
@@ -76,9 +77,19 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        private val MIGRATION_8_9 = object : Migration(8, 9) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    "CREATE TABLE IF NOT EXISTS `lastfm_outbox` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, " +
+                        "`action` TEXT NOT NULL, `artist` TEXT NOT NULL, `track` TEXT NOT NULL, `album` TEXT, " +
+                        "`albumArtist` TEXT, `durationSec` INTEGER, `timestamp` INTEGER NOT NULL)"
+                )
+            }
+        }
+
         fun create(context: Context): AppDatabase =
             Room.databaseBuilder(context, AppDatabase::class.java, "music.db")
-                .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8)
+                .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9)
                 .build()
     }
 }

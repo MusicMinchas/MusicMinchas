@@ -94,6 +94,26 @@ data class PlayHistory(
     @ColumnInfo(defaultValue = "0") val counted: Boolean = false,
 )
 
+/**
+ * Something waiting to be sent to Last.fm (a scrobble now; loves later), kept until Last.fm has it so
+ * nothing is lost offline or across restarts. [timestamp] is in seconds: a scrobble's start time.
+ */
+@Entity(tableName = "lastfm_outbox")
+data class LastFmOutboxItem(
+    @PrimaryKey(autoGenerate = true) val id: Long = 0,
+    val action: String,
+    val artist: String,
+    val track: String,
+    val album: String?,
+    val albumArtist: String?,
+    val durationSec: Int?,
+    val timestamp: Long,
+) {
+    companion object {
+        const val SCROBBLE = "scrobble"
+    }
+}
+
 /** A song marked as favourite; kept by track id, so it survives rescans. */
 @Entity(tableName = "favourites")
 data class Favourite(

@@ -86,6 +86,8 @@ class PlaybackService : MediaLibraryService(), CastHost {
         private var listenedMs = 0L
         private var playingSince = 0L
         private var counted = false
+        private var startedAt = 0L
+        private var scrobbled = false
 
         override fun onEvents(player: Player, events: Player.Events) {
             // The paused phone player keeps reporting while Sonos plays; only follow the active one.
@@ -101,12 +103,25 @@ class PlaybackService : MediaLibraryService(), CastHost {
             }
         }
 
-        /** Called every few seconds: counts the play as soon as half has been listened to. */
+        /** Called every few seconds: counts the play once half has been listened to; scrobbles it when due. */
         fun tick() {
-            if (playingSince == 0L || counted) return
-            if (listened() >= threshold()) {
+            if (playingSince == 0L) return
+            if (!counted && listened() >= threshold()) {
                 counted = true
                 persist()
+            }
+            checkScrobble()
+        }
+
+        /** Scrobbles the play once listened to long enough (the user's rule; Last.fm's at least). */
+        private fun checkScrobble() {
+            val id = mediaId ?: return
+            if (scrobbled) return
+            val due = container.lastFm.scrobbleSettings.value.rule.thresholdMs(durationMs) ?: return
+            if (listened() >= due) {
+                scrobbled = true
+                // The play's own start time: importing from Last.fm later recognises it as the same play.
+                container.scrobbler.scrobble(trackIdOf(id), startedAt)
             }
         }
 
@@ -123,7 +138,10 @@ class PlaybackService : MediaLibraryService(), CastHost {
             durationMs = player.duration.takeIf { it > 0 } ?: player.currentMediaItem?.mediaMetadata?.durationMs ?: 0
             listenedMs = 0
             counted = false
-            val entry = PlayHistory(trackId = trackIdOf(id), playedAt = System.currentTimeMillis())
+            scrobbled = false
+            startedAt = System.currentTimeMillis()
+            val entry = PlayHistory(trackId = trackIdOf(id), playedAt = startedAt)
+            container.scrobbler.nowPlaying(trackIdOf(id))
             rowId = scope.async(Dispatchers.IO) { historyDao.insert(entry) }
         }
 
@@ -133,6 +151,7 @@ class PlaybackService : MediaLibraryService(), CastHost {
                 playingSince = 0L
                 if (!counted && listenedMs >= threshold()) counted = true
                 persist()
+                checkScrobble()
             }
         }
 
