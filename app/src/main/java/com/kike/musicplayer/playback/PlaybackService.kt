@@ -62,6 +62,9 @@ class PlaybackService : MediaLibraryService(), CastHost {
     private lateinit var session: MediaLibrarySession
     private var saveJob: Job? = null
 
+    /** Shuffle order of a restored queue (indices in play order), set once its items are loaded. */
+    private var pendingShuffleOrder: List<Int>? = null
+
     /** Set while the queue plays on a Sonos group instead of the phone. */
     private var sonosPlayer: SonosPlayer? = null
     private var castWakeLock: PowerManager.WakeLock? = null
@@ -181,6 +184,14 @@ class PlaybackService : MediaLibraryService(), CastHost {
 
         player.addListener(object : Player.Listener {
             override fun onEvents(player: Player, events: Player.Events) {
+                if (events.contains(Player.EVENT_TIMELINE_CHANGED)) {
+                    pendingShuffleOrder?.let { order ->
+                        pendingShuffleOrder = null
+                        if (player.mediaItemCount == order.size) {
+                            this@PlaybackService.player.setShuffleOrder(ShuffleOrder.DefaultShuffleOrder(order.toIntArray(), System.nanoTime()))
+                        }
+                    }
+                }
                 if (events.containsAny(
                         Player.EVENT_TIMELINE_CHANGED,
                         Player.EVENT_MEDIA_ITEM_TRANSITION,
@@ -369,7 +380,8 @@ class PlaybackService : MediaLibraryService(), CastHost {
 
     private suspend fun loadSavedQueue(): MediaItemsWithStartPosition? {
         val state = queueDao.state() ?: return null
-        val ids = queueDao.items().map { it.trackId }
+        val saved = queueDao.items()
+        val ids = saved.map { it.trackId }
         val byId = dao.getByIds(ids).associateBy { it.id }
         val items = ids.mapNotNull { byId[it]?.toMediaItem() }
         if (items.isEmpty()) return null
@@ -378,6 +390,9 @@ class PlaybackService : MediaLibraryService(), CastHost {
         val index = state.currentIndex.coerceIn(0, items.lastIndex)
         // If tracks vanished from the library the index may point elsewhere; then start at 0.
         val position = if (ids.size == items.size) state.positionMs else 0L
+        // The saved shuffle order, applied once these items reach the player (see the listener).
+        pendingShuffleOrder = saved.takeIf { state.shuffle && ids.size == items.size && it.all { q -> q.shufflePosition != null } }
+            ?.sortedBy { it.shufflePosition }?.map { it.position }
         return MediaItemsWithStartPosition(items, if (ids.size == items.size) index else 0, position)
     }
 
@@ -396,18 +411,24 @@ class PlaybackService : MediaLibraryService(), CastHost {
         runBlocking(Dispatchers.IO) { save(snapshot) }
     }
 
-    private fun snapshot(): Pair<List<String>, SessionState> {
-        val ids = (0 until player.mediaItemCount).map { player.getMediaItemAt(it).mediaId }
-        return ids to SessionState(
-            currentIndex = player.currentMediaItemIndex,
-            positionMs = player.currentPosition,
-            shuffle = player.shuffleModeEnabled,
-            repeatMode = player.repeatMode,
+    private class SavedQueue(val trackIds: List<String>, val playOrder: List<Int>?, val state: SessionState)
+
+    private fun snapshot(): SavedQueue {
+        val queue = phoneQueue(player)
+        return SavedQueue(
+            trackIds = queue.items.map { it.mediaId },
+            playOrder = queue.playOrder,
+            state = SessionState(
+                currentIndex = player.currentMediaItemIndex,
+                positionMs = player.currentPosition,
+                shuffle = player.shuffleModeEnabled,
+                repeatMode = player.repeatMode,
+            ),
         )
     }
 
-    private suspend fun save(snapshot: Pair<List<String>, SessionState>) {
-        runCatching { queueDao.save(snapshot.first, snapshot.second) }
+    private suspend fun save(snapshot: SavedQueue) {
+        runCatching { queueDao.save(snapshot.trackIds, snapshot.playOrder, snapshot.state) }
             .onFailure { Log.w(TAG, "Saving queue failed", it) }
     }
 

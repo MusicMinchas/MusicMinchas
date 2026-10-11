@@ -110,9 +110,10 @@ interface QueueDao {
     suspend fun insertState(state: SessionState)
 
     @Transaction
-    suspend fun save(trackIds: List<String>, state: SessionState) {
+    suspend fun save(trackIds: List<String>, playOrder: List<Int>?, state: SessionState) {
         clearItems()
-        insertItems(trackIds.mapIndexed { i, id -> QueueItem(i, id) })
+        val shufflePosition = playOrder?.withIndex()?.associate { (place, index) -> index to place }
+        insertItems(trackIds.mapIndexed { i, id -> QueueItem(i, id, shufflePosition?.get(i)) })
         insertState(state)
     }
 }

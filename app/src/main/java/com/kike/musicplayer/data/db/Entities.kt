@@ -67,6 +67,8 @@ data class Track(
 data class QueueItem(
     @PrimaryKey val position: Int,
     val trackId: String,
+    /** Place in the play order while shuffled, so a restart keeps the same shuffle; else null. */
+    val shufflePosition: Int? = null,
 )
 
 @Entity(tableName = "session_state")
