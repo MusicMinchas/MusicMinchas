@@ -8,12 +8,15 @@ import java.text.Normalizer
  * one, else by artist and title, compared without case, accents and punctuation, then once more
  * without suffixes such as "(feat. …)" or "- Remastered 2011". "Live" and "Remix" versions are
  * different recordings and stay distinct. When a song is on several albums, the scrobble's album
- * picks one.
+ * picks one. Last resorts, both within the same artist: on the same album, a library title equal to
+ * the scrobble's once its trailing subtitle is dropped ("Uah lúa (Folla do Visgo)"); then a nearly
+ * identical spelling ("Olla meu irmau" / "Olla meu irmao"), with the same live/remix/demo markers.
  */
 class TrackMatcher(tracks: List<Track>) {
     private val byMbid = HashMap<String, Track>()
     private val exact = HashMap<String, MutableList<Track>>()
     private val loose = HashMap<String, MutableList<Track>>()
+    private val byArtist = HashMap<String, MutableList<Track>>()
 
     init {
         for (t in tracks) {
@@ -22,17 +25,38 @@ class TrackMatcher(tracks: List<Track>) {
             for (artist in listOfNotNull(t.artist, t.albumArtist).distinct()) {
                 exact.getOrPut(key(basic(artist), basic(t.title))) { mutableListOf() } += t
                 loose.getOrPut(key(looseArtist(artist), looseTitle(t.title))) { mutableListOf() } += t
+                byArtist.getOrPut(looseArtist(artist)) { mutableListOf() }.let { if (t !in it) it += t }
             }
         }
     }
 
     fun match(artist: String, title: String, album: String?, mbid: String?): Track? {
         mbid?.let { byMbid[it] }?.let { return it }
+        val wanted = album?.let(::basic)
         val candidates = exact[key(basic(artist), basic(title))]
             ?: loose[key(looseArtist(artist), looseTitle(title))]
-            ?: return null
-        val wanted = album?.let(::basic)
+            ?: return lastResort(artist, title, wanted)
         return candidates.firstOrNull { wanted != null && it.album?.let(::basic) == wanted } ?: candidates.first()
+    }
+
+    private fun lastResort(artist: String, title: String, album: String?): Track? {
+        val tracks = byArtist[looseArtist(artist)] ?: return null
+        val plain = basic(title)
+        // Same album, and the library title has a subtitle the scrobble doesn't.
+        if (album != null) {
+            tracks.firstOrNull { it.album?.let(::basic) == album && basic(it.title.replace(TRAILING_SUBTITLE, "")) == plain }
+                ?.let { return it }
+        }
+        // Nearly the same spelling: at most ~1 character in 10 different, same version markers.
+        val wanted = compact(title)
+        if (wanted.length < MIN_FUZZY_LENGTH) return null
+        val markers = markers(plain)
+        return tracks.asSequence()
+            .filter { markers(basic(it.title)) == markers }
+            .map { it to similarity(wanted, compact(it.title)) }
+            .filter { it.second >= FUZZY_SIMILARITY }
+            .sortedWith(compareByDescending<Pair<Track, Double>> { it.second }.thenByDescending { it.first.album?.let(::basic) == album })
+            .firstOrNull()?.first
     }
 
     companion object {
@@ -55,6 +79,35 @@ class TrackMatcher(tracks: List<Track>) {
         /** Without a featured artist: "Artist feat. Someone" is "Artist". */
         fun looseArtist(s: String): String = basic(s.replace(FEATURING, ""))
 
+        /** Spelling-insensitive form: no spaces, no leading article, "pt" as "part". */
+        private fun compact(s: String): String =
+            basic(s).split(' ').map { if (it == "pt") "part" else it }
+                .let { if (it.firstOrNull() == "a" || it.firstOrNull() == "an") it.drop(1) else it }
+                .joinToString("")
+
+        private fun markers(basicTitle: String) = basicTitle.split(' ').filterTo(HashSet()) { it in VERSION_MARKERS }
+
+        /** 1 - edit distance / longer length. */
+        private fun similarity(a: String, b: String): Double {
+            if (a == b) return 1.0
+            var prev = IntArray(b.length + 1) { it }
+            for (i in 1..a.length) {
+                val cur = IntArray(b.length + 1).also { it[0] = i }
+                for (j in 1..b.length) {
+                    cur[j] = minOf(prev[j] + 1, cur[j - 1] + 1, prev[j - 1] + if (a[i - 1] == b[j - 1]) 0 else 1)
+                }
+                prev = cur
+            }
+            return 1.0 - prev[b.length].toDouble() / maxOf(a.length, b.length)
+        }
+
+        private const val MIN_FUZZY_LENGTH = 6
+        private const val FUZZY_SIMILARITY = 0.9
+        private val VERSION_MARKERS = setOf(
+            "live", "remix", "mix", "demo", "acoustic", "rehearsal", "instrumental", "version", "edit",
+            "unplugged", "video", "tapes", "session", "sessions", "orchestral", "radio",
+        )
+        private val TRAILING_SUBTITLE = Regex("\\s*[(\\[][^)\\]]*[)\\]]\\s*$")
         private val MARKS = Regex("\\p{Mn}+")
         private val NON_WORD = Regex("[^\\p{L}\\p{N}]+")
         private const val EXTRA_WORDS =

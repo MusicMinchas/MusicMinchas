@@ -24,6 +24,17 @@ class TrackMatcherTest {
         track("immortal-anywhere", "Evanescence", "My Immortal", "Anywhere But Home"),
         track("smooth", "Michael Jackson", "Smooth Criminal", "Bad", mbid = "mbid-smooth"),
         track("girl", "Michael Jackson & Paul McCartney", "The Girl Is Mine", "Thriller", albumArtist = "Michael Jackson"),
+        // Real near-misses from the library (tags vs Last.fm spelling).
+        track("olla", "Luar Na Lubre", "Olla meu irmau", "Saudade"),
+        track("uah", "Luar Na Lubre", "Uah lúa (Folla do Visgo)", "Hai Un Paraiso"),
+        track("uah-remix", "Luar Na Lubre", "Uah lúa (Folla do Visgo) (Remix, Bonus Track)", "Hai Un Paraiso"),
+        track("pretending", "HIM", "Pretending (TRNSFRMTN version)", "Deep Shadows And Brilliant Highlights"),
+        track("place", "Linkin Park", "A Place for My Head", "Hybrid Theory (20th Anniversary Edition)"),
+        track("darkshines", "Muse", "Darkshines", "Origin of Symmetry"),
+        track("exo3", "Muse", "Exogenesis: Symphony Part 3 (Redemption)", "The Resistance"),
+        track("trampled", "Led Zeppelin", "Trampled Under Foot", "Remasters (CD2)"),
+        track("fade-live", "Metallica", "Fade To Black (Live)", "Live Shit: Binge & Purge"),
+        track("breathe", "Evanescence", "Breathe No More", "Anywhere But Home"),
     )
     private val matcher = TrackMatcher(library)
 
@@ -64,6 +75,30 @@ class TrackMatcherTest {
         assertEquals("smooth", match("MJ", "Something else", mbid = "mbid-smooth"))
         assertEquals("girl", match("Michael Jackson", "The Girl Is Mine"))
         assertEquals("girl", match("Michael Jackson & Paul McCartney", "The Girl Is Mine"))
+    }
+
+    @Test
+    fun `small spelling differences match within the artist`() {
+        assertEquals("olla", match("Luar na Lubre", "Olla meu irmao", "Saudade"))
+        assertEquals("place", match("Linkin Park", "Place for My Head", "Hybrid Theory"))
+        assertEquals("darkshines", match("Muse", "Dark Shines", "Origin Of Simmetry"))
+        assertEquals("exo3", match("Muse", "Exogenesis: Symphony, Pt. 3: Redemption", "The Resistance"))
+        assertEquals("trampled", match("Led Zeppelin", "Trampled Underfoot", "Remasters"))
+    }
+
+    @Test
+    fun `a library subtitle is ignored on the same album`() {
+        assertEquals("uah", match("Luar na Lubre", "Uah Lúa", "Hai un paraiso"))
+        assertEquals("pretending", match("HIM", "Pretending", "Deep Shadows and Brilliant Highlights"))
+        assertNull(match("HIM", "Pretending", "Greatest Lovesongs Vol. 666"))
+    }
+
+    @Test
+    fun `other recordings still don't match`() {
+        assertNull(match("Metallica", "Fade to Black (Live at Rasputin Music)", "Hardwired…To Self-Destruct (Deluxe)"))
+        assertNull(match("Evanescence", "Breathe No More (B-Side Version)", "Lost Whispers"))
+        assertNull(match("Luar na Lubre", "De Ruada", "Cabo do mundo"))
+        assertNull(match("Metallica", "Whiplash (Live at Rasputin Music)"))
     }
 
     @Test
