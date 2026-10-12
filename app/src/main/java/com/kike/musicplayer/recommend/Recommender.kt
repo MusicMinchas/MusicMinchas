@@ -26,6 +26,11 @@ data class Mix(val id: String, val title: String, val subtitle: String, val trac
  * Signals: counted plays (decaying with age) give artist and genre affinity; recently played tracks
  * are pushed back; tracks skipped repeatedly are left out; artists are capped per mix. Mixes are
  * seeded by the day, so they stay the same through a day and change the next.
+ *
+ * Favourites are an explicit, lasting "I like this": each adds [FAVOURITE_WEIGHT] to its song's
+ * weight (artist, genre and decade affinity) without fading, favourite songs score [FAVOURITE_BONUS]
+ * more in mixes (at most a third of a mix), they are never treated as disliked, and those not played
+ * for half a year make their own mix.
  */
 class Recommender(
     private val tracks: List<Track>,
@@ -33,18 +38,27 @@ class Recommender(
     /** Lower-cased artist name -> tags, most voted first. */
     private val artistTags: Map<String, List<String>>,
     private val now: Long = System.currentTimeMillis(),
+    /** Track ids of the favourite songs. */
+    private val favourites: Set<String> = emptySet(),
 ) {
     private val stats = ListeningStats(history, now)
     private val day = now / ListeningStats.DAY_MS
 
-    private val usable = tracks.filter { it.durationMs >= 0 && !stats.isDisliked(it.id) }
+    /** Something to go on: plays or favourites. */
+    private val hasTaste = stats.hasHistory || favourites.isNotEmpty()
+
+    private val usable = tracks.filter { it.durationMs >= 0 && (it.id in favourites || !stats.isDisliked(it.id)) }
+
+    /** How much a song counts towards its artist, genre and decade: recent plays, all plays, favourite. */
+    private fun weight(t: Track) =
+        (stats.recentWeight[t.id] ?: 0.0) + 0.1 * (stats.plays[t.id] ?: 0) + if (t.id in favourites) FAVOURITE_WEIGHT else 0.0
     private val byArtist: Map<String, List<Track>> = usable.groupBy { artistKey(it) }
 
     /** How much the user listens to each artist; with no history yet, how much of it is in the library. */
     private val artistAffinity: Map<String, Double> = run {
         val fromPlays = HashMap<String, Double>()
         for (t in usable) {
-            val w = (stats.recentWeight[t.id] ?: 0.0) + 0.1 * (stats.plays[t.id] ?: 0)
+            val w = weight(t)
             if (w > 0) fromPlays.merge(artistKey(t), w, Double::plus)
         }
         if (fromPlays.isNotEmpty()) fromPlays else byArtist.mapValues { (_, list) -> list.size / 100.0 }
@@ -56,6 +70,7 @@ class Recommender(
         addAll(genreMixes())
         addAll(decadeMixes())
         rediscover()?.let { add(it) }
+        forgottenFavourites()?.let { add(it) }
         freshPicks()?.let { add(it) }
     }.filter { it.tracks.size >= MIN_MIX_SIZE }
 
@@ -63,7 +78,7 @@ class Recommender(
 
     /** For the two most listened artists: songs by artists with similar genres, plus some of theirs. */
     private fun becauseYouListened(): List<Mix> {
-        if (!stats.hasHistory) return emptyList()
+        if (!hasTaste) return emptyList()
         return artistAffinity.entries.sortedByDescending { it.value }.take(2).mapNotNull { (seed, _) ->
             val seedTags = tagsOf(seed).take(TAGS_PER_ARTIST)
             if (seedTags.isEmpty()) return@mapNotNull null
@@ -93,9 +108,7 @@ class Recommender(
     private fun genreMixes(): List<Mix> {
         // Grouped by each track's genre: the file's tag, else the artist's top MusicBrainz tag.
         val byGenre = usable.groupBy { genreKey(it) }.filterKeys { it != null }.mapKeys { it.key!! }
-        val score = byGenre.mapValues { (_, list) ->
-            if (stats.hasHistory) list.sumOf { (stats.recentWeight[it.id] ?: 0.0) + 0.1 * (stats.plays[it.id] ?: 0) } else list.size.toDouble()
-        }
+        val score = byGenre.mapValues { (_, list) -> if (hasTaste) list.sumOf(::weight) else list.size.toDouble() }
         return score.entries.filter { it.value > 0 && (byGenre[it.key]?.size ?: 0) >= MIN_POOL }
             .sortedByDescending { it.value }.take(3)
             .map { (key, _) ->
@@ -115,9 +128,7 @@ class Recommender(
     /** The decades the user plays most (or the library's biggest). */
     private fun decadeMixes(): List<Mix> {
         val inDecade = usable.filter { (it.year ?: 0) in 1900..2100 }.groupBy { it.year!! / 10 * 10 }
-        val score = inDecade.mapValues { (_, list) ->
-            if (stats.hasHistory) list.sumOf { (stats.recentWeight[it.id] ?: 0.0) + 0.1 * (stats.plays[it.id] ?: 0) } else list.size.toDouble()
-        }
+        val score = inDecade.mapValues { (_, list) -> if (hasTaste) list.sumOf(::weight) else list.size.toDouble() }
         return score.entries.filter { (inDecade[it.key]?.size ?: 0) >= MIN_POOL }
             .sortedByDescending { it.value }.take(2)
             .map { (decade, _) ->
@@ -141,6 +152,17 @@ class Recommender(
         val random = random("rediscover")
         val picked = albums.values.flatMap { list -> list.sortedByDescending { stats.plays[it.id] ?: 0 }.take(3) }
         return Mix("rediscover", "Rediscover", "Albums you loved but haven't played lately", interleave(picked.take(MIX_SIZE), random))
+    }
+
+    /** Favourite songs not played for half a year (or never, here). */
+    private fun forgottenFavourites(): Mix? {
+        val forgotten = usable.filter { t ->
+            t.id in favourites && (stats.daysSincePlayed(t.id) ?: Double.MAX_VALUE) > FORGOTTEN_AFTER_DAYS
+        }
+        if (forgotten.size < MIN_MIX_SIZE) return null
+        val random = random("forgotten")
+        val picked = pick(forgotten, MIX_SIZE, perArtist = 3, random, favouriteCap = false) { 0.0 }
+        return Mix("forgotten", "Forgotten Favourites", "Favourites you haven't played in six months", interleave(picked, random))
     }
 
     /** One or two songs each from albums never played, leaning towards the user's genres. */
@@ -204,15 +226,41 @@ class Recommender(
         return score.entries.sortedByDescending { it.value }.take(n).map { it.key }.toSet()
     }
 
-    /** Best-scored tracks with some randomness, at most [perArtist] per artist. */
-    private fun pick(candidates: List<Track>, n: Int, perArtist: Int, random: Random, score: (Track) -> Double): List<Track> {
-        val perArtistCount = HashMap<String, Int>()
-        return candidates.distinctBy { it.id }
-            .map { it to score(it) + random.nextDouble() * JITTER }
+    /**
+     * Best-scored tracks with some randomness, at most [perArtist] per artist. Favourites score a
+     * little higher but make up at most a third of the result (unless [favouriteCap] is off), so
+     * mixes keep bringing songs beyond the known ones; more only when nothing else is left.
+     */
+    private fun pick(
+        candidates: List<Track>,
+        n: Int,
+        perArtist: Int,
+        random: Random,
+        favouriteCap: Boolean = true,
+        score: (Track) -> Double,
+    ): List<Track> {
+        val ranked = candidates.distinctBy { it.id }
+            .map { it to score(it) + (if (it.id in favourites) FAVOURITE_BONUS else 0.0) + random.nextDouble() * JITTER }
             .sortedByDescending { it.second }
             .map { it.first }
-            .filter { t -> perArtistCount.merge(artistKey(t), 1, Int::plus)!! <= perArtist }
-            .take(n)
+        val perArtistCount = HashMap<String, Int>()
+        val picked = ArrayList<Track>(n)
+        fun take(maxFavourites: Int) {
+            var favouritesTaken = picked.count { it.id in favourites }
+            for (t in ranked) {
+                if (picked.size >= n) return
+                if (t in picked) continue
+                val favourite = t.id in favourites
+                if (favourite && favouritesTaken >= maxFavourites) continue
+                if ((perArtistCount[artistKey(t)] ?: 0) >= perArtist) continue
+                perArtistCount.merge(artistKey(t), 1, Int::plus)
+                picked += t
+                if (favourite) favouritesTaken++
+            }
+        }
+        take(if (favouriteCap) (n + 2) / 3 else n)
+        take(n) // too few other songs: fill up with more favourites
+        return picked
     }
 
     /** Shuffles, then avoids the same artist twice in a row where possible. */
@@ -240,6 +288,9 @@ class Recommender(
         const val MIN_SIMILARITY = 0.25
         const val REDISCOVER_AFTER_DAYS = 60.0
         const val JITTER = 0.6
+        const val FAVOURITE_WEIGHT = 0.5
+        const val FAVOURITE_BONUS = 0.4
+        const val FORGOTTEN_AFTER_DAYS = 182.0
 
         /** Rank-weighted overlap of two tag lists (1 = same top tags). */
         fun similarity(a: List<String>, b: List<String>): Double {

@@ -48,6 +48,49 @@ class RecommenderTest {
     }
 
     @Test
+    fun `favourites lift their genre and get a mix when forgotten for half a year`() {
+        // A few recent metal plays, and a dozen jazz favourites not played in a year.
+        val history = (1..3).map { play("m${it}-1-1", it.toDouble()) } + (1..12).map { play("j${it % 4 + 1}-1-${it % 4 + 1}", 400.0) }
+        // Three songs of each jazz artist.
+        val favourites = (1..4).flatMap { a -> (1..3).map { s -> "j$a-1-$s" } }.toSet()
+        val mixes = Recommender(tracks, history, tags, now, favourites).mixes()
+        val forgotten = mixes.first { it.id == "forgotten" }
+        assertTrue(forgotten.tracks.all { it.id in favourites })
+        assertTrue(forgotten.tracks.size >= 8)
+        // The favourites put jazz ahead of metal; on plays alone, metal leads.
+        fun genreOrder(m: List<Mix>) = m.filter { it.id.startsWith("genre:") }.map { it.id }
+        assertEquals("genre:jazz", genreOrder(mixes).first())
+        assertEquals("genre:heavy metal", genreOrder(Recommender(tracks, history, tags, now).mixes()).first())
+    }
+
+    @Test
+    fun `favourites recently played are not forgotten, and a mix has at most a third of favourites`() {
+        val history = (1..20).map { play("m${it % 6 + 1}-1-${it % 4 + 1}", it.toDouble() / 4) }
+        // Half the metal songs are favourites.
+        val favourites = tracks.filter { it.artist!!.startsWith("Metal") && it.id.endsWith("-1") || it.id.endsWith("-2") }
+            .filter { it.artist!!.startsWith("Metal") }.map { it.id }.toSet()
+        val mixes = Recommender(tracks, history, tags, now, favourites).mixes()
+        val played = history.map { it.trackId }.toSet()
+        mixes.firstOrNull { it.id == "forgotten" }?.let { f -> assertTrue(f.tracks.none { it.id in played }) }
+        val genre = mixes.first { it.id == "genre:heavy metal" }
+        assertTrue(genre.tracks.count { it.id in favourites } <= 10)
+        assertTrue(genre.tracks.size >= 15) // 6 artists, 3 songs each at most
+        // All candidates favourites: the mix still fills up.
+        val allFav = tracks.filter { it.artist!!.startsWith("Metal") }.map { it.id }.toSet()
+        assertTrue(Recommender(tracks, history, tags, now, allFav).mixes().first { it.id == "genre:heavy metal" }.tracks.size >= 18)
+    }
+
+    @Test
+    fun `a skipped favourite is not dropped as disliked`() {
+        val skips = (1..3).map { play("m1-1-1", it.toDouble(), counted = false, listenedMs = 5_000) }
+        val history = skips + (1..20).map { play("m${it % 6 + 1}-2-1", it.toDouble()) }
+        val withFav = Recommender(tracks, history, tags, now, setOf("m1-1-1")).mixes().flatMap { it.tracks }.map { it.id }
+        val without = Recommender(tracks, history, tags, now).mixes().flatMap { it.tracks }.map { it.id }
+        assertFalse("m1-1-1" in without)
+        assertTrue("m1-1-1" in withFav)
+    }
+
+    @Test
     fun `mixes follow the listener's genre, cap artists and avoid repeats in a row`() {
         // Lots of metal listening, a little jazz.
         val history = (1..20).map { play("m${it % 6 + 1}-1-1", it.toDouble()) } + play("j1-1-1", 5.0)

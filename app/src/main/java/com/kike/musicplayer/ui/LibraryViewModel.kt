@@ -166,9 +166,11 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
     }.flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.Eagerly, Playlists())
 
     /** Generated mixes for the Home tab. */
-    val mixes: StateFlow<List<Mix>> = combine(library, history, artistTags) { lib, history, tags ->
+    val mixes: StateFlow<List<Mix>> = combine(
+        library, history, artistTags, container.database.favourites().observeAll(),
+    ) { lib, history, tags, favourites ->
         // Recommendations are a nice-to-have: a bug there must never take the app down.
-        runCatching { Recommender(lib.tracks, history, tags).mixes() }
+        runCatching { Recommender(lib.tracks, history, tags, favourites = favourites.mapTo(HashSet()) { it.trackId }).mixes() }
             .onFailure { Log.w(TAG, "Recommender failed", it) }
             .getOrDefault(emptyList())
     }.flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
