@@ -1,6 +1,7 @@
 package com.kike.musicplayer.ui
 
 import androidx.compose.foundation.clickable
+import androidx.compose.ui.draw.clip
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -71,6 +72,8 @@ import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.layout.layout
 import com.kike.musicplayer.playback.PlaybackService
 import androidx.compose.foundation.layout.offset
 import androidx.compose.ui.graphics.CompositingStrategy
@@ -142,12 +145,10 @@ fun NowPlayingScreen(playerVm: PlayerViewModel, onBack: () -> Unit, onOpenQueue:
     Box(Modifier.fillMaxSize()) {
         ArtworkBackdrop(meta?.artworkUri)
         Column(Modifier.fillMaxSize().padding(contentPadding)) {
-            TopAppBar(
-                windowInsets = NoTopInsets,
-                title = {},
-                colors = TopAppBarDefaults.topAppBarColors(containerColor = Color.Transparent),
-                navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.Default.KeyboardArrowDown, "Close") } },
-            )
+            // Just the close arrow: a slim bar leaves the cover more room.
+            Box(Modifier.fillMaxWidth().height(40.dp).padding(start = 4.dp), contentAlignment = Alignment.CenterStart) {
+                IconButton(onClick = onBack) { Icon(Icons.Default.KeyboardArrowDown, "Close") }
+            }
             Column(
                 Modifier.fillMaxSize().padding(horizontal = 24.dp),
                 horizontalAlignment = Alignment.CenterHorizontally,
@@ -157,9 +158,10 @@ fun NowPlayingScreen(playerVm: PlayerViewModel, onBack: () -> Unit, onOpenQueue:
                     onFlip = { if (s.current != null) showLyrics = !showLyrics },
                     front = { Artwork(meta?.artworkUri, Modifier.fillMaxSize(), shape = RoundedCornerShape(12.dp)) },
                     back = { LyricsPanel(lyrics, s.positionMs, playerVm::seekTo) },
-                    modifier = Modifier.fillMaxWidth().aspectRatio(1f),
+                    // A little wider than the rest of the page.
+                    modifier = Modifier.bleed(COVER_BLEED).fillMaxWidth().aspectRatio(1f),
                 )
-                Spacer(Modifier.height(16.dp))
+                Spacer(Modifier.height(22.dp))
                 // Title centred; the heart sits at the cover's right edge.
                 Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
                     Text(
@@ -172,7 +174,7 @@ fun NowPlayingScreen(playerVm: PlayerViewModel, onBack: () -> Unit, onOpenQueue:
                         IconButton(
                             onClick = { playerVm.toggleFavourite(trackId) },
                             // The icon's edge, not the touch target's, lines up with the cover.
-                            modifier = Modifier.align(Alignment.CenterEnd).offset(x = 12.dp),
+                            modifier = Modifier.align(Alignment.CenterEnd).offset(x = 12.dp + COVER_BLEED),
                         ) {
                             Icon(
                                 if (favourite) Icons.Default.Favorite else Icons.Default.FavoriteBorder,
@@ -253,9 +255,13 @@ fun NowPlayingScreen(playerVm: PlayerViewModel, onBack: () -> Unit, onOpenQueue:
                 }
                 Spacer(Modifier.weight(1f))
                 s.upNext.firstOrNull()?.let { next ->
-                    TextButton(onClick = onOpenQueue, modifier = Modifier.padding(bottom = 0.dp)) {
-                        Text("Up next: ${next.item.mediaMetadata.title}", maxLines = 1, overflow = TextOverflow.Ellipsis)
-                    }
+                    // A slim line rather than a full-height button, so it fits under the big cover.
+                    Text(
+                        "Up next: ${next.item.mediaMetadata.title}", maxLines = 1, overflow = TextOverflow.Ellipsis,
+                        color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.labelLarge,
+                        modifier = Modifier.clip(RoundedCornerShape(8.dp)).clickable(onClick = onOpenQueue)
+                            .padding(horizontal = 12.dp, vertical = 6.dp),
+                    )
                 }
             }
         }
@@ -263,6 +269,17 @@ fun NowPlayingScreen(playerVm: PlayerViewModel, onBack: () -> Unit, onOpenQueue:
 }
 
 private val FAVOURITE_RED = Color(0xFFE53935)
+
+/** How far the Now Playing cover reaches past the page margin on each side. */
+private val COVER_BLEED = 10.dp
+
+/** Lays the content out [horizontal] wider on each side than the space it is given. */
+private fun Modifier.bleed(horizontal: Dp) = layout { measurable, constraints ->
+    val extra = (horizontal * 2).roundToPx()
+    val width = constraints.maxWidth + extra
+    val placeable = measurable.measure(constraints.copy(minWidth = width, maxWidth = width))
+    layout(constraints.maxWidth, placeable.height) { placeable.place(-extra / 2, 0) }
+}
 
 /** Speaker volume while casting; sent when the finger lifts so Sonos isn't flooded with commands. */
 @Composable
