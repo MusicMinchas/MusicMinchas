@@ -163,7 +163,7 @@ internal fun SectionTitle(text: String) {
  * title and subtitle. Square, as wide as [modifier] makes it.
  */
 @Composable
-private fun CollectionCard(
+internal fun CollectionCard(
     title: String,
     subtitle: String,
     tracks: List<Track>,
@@ -172,19 +172,8 @@ private fun CollectionCard(
     modifier: Modifier = Modifier,
 ) {
     Column(modifier.clickable(onClick = onOpen)) {
-        Box(Modifier.fillMaxWidth().aspectRatio(1f).clip(RoundedCornerShape(12.dp))) {
-            val covers = tracks.mapNotNull { it.artworkUri }.distinct().take(4)
-            if (covers.size >= 4) {
-                Column {
-                    for (rowCovers in covers.chunked(2)) {
-                        Row(Modifier.weight(1f)) {
-                            rowCovers.forEach { Artwork(it, Modifier.weight(1f).fillMaxSize(), shape = RoundedCornerShape(0.dp)) }
-                        }
-                    }
-                }
-            } else {
-                Artwork(covers.firstOrNull(), Modifier.fillMaxSize(), shape = RoundedCornerShape(0.dp))
-            }
+        Box(Modifier.fillMaxWidth().aspectRatio(1f)) {
+            CoverMosaic(tracks, Modifier.fillMaxSize())
             if (tracks.isNotEmpty()) {
                 FilledIconButton(onClick = onPlay, modifier = Modifier.align(Alignment.BottomEnd).padding(8.dp)) {
                     Icon(Icons.Default.PlayArrow, "Play $title")
@@ -195,6 +184,25 @@ private fun CollectionCard(
             style = MaterialTheme.typography.bodyMedium, modifier = Modifier.padding(top = 6.dp))
         Text(subtitle, maxLines = 2, overflow = TextOverflow.Ellipsis,
             style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+    }
+}
+
+/** 2×2 covers of [tracks] (one cover when fewer than four), rounded. */
+@Composable
+internal fun CoverMosaic(tracks: List<Track>, modifier: Modifier = Modifier) {
+    Box(modifier.clip(RoundedCornerShape(12.dp))) {
+        val covers = tracks.mapNotNull { it.artworkUri }.distinct().take(4)
+        if (covers.size >= 4) {
+            Column {
+                for (rowCovers in covers.chunked(2)) {
+                    Row(Modifier.weight(1f)) {
+                        rowCovers.forEach { Artwork(it, Modifier.weight(1f).fillMaxSize(), shape = RoundedCornerShape(0.dp)) }
+                    }
+                }
+            }
+        } else {
+            Artwork(covers.firstOrNull(), Modifier.fillMaxSize(), shape = RoundedCornerShape(0.dp))
+        }
     }
 }
 

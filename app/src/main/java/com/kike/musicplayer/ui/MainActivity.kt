@@ -40,6 +40,8 @@ private sealed interface Screen {
     data object Replay : Screen
     data object MostPlayed : Screen
     data object Favourites : Screen
+    data object NewPlaylist : Screen
+    data class PlaylistDetail(val id: Long) : Screen
     data class MixDetail(val id: String) : Screen
     data class GenreDetail(val key: String) : Screen
 }
@@ -105,6 +107,7 @@ class MainActivity : ComponentActivity() {
         val playlists by libraryVm.playlists.collectAsState()
         val mixes by libraryVm.mixes.collectAsState()
         val genres by libraryVm.genres.collectAsState()
+        val userPlaylists by libraryVm.userPlaylists.collectAsState()
         val showMini = screen !is Screen.NowPlaying && screen !is Screen.Queue && screen !is Screen.DriveFolders
 
         val favouriteIds by playerVm.favourites.collectAsState()
@@ -138,6 +141,8 @@ class MainActivity : ComponentActivity() {
                             onOpenReplay = { push(Screen.Replay) },
                             onOpenMostPlayed = { push(Screen.MostPlayed) },
                             onOpenFavourites = { push(Screen.Favourites) },
+                        onNewPlaylist = { push(Screen.NewPlaylist) },
+                        onOpenPlaylist = { push(Screen.PlaylistDetail(it)) },
                             onOpenMix = { push(Screen.MixDetail(it)) },
                             onOpenGenre = { push(Screen.GenreDetail(it)) },
                             contentPadding = padding,
@@ -169,6 +174,11 @@ class MainActivity : ComponentActivity() {
                             TrackListScreen("Most Played", playlists.mostPlayed.map { it.item }, playerVm, ::pop, padding) { t ->
                                 counts[t.id]?.let { if (it == 1) "1 play" else "$it plays" }
                             }
+                        }
+                        Screen.NewPlaylist -> NewPlaylistScreen(libraryVm, playerVm, onDone = ::pop, onBack = ::pop, contentPadding = padding)
+                        is Screen.PlaylistDetail -> {
+                            val list = userPlaylists.firstOrNull { it.id == screen.id }
+                            TrackListScreen(list?.name ?: "", list?.tracks, playerVm, ::pop, padding)
                         }
                         Screen.Favourites -> TrackListScreen("Favourite Songs", playlists.favourites, playerVm, ::pop, padding)
                         Screen.Replay -> ReplayScreen(libraryVm, playerVm, onOpenAlbum = { push(Screen.AlbumDetail(it)) }, onBack = ::pop, contentPadding = padding)

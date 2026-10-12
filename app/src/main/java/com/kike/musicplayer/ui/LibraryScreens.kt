@@ -1,5 +1,8 @@
 package com.kike.musicplayer.ui
 
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.material.icons.filled.Add
+import androidx.compose.material3.FloatingActionButton
 import androidx.compose.foundation.layout.size
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.material.icons.filled.Person
@@ -91,6 +94,8 @@ fun LibraryScreen(
     onOpenReplay: () -> Unit,
     onOpenMostPlayed: () -> Unit,
     onOpenFavourites: () -> Unit,
+    onNewPlaylist: () -> Unit,
+    onOpenPlaylist: (Long) -> Unit,
     onOpenMix: (String) -> Unit,
     onOpenGenre: (String) -> Unit,
     contentPadding: PaddingValues,
@@ -170,7 +175,10 @@ fun LibraryScreen(
             }
             "Genres" -> GenresTab(genres, onOpenGenre)
             "Songs" -> SongsTab(library.tracks, player.current?.mediaId, playerVm)
-            "Playlists" -> PlaylistsTab(playlists, playerVm, onOpenRecentTracks, onOpenRecentAlbums, onOpenMostPlayed, onOpenFavourites)
+            "Playlists" -> PlaylistsTab(
+                playlists, libraryVm.userPlaylists.collectAsState().value, playerVm,
+                onOpenRecentTracks, onOpenRecentAlbums, onOpenMostPlayed, onOpenFavourites, onNewPlaylist, onOpenPlaylist,
+            )
         }
     }
 }
@@ -520,54 +528,72 @@ fun AlbumListScreen(
 @Composable
 private fun PlaylistsTab(
     playlists: Playlists,
+    userPlaylists: List<PlaylistView>,
     playerVm: PlayerViewModel,
     onOpenRecentTracks: () -> Unit,
     onOpenRecentAlbums: () -> Unit,
     onOpenMostPlayed: () -> Unit,
     onOpenFavourites: () -> Unit,
+    onNewPlaylist: () -> Unit,
+    onOpenPlaylist: (Long) -> Unit,
 ) {
-    val tracks = playlists.recentTracks
-    val albums = playlists.recentAlbums
-    Column(
-        Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp),
-    ) {
-        PlaylistTile(
-            title = "Recently Played",
-            subtitle = if (tracks.isEmpty()) "Nothing played yet" else "${tracks.size} songs",
-            covers = tracks.mapNotNull { it.artworkUri }.distinct().take(TILE_COVERS),
-            onOpen = onOpenRecentTracks,
-            onPlay = if (tracks.isEmpty()) null else ({ playerVm.playTracks(tracks, 0) }),
-        )
-        PlaylistTile(
-            title = "Recently Played Albums",
-            subtitle = if (albums.isEmpty()) "Nothing played yet" else "${albums.size} albums",
-            covers = albums.mapNotNull { it.artworkUri }.take(TILE_COVERS),
-            onOpen = onOpenRecentAlbums,
-            onPlay = if (albums.isEmpty()) null else ({ playerVm.playTracks(albums.flatMap { it.tracks }, 0) }),
-        )
-        val most = playlists.mostPlayed
-        PlaylistTile(
-            title = "Most Played",
-            subtitle = if (most.isEmpty()) "Nothing played through yet" else "${most.size} songs",
-            covers = most.mapNotNull { it.item.artworkUri }.distinct().take(TILE_COVERS),
-            onOpen = onOpenMostPlayed,
-            onPlay = if (most.isEmpty()) null else ({ playerVm.playTracks(most.map { it.item }, 0) }),
-        )
-        FavouritesTile(playlists.favourites, playerVm, onOpenFavourites)
+    val recent = playlists.recentTracks
+    val albums = playlists.recentAlbums.flatMap { it.tracks }
+    val most = playlists.mostPlayed.map { it.item }
+    val favourites = playlists.favourites
+    Box(Modifier.fillMaxSize()) {
+        LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(top = 16.dp, bottom = 96.dp)) {
+            // The automatic playlists, as cards like the Home mixes.
+            item {
+                Row(
+                    Modifier.horizontalScroll(rememberScrollState()).padding(horizontal = 16.dp),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                ) {
+                    val card = Modifier.width(160.dp)
+                    CollectionCard("Recently Played", if (recent.isEmpty()) "Nothing played yet" else count(recent.size, "song"),
+                        recent, onOpenRecentTracks, { playerVm.playTracks(recent, 0) }, card)
+                    CollectionCard("Recently Played Albums",
+                        if (albums.isEmpty()) "Nothing played yet" else count(playlists.recentAlbums.size, "album"),
+                        albums, onOpenRecentAlbums, { playerVm.playTracks(albums, 0) }, card)
+                    CollectionCard("Most Played", if (most.isEmpty()) "Nothing played yet" else count(most.size, "song"),
+                        most, onOpenMostPlayed, { playerVm.playTracks(most, 0) }, card)
+                    CollectionCard("Favourite Songs", if (favourites.isEmpty()) "Tap the heart on a song" else count(favourites.size, "song"),
+                        favourites, onOpenFavourites, { playerVm.playTracks(favourites, 0) }, card)
+                }
+            }
+            item { SectionTitle("Your playlists") }
+            if (userPlaylists.isEmpty()) {
+                item {
+                    Text(
+                        "Tap + to make a playlist.",
+                        Modifier.padding(horizontal = 16.dp),
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
+            items(userPlaylists, key = { "pl:" + it.id }) { playlist ->
+                Row(
+                    Modifier.fillMaxWidth().clickable { onOpenPlaylist(playlist.id) }.padding(horizontal = 16.dp, vertical = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    CoverMosaic(playlist.tracks, Modifier.size(72.dp))
+                    Column(Modifier.padding(start = 16.dp)) {
+                        Text(playlist.name, style = MaterialTheme.typography.titleMedium, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                        Text(count(playlist.tracks.size, "song"), style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                }
+            }
+        }
+        FloatingActionButton(
+            onClick = onNewPlaylist,
+            shape = CircleShape,
+            modifier = Modifier.align(Alignment.BottomEnd).padding(16.dp),
+        ) {
+            Icon(Icons.Default.Add, "New playlist")
+        }
     }
-}
-
-/** The Favourite Songs tile, on Home and in Playlists. */
-@Composable
-internal fun FavouritesTile(favourites: List<Track>, playerVm: PlayerViewModel, onOpen: () -> Unit) {
-    PlaylistTile(
-        title = "Favourite Songs",
-        subtitle = if (favourites.isEmpty()) "Tap the heart on a song to add it" else count(favourites.size, "song"),
-        covers = favourites.mapNotNull { it.artworkUri }.distinct().take(TILE_COVERS),
-        onOpen = onOpen,
-        onPlay = if (favourites.isEmpty()) null else ({ playerVm.playTracks(favourites, 0) }),
-    )
 }
 
 /**

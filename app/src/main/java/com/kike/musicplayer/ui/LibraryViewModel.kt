@@ -88,6 +88,9 @@ data class Playlists(
     val favourites: List<Track> = emptyList(),
 )
 
+/** A user playlist with its songs (those still in the library), in order. */
+data class PlaylistView(val id: Long, val name: String, val tracks: List<Track>)
+
 data class Library(
     val tracks: List<Track> = emptyList(),
     val albums: List<Album> = emptyList(),
@@ -344,6 +347,28 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
 
     /** The artist's photo (looked up online once, then remembered), or null. */
     suspend fun artistImage(name: String): String? = container.artistImages.imageFor(name)
+
+    // ---- User playlists ----
+
+    private val playlistDao = container.database.playlists()
+
+    val userPlaylists: StateFlow<List<PlaylistView>> = combine(
+        library, playlistDao.observePlaylists(), playlistDao.observeEntries(),
+    ) { lib, playlists, entries ->
+        val byId = lib.tracks.associateBy { it.id }
+        val songs = entries.groupBy({ it.playlistId }, { it.trackId })
+        playlists.map { p -> PlaylistView(p.id, p.name, songs[p.id].orEmpty().mapNotNull { byId[it] }) }
+    }.flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
+
+    /** A free default name: "Playlist 1", "Playlist 2"… */
+    fun nextPlaylistName(): String {
+        val taken = userPlaylists.value.mapTo(HashSet()) { it.name }
+        return generateSequence(userPlaylists.value.size + 1) { it + 1 }.map { "Playlist $it" }.first { it !in taken }
+    }
+
+    fun createPlaylist(name: String, trackIds: List<String>) = viewModelScope.launch {
+        playlistDao.create(name.trim().ifEmpty { nextPlaylistName() }, trackIds)
+    }
 
     // ---- Downloads ----
 

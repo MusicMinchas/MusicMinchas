@@ -163,6 +163,22 @@ data class ReplacedTrack(
     val removedAt: Long,
 )
 
+/** A playlist the user made. */
+@Entity(tableName = "playlists")
+data class UserPlaylist(
+    @PrimaryKey(autoGenerate = true) val id: Long = 0,
+    val name: String,
+    val createdAt: Long,
+)
+
+/** A song in a user playlist, at [position] (0-based); by track id, so it survives rescans. */
+@Entity(tableName = "playlist_tracks", primaryKeys = ["playlistId", "position"], indices = [Index("trackId")])
+data class PlaylistTrack(
+    val playlistId: Long,
+    val position: Int,
+    val trackId: String,
+)
+
 /** A song marked as favourite; kept by track id, so it survives rescans. */
 @Entity(tableName = "favourites")
 data class Favourite(

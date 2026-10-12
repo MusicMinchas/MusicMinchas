@@ -8,8 +8,8 @@ import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
 
 @Database(
-    entities = [Track::class, QueueItem::class, SessionState::class, PlayHistory::class, ArtistInfo::class, Favourite::class, LastFmOutboxItem::class, LastFmScrobble::class, ReplacedTrack::class, ArtistImage::class, StoredLyrics::class],
-    version = 14,
+    entities = [Track::class, QueueItem::class, SessionState::class, PlayHistory::class, ArtistInfo::class, Favourite::class, LastFmOutboxItem::class, LastFmScrobble::class, ReplacedTrack::class, ArtistImage::class, StoredLyrics::class, UserPlaylist::class, PlaylistTrack::class],
+    version = 15,
 )
 abstract class AppDatabase : RoomDatabase() {
     abstract fun tracks(): TrackDao
@@ -22,6 +22,7 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun replacements(): ReplacementDao
     abstract fun artistImages(): ArtistImageDao
     abstract fun lyrics(): LyricsDao
+    abstract fun playlists(): PlaylistDao
 
     companion object {
         /** Adds the play history. Real migrations keep the scanned library (tags, covers) intact. */
@@ -138,9 +139,23 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        private val MIGRATION_14_15 = object : Migration(14, 15) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    "CREATE TABLE IF NOT EXISTS `playlists` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, " +
+                        "`name` TEXT NOT NULL, `createdAt` INTEGER NOT NULL)"
+                )
+                db.execSQL(
+                    "CREATE TABLE IF NOT EXISTS `playlist_tracks` (`playlistId` INTEGER NOT NULL, `position` INTEGER NOT NULL, " +
+                        "`trackId` TEXT NOT NULL, PRIMARY KEY(`playlistId`, `position`))"
+                )
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_playlist_tracks_trackId` ON `playlist_tracks` (`trackId`)")
+            }
+        }
+
         fun create(context: Context): AppDatabase =
             Room.databaseBuilder(context, AppDatabase::class.java, "music.db")
-                .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11, MIGRATION_11_12, MIGRATION_12_13, MIGRATION_13_14)
+                .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11, MIGRATION_11_12, MIGRATION_12_13, MIGRATION_13_14, MIGRATION_14_15)
                 .build()
     }
 }

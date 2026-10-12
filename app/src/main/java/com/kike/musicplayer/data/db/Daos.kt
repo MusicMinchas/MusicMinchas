@@ -245,6 +245,9 @@ interface ReplacementDao {
     @Query("UPDATE queue_items SET trackId = :newId WHERE trackId = :oldId")
     suspend fun moveQueue(oldId: String, newId: String)
 
+    @Query("UPDATE playlist_tracks SET trackId = :newId WHERE trackId = :oldId")
+    suspend fun movePlaylistEntries(oldId: String, newId: String)
+
     /** Everything the app knows about a song by its id moves to the new file's id. */
     @Transaction
     suspend fun moveSong(oldId: String, newId: String) {
@@ -253,6 +256,34 @@ interface ReplacementDao {
         deleteFavourite(oldId)
         moveScrobbles(oldId, newId)
         moveQueue(oldId, newId)
+        movePlaylistEntries(oldId, newId)
+    }
+}
+
+@Dao
+interface PlaylistDao {
+    /** Newest first. */
+    @Query("SELECT * FROM playlists ORDER BY createdAt DESC")
+    fun observePlaylists(): Flow<List<UserPlaylist>>
+
+    @Query("SELECT * FROM playlist_tracks ORDER BY playlistId, position")
+    fun observeEntries(): Flow<List<PlaylistTrack>>
+
+    @Query("SELECT COUNT(*) FROM playlists")
+    suspend fun count(): Int
+
+    @Insert
+    suspend fun insertPlaylist(playlist: UserPlaylist): Long
+
+    @Insert
+    suspend fun insertEntries(entries: List<PlaylistTrack>)
+
+    /** Makes a playlist of [trackIds], in that order; returns its id. */
+    @Transaction
+    suspend fun create(name: String, trackIds: List<String>): Long {
+        val id = insertPlaylist(UserPlaylist(name = name, createdAt = System.currentTimeMillis()))
+        insertEntries(trackIds.mapIndexed { i, t -> PlaylistTrack(id, i, t) })
+        return id
     }
 }
 
