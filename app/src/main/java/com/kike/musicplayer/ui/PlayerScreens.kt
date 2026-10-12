@@ -103,6 +103,7 @@ fun MiniPlayer(playerVm: PlayerViewModel, onOpen: () -> Unit) {
                     ArtistAlbumText(
                         item.mediaMetadata.artist?.toString(), listOf(track?.artist, track?.albumArtist),
                         suffix = castTo?.let { "on ${it.name}" },
+                        links = false,
                     )
                 }
                 PlayPauseIcon(s, playerVm::togglePlay)
@@ -470,7 +471,7 @@ private fun QueueRow(
                 color = if (highlighted) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
             )
             val track = LocalNavigation.current.track(PlaybackService.trackIdOf(item.mediaId))
-            ArtistAlbumText(item.mediaMetadata.artist?.toString(), listOf(track?.artist, track?.albumArtist))
+            ArtistAlbumText(item.mediaMetadata.artist?.toString(), listOf(track?.artist, track?.albumArtist), links = false)
         }
         trailing()
     }

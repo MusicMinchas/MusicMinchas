@@ -112,14 +112,21 @@ fun ArtistAlbumText(
     textAlign: TextAlign? = null,
     /** Plain text after the names, e.g. where it is playing. */
     suffix: String? = null,
+    /** False where a mistap would get in the way of the row's own action (song lists, mini player). */
+    links: Boolean = true,
 ) {
     val nav = LocalNavigation.current
     val text = buildAnnotatedString {
         val parts = mutableListOf<AnnotatedString.Builder.() -> Unit>()
-        artist?.let { name -> parts += { withLink(LinkAnnotation.Clickable("artist", LINK_STYLE) { nav.openArtist(artistNames + name) }) { append(name) } } }
+        artist?.let { name ->
+            parts += {
+                if (links) withLink(LinkAnnotation.Clickable("artist", LINK_STYLE) { nav.openArtist(artistNames + name) }) { append(name) }
+                else append(name)
+            }
+        }
         album?.let { title ->
             parts += {
-                if (albumKey != null) withLink(LinkAnnotation.Clickable("album", LINK_STYLE) { nav.openAlbum(albumKey) }) { append(title) }
+                if (links && albumKey != null) withLink(LinkAnnotation.Clickable("album", LINK_STYLE) { nav.openAlbum(albumKey) }) { append(title) }
                 else append(title)
             }
         }
@@ -196,6 +203,7 @@ fun TrackRow(
     var menu by remember { mutableStateOf(false) }
     val favourites = LocalFavourites.current
     val downloads = LocalDownloads.current
+    val navigation = LocalNavigation.current
     Row(
         Modifier
             .combinedClickable(onClick = onClick, onLongClick = { menu = true })
@@ -217,7 +225,7 @@ fun TrackRow(
                 fontWeight = if (isCurrent) FontWeight.Bold else FontWeight.Normal,
                 color = if (isCurrent) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
             )
-            ArtistAlbumText(track.displayArtist, listOf(track.artist, track.albumArtist), track.album, track.albumKey)
+            ArtistAlbumText(track.displayArtist, listOf(track.artist, track.albumArtist), track.album, track.albumKey, links = false)
         }
         badge?.let {
             Text(it, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary,
@@ -229,6 +237,13 @@ fun TrackRow(
             DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
                 DropdownMenuItem(text = { Text("Play next") }, onClick = { menu = false; onPlayNext() })
                 DropdownMenuItem(text = { Text("Add to queue") }, onClick = { menu = false; onAddToQueue() })
+                DropdownMenuItem(
+                    text = { Text("Go to Artist") },
+                    onClick = { menu = false; navigation.openArtist(listOf(track.artist, track.albumArtist)) },
+                )
+                if (track.album != null) {
+                    DropdownMenuItem(text = { Text("Go to Album") }, onClick = { menu = false; navigation.openAlbum(track.albumKey) })
+                }
                 DropdownMenuItem(
                     text = { Text(if (track.id in favourites.ids) "Remove from Favourites" else "Add to Favourites") },
                     onClick = { menu = false; favourites.toggle(track.id) },
