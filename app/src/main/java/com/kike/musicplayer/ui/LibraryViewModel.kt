@@ -328,6 +328,14 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
 
     fun disconnectDrive() = viewModelScope.launch { repo.removeDrive() }
 
+    /** Counted plays (half listened) per track id, for the artist page's top songs. */
+    val playCounts: StateFlow<Map<String, Int>> = history
+        .map { list -> list.filter { it.counted }.groupingBy { it.trackId }.eachCount() }
+        .flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.Eagerly, emptyMap())
+
+    /** The artist's photo (looked up online once, then remembered), or null. */
+    suspend fun artistImage(name: String): String? = container.artistImages.imageFor(name)
+
     // ---- Downloads ----
 
     private val downloader = container.downloader

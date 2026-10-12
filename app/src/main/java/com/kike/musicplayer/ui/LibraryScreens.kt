@@ -411,11 +411,7 @@ fun AlbumScreen(
     }
 }
 
-@Composable
-fun ArtistScreen(artist: Artist?, playerVm: PlayerViewModel, onBack: () -> Unit, contentPadding: PaddingValues) =
-    TrackListScreen(artist?.name ?: "", artist?.tracks, playerVm, onBack, contentPadding)
-
-/** A titled list of songs with Play / Shuffle: an artist's songs, or the Recently Played playlist. */
+/** A titled list of songs with Play / Shuffle: a playlist or mix. */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun TrackListScreen(

@@ -170,6 +170,14 @@ data class Favourite(
     val addedAt: Long,
 )
 
+/** An artist's photo for the artist page ([url] null: none found when [checkedAt]); [name] lower-cased. */
+@Entity(tableName = "artist_images")
+data class ArtistImage(
+    @PrimaryKey val name: String,
+    val url: String?,
+    val checkedAt: Long,
+)
+
 /** Genre-like tags for an artist, from MusicBrainz; [name] is the lower-cased artist name. */
 @Entity(tableName = "artist_info")
 data class ArtistInfo(

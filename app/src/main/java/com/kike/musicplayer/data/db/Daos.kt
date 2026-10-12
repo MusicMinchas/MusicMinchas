@@ -262,12 +262,24 @@ interface FavouriteDao {
 }
 
 @Dao
+interface ArtistImageDao {
+    @Query("SELECT * FROM artist_images WHERE name = :name")
+    suspend fun get(name: String): ArtistImage?
+
+    @Upsert
+    suspend fun upsert(image: ArtistImage)
+}
+
+@Dao
 interface ArtistInfoDao {
     @Query("SELECT * FROM artist_info")
     fun observeAll(): Flow<List<ArtistInfo>>
 
     @Query("SELECT name FROM artist_info")
     suspend fun names(): List<String>
+
+    @Query("SELECT * FROM artist_info WHERE name = :name")
+    suspend fun get(name: String): ArtistInfo?
 
     @Upsert
     suspend fun upsert(info: ArtistInfo)

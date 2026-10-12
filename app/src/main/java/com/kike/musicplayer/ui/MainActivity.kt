@@ -142,7 +142,11 @@ class MainActivity : ComponentActivity() {
                             )
                         }
                         is Screen.ArtistDetail -> ArtistScreen(
-                            library.artists.firstOrNull { it.name == screen.name }, playerVm, ::pop, padding,
+                            library.artists.firstOrNull { it.name == screen.name },
+                            albums = library.albums.filter { it.artist == screen.name }
+                                .sortedWith(compareByDescending<Album> { it.year ?: 0 }.thenBy { it.title.lowercase() }),
+                            libraryVm, playerVm,
+                            onOpenAlbum = { push(Screen.AlbumDetail(it)) }, onBack = ::pop, contentPadding = padding,
                         )
                         Screen.NowPlaying -> NowPlayingScreen(playerVm, ::pop, { push(Screen.Queue) }, padding)
                         Screen.Queue -> QueueScreen(playerVm, ::pop, padding)
