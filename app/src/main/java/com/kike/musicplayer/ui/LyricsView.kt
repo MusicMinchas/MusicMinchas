@@ -2,7 +2,6 @@ package com.kike.musicplayer.ui
 
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
-import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.PaddingValues
@@ -67,7 +66,8 @@ fun FlipCard(flipped: Boolean, onFlip: () -> Unit, front: @Composable () -> Unit
 @Composable
 fun LyricsPanel(state: LyricsState, positionMs: Long, onSeek: (Long) -> Unit) {
     Box(
-        Modifier.fillMaxSize().clip(RoundedCornerShape(12.dp)).background(MaterialTheme.colorScheme.surfaceContainerHigh),
+        // No panel: the lyrics sit straight on the blurred cover backdrop.
+        Modifier.fillMaxSize().clip(RoundedCornerShape(12.dp)),
         contentAlignment = Alignment.Center,
     ) {
         when (state) {
@@ -81,7 +81,7 @@ fun LyricsPanel(state: LyricsState, positionMs: Long, onSeek: (Long) -> Unit) {
                     else -> Text(
                         lyrics.plain.orEmpty(),
                         Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(20.dp),
-                        style = MaterialTheme.typography.bodyLarge,
+                        style = MaterialTheme.typography.titleMedium,
                         textAlign = TextAlign.Center,
                     )
                 }
@@ -112,7 +112,7 @@ private fun SyncedLyrics(lyrics: SongLyrics, positionMs: Long, onSeek: (Long) ->
             Text(
                 line.text.ifEmpty { "♪" },
                 Modifier.fillMaxWidth().clickable { onSeek(line.timeMs) }.padding(vertical = 6.dp),
-                style = MaterialTheme.typography.titleMedium,
+                style = MaterialTheme.typography.titleLarge,
                 fontWeight = if (active) FontWeight.Bold else FontWeight.Normal,
                 color = if (active) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface.copy(alpha = if (index < current) 0.45f else 0.7f),
                 textAlign = TextAlign.Center,
