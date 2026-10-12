@@ -1,6 +1,13 @@
 package com.kike.musicplayer.ui
 
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.background
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.material3.SliderDefaults
+import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.foundation.interaction.collectIsDraggedAsState
+import androidx.compose.foundation.interaction.collectIsPressedAsState
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.ui.draw.clip
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -201,7 +208,9 @@ fun NowPlayingScreen(playerVm: PlayerViewModel, onBack: () -> Unit, onOpenQueue:
                     Text(it, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary,
                         modifier = Modifier.padding(top = 4.dp))
                 }
-                Spacer(Modifier.height(8.dp))
+                // Spare height goes here, so the controls below keep the same spacing whether the
+                // title takes one line or two.
+                Spacer(Modifier.weight(1f))
                 SeekBar(s, playerVm::seekTo)
                 Row(
                     Modifier.fillMaxWidth(),
@@ -213,10 +222,10 @@ fun NowPlayingScreen(playerVm: PlayerViewModel, onBack: () -> Unit, onOpenQueue:
                             tint = if (s.shuffle) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                     IconButton(onClick = { playerVm.previous() }) { Icon(Icons.Default.SkipPrevious, "Previous", Modifier.size(36.dp)) }
-                    FilledIconButton(onClick = playerVm::togglePlay, modifier = Modifier.size(72.dp)) {
-                        if (s.isBuffering && !s.isPlaying) CircularProgressIndicator(Modifier.size(32.dp), strokeWidth = 3.dp)
+                    FilledIconButton(onClick = playerVm::togglePlay, modifier = Modifier.size(64.dp)) {
+                        if (s.isBuffering && !s.isPlaying) CircularProgressIndicator(Modifier.size(28.dp), strokeWidth = 3.dp)
                         else Icon(if (s.isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
-                            if (s.isPlaying) "Pause" else "Play", Modifier.size(40.dp))
+                            if (s.isPlaying) "Pause" else "Play", Modifier.size(36.dp))
                     }
                     IconButton(onClick = { playerVm.next() }) { Icon(Icons.Default.SkipNext, "Next", Modifier.size(36.dp)) }
                     IconButton(onClick = { playerVm.cycleRepeat() }) {
@@ -235,7 +244,7 @@ fun NowPlayingScreen(playerVm: PlayerViewModel, onBack: () -> Unit, onOpenQueue:
                 }
                 // Lyrics · Cast · Queue, within thumb reach under the playback controls.
                 Row(
-                    Modifier.fillMaxWidth().padding(top = 4.dp),
+                    Modifier.fillMaxWidth().padding(top = 16.dp, bottom = 8.dp),
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
@@ -253,7 +262,6 @@ fun NowPlayingScreen(playerVm: PlayerViewModel, onBack: () -> Unit, onOpenQueue:
                         Icon(Icons.AutoMirrored.Filled.QueueMusic, "Queue", tint = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                 }
-                Spacer(Modifier.weight(1f))
                 s.upNext.firstOrNull()?.let { next ->
                     // A slim line rather than a full-height button, so it fits under the big cover.
                     Text(
@@ -386,12 +394,19 @@ private fun ArtworkBackdrop(uri: Any?) {
 }
 
 @Composable
+@OptIn(ExperimentalMaterial3Api::class)
 private fun SeekBar(s: PlayerUiState, onSeek: (Long) -> Unit) {
     // While dragging, show the thumb where the finger is instead of the live position.
     var dragFraction by remember { mutableStateOf<Float?>(null) }
     val duration = s.durationMs.coerceAtLeast(1)
     val fraction = dragFraction ?: (s.positionMs.toFloat() / duration).coerceIn(0f, 1f)
     Column(Modifier.fillMaxWidth()) {
+        // A thin track with a round thumb that grows while held, instead of the tall bar thumb.
+        val interaction = remember { MutableInteractionSource() }
+        val pressed by interaction.collectIsPressedAsState()
+        val dragged by interaction.collectIsDraggedAsState()
+        val thumbSize by animateDpAsState(if (pressed || dragged) 20.dp else 12.dp, label = "thumb")
+        val colors = SliderDefaults.colors()
         Slider(
             value = fraction,
             onValueChange = { dragFraction = it },
@@ -400,6 +415,22 @@ private fun SeekBar(s: PlayerUiState, onSeek: (Long) -> Unit) {
                 dragFraction = null
             },
             enabled = s.durationMs > 0,
+            interactionSource = interaction,
+            modifier = Modifier.height(28.dp),
+            thumb = {
+                Box(Modifier.size(20.dp), contentAlignment = Alignment.Center) {
+                    Box(Modifier.size(thumbSize).clip(CircleShape).background(MaterialTheme.colorScheme.primary))
+                }
+            },
+            track = { state ->
+                SliderDefaults.Track(
+                    sliderState = state,
+                    modifier = Modifier.height(4.dp),
+                    colors = colors,
+                    thumbTrackGapSize = 0.dp,
+                    drawStopIndicator = null,
+                )
+            },
         )
         Row(Modifier.fillMaxWidth()) {
             Text(formatTime((fraction * duration).toLong()), style = MaterialTheme.typography.labelSmall)
