@@ -51,15 +51,16 @@ private const val BY_ARTIST = "Artists"
 private const val BY_ALBUM = "Albums"
 
 /**
- * Making a playlist: every song, narrowed by a search on song title, artist or album (chips; none
- * selected = all three). Ticking a song adds it, in the order ticked; the check button asks for a
- * name and creates the playlist.
+ * Making a playlist, or adding to [existing]: every song, narrowed by a search on song title, artist
+ * or album (chips; none selected = all three). Ticking a song adds it, in the order ticked; the
+ * check button asks for a name and creates the playlist, or appends to [existing]. Songs already in
+ * [existing] show ticked and can't be changed here.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun NewPlaylistScreen(
     libraryVm: LibraryViewModel,
-    playerVm: PlayerViewModel,
+    existing: PlaylistView?,
     onDone: () -> Unit,
     onBack: () -> Unit,
     contentPadding: PaddingValues,
@@ -88,7 +89,7 @@ fun NewPlaylistScreen(
                 windowInsets = NoTopInsets,
                 title = {
                     Column {
-                        Text("New playlist")
+                        Text(existing?.let { "Add to ${it.name}" } ?: "New playlist", maxLines = 1, overflow = TextOverflow.Ellipsis)
                         Text(
                             if (selected.isEmpty()) "Tick the songs to add" else if (selected.size == 1) "1 song selected" else "${selected.size} songs selected",
                             style = MaterialTheme.typography.bodySmall,
@@ -118,8 +119,10 @@ fun NewPlaylistScreen(
                 }
             }
             LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 96.dp)) {
+                val inPlaylist = existing?.tracks.orEmpty().mapTo(HashSet()) { it.id }
                 items(shown, key = { it.id }) { track ->
-                    SelectableTrackRow(track, track.id in selected) {
+                    val already = track.id in inPlaylist
+                    SelectableTrackRow(track, already || track.id in selected, enabled = !already) {
                         if (track.id in selected) selected.remove(track.id) else selected.add(track.id)
                     }
                 }
@@ -127,11 +130,18 @@ fun NewPlaylistScreen(
         }
         if (selected.isNotEmpty()) {
             FloatingActionButton(
-                onClick = { naming = true },
+                onClick = {
+                    if (existing != null) {
+                        libraryVm.addToPlaylist(existing.id, selected.toList())
+                        onDone()
+                    } else {
+                        naming = true
+                    }
+                },
                 shape = CircleShape,
                 modifier = Modifier.align(Alignment.BottomEnd).padding(16.dp),
             ) {
-                Icon(Icons.Default.Check, "Create playlist")
+                Icon(Icons.Default.Check, if (existing != null) "Add songs" else "Create playlist")
             }
         }
     }
@@ -156,9 +166,9 @@ fun NewPlaylistScreen(
 
 /** A song with a tick box; tapping anywhere on the row ticks it. */
 @Composable
-private fun SelectableTrackRow(track: Track, checked: Boolean, onToggle: () -> Unit) {
+private fun SelectableTrackRow(track: Track, checked: Boolean, enabled: Boolean = true, onToggle: () -> Unit) {
     Row(
-        Modifier.fillMaxWidth().clickable(onClick = onToggle).padding(start = 16.dp, top = 6.dp, bottom = 6.dp, end = 4.dp),
+        Modifier.fillMaxWidth().clickable(enabled = enabled, onClick = onToggle).padding(start = 16.dp, top = 6.dp, bottom = 6.dp, end = 4.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Artwork(track.artworkUri, size = 48.dp)
@@ -167,6 +177,6 @@ private fun SelectableTrackRow(track: Track, checked: Boolean, onToggle: () -> U
             Text(track.title, maxLines = 1, overflow = TextOverflow.Ellipsis)
             ArtistAlbumText(track.displayArtist, emptyList(), track.album, links = false)
         }
-        Checkbox(checked = checked, onCheckedChange = { onToggle() })
+        Checkbox(checked = checked, onCheckedChange = { onToggle() }, enabled = enabled)
     }
 }

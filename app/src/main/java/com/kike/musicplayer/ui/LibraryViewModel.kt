@@ -370,6 +370,10 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
         playlistDao.create(name.trim().ifEmpty { nextPlaylistName() }, trackIds)
     }
 
+    fun addToPlaylist(playlistId: Long, trackIds: List<String>) = viewModelScope.launch { playlistDao.append(playlistId, trackIds) }
+
+    fun deletePlaylist(playlistId: Long) = viewModelScope.launch { playlistDao.delete(playlistId) }
+
     // ---- Downloads ----
 
     private val downloader = container.downloader

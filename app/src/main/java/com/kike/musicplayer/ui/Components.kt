@@ -30,6 +30,13 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.TextButton
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.LinkAnnotation
@@ -146,6 +153,62 @@ private val LINK_STYLE = TextLinkStyles(style = SpanStyle(), pressedStyle = Span
 /** The red of favourite hearts. */
 val FAVOURITE_RED = Color(0xFFE53935)
 
+/** The user's playlists and adding songs to them; provided once at the top of the UI. */
+class PlaylistActions(
+    val playlists: List<PlaylistView>,
+    val addTo: (playlistId: Long, trackIds: List<String>) -> Unit,
+    val create: (name: String, trackIds: List<String>) -> Unit,
+    val nextName: () -> String,
+)
+
+val LocalPlaylists = compositionLocalOf { PlaylistActions(emptyList(), { _, _ -> }, { _, _ -> }, { "" }) }
+
+/** Picks one of the user's playlists for [trackIds], or names a new one for them. */
+@Composable
+fun AddToPlaylistDialog(trackIds: List<String>, onDismiss: () -> Unit) {
+    val actions = LocalPlaylists.current
+    var newName by remember { mutableStateOf<String?>(null) }
+    val name = newName
+    if (name != null) {
+        AlertDialog(
+            onDismissRequest = onDismiss,
+            title = { Text("New playlist") },
+            text = { OutlinedTextField(value = name, onValueChange = { newName = it }, singleLine = true) },
+            confirmButton = { TextButton(onClick = { actions.create(name, trackIds); onDismiss() }) { Text("Create") } },
+            dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
+        )
+        return
+    }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Add to playlist") },
+        text = {
+            LazyColumn {
+                items(actions.playlists, key = { it.id }) { p ->
+                    val already = trackIds.size == 1 && p.tracks.any { it.id == trackIds[0] }
+                    Text(
+                        p.name + if (already) " (already in it)" else "",
+                        Modifier.fillMaxWidth().clickable(enabled = !already) { actions.addTo(p.id, trackIds); onDismiss() }
+                            .padding(vertical = 12.dp),
+                        color = if (already) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.onSurface,
+                        style = MaterialTheme.typography.bodyLarge,
+                    )
+                }
+                item {
+                    Text(
+                        "+ New playlist…",
+                        Modifier.fillMaxWidth().clickable { newName = actions.nextName() }.padding(vertical = 12.dp),
+                        color = MaterialTheme.colorScheme.primary,
+                        style = MaterialTheme.typography.bodyLarge,
+                    )
+                }
+            }
+        },
+        confirmButton = {},
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
+    )
+}
+
 /** Downloading Drive songs to the phone; provided once at the top of the UI. */
 class Downloads(val progress: DownloadProgress?, val download: (List<Track>) -> Unit, val remove: (Track) -> Unit)
 
@@ -205,6 +268,8 @@ fun TrackRow(
     badge: String? = null,
 ) {
     var menu by remember { mutableStateOf(false) }
+    var addToPlaylist by remember { mutableStateOf(false) }
+    if (addToPlaylist) AddToPlaylistDialog(listOf(track.id)) { addToPlaylist = false }
     val favourites = LocalFavourites.current
     val downloads = LocalDownloads.current
     val navigation = LocalNavigation.current
@@ -244,6 +309,7 @@ fun TrackRow(
             DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
                 DropdownMenuItem(text = { Text("Play next") }, onClick = { menu = false; onPlayNext() })
                 DropdownMenuItem(text = { Text("Add to queue") }, onClick = { menu = false; onAddToQueue() })
+                DropdownMenuItem(text = { Text("Add to playlist…") }, onClick = { menu = false; addToPlaylist = true })
                 DropdownMenuItem(
                     text = { Text("Go to Artist") },
                     onClick = { menu = false; navigation.openArtist(listOf(track.artist, track.albumArtist)) },

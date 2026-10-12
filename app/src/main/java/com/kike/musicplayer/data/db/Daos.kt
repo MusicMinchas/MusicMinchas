@@ -278,6 +278,30 @@ interface PlaylistDao {
     @Insert
     suspend fun insertEntries(entries: List<PlaylistTrack>)
 
+    @Query("SELECT trackId FROM playlist_tracks WHERE playlistId = :playlistId ORDER BY position")
+    suspend fun trackIds(playlistId: Long): List<String>
+
+    @Query("DELETE FROM playlist_tracks WHERE playlistId = :playlistId")
+    suspend fun deleteEntries(playlistId: Long)
+
+    @Query("DELETE FROM playlists WHERE id = :playlistId")
+    suspend fun deletePlaylist(playlistId: Long)
+
+    @Transaction
+    suspend fun delete(playlistId: Long) {
+        deleteEntries(playlistId)
+        deletePlaylist(playlistId)
+    }
+
+    /** Adds [trackIds] at the end, leaving out songs already in it; returns how many were added. */
+    @Transaction
+    suspend fun append(playlistId: Long, trackIds: List<String>): Int {
+        val existing = trackIds(playlistId)
+        val new = trackIds.distinct().filter { it !in existing }
+        insertEntries(new.mapIndexed { i, t -> PlaylistTrack(playlistId, existing.size + i, t) })
+        return new.size
+    }
+
     /** Makes a playlist of [trackIds], in that order; returns its id. */
     @Transaction
     suspend fun create(name: String, trackIds: List<String>): Long {

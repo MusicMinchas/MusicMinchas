@@ -1,5 +1,17 @@
 package com.kike.musicplayer.ui
 
+import androidx.compose.material.icons.Icons
+import androidx.compose.material3.Text
+import androidx.compose.material3.Icon
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.Alignment
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.material.icons.filled.Add
+import androidx.compose.material3.ExtendedFloatingActionButton
 import android.Manifest
 import android.content.Intent
 import com.kike.musicplayer.container
@@ -41,6 +53,7 @@ private sealed interface Screen {
     data object MostPlayed : Screen
     data object Favourites : Screen
     data object NewPlaylist : Screen
+    data class AddToPlaylist(val id: Long) : Screen
     data class PlaylistDetail(val id: Long) : Screen
     data class MixDetail(val id: String) : Screen
     data class GenreDetail(val key: String) : Screen
@@ -124,6 +137,7 @@ class MainActivity : ComponentActivity() {
             track = { tracksById[it] },
         )
         CompositionLocalProvider(
+            LocalPlaylists provides PlaylistActions(userPlaylists, libraryVm::addToPlaylist, libraryVm::createPlaylist, libraryVm::nextPlaylistName),
             LocalNavigation provides navigation,
             LocalFavourites provides Favourites(favouriteIds, playerVm::toggleFavourite),
             LocalDownloads provides Downloads(downloadProgress, libraryVm::download, libraryVm::removeDownload),
@@ -175,10 +189,24 @@ class MainActivity : ComponentActivity() {
                                 counts[t.id]?.let { if (it == 1) "1 play" else "$it plays" }
                             }
                         }
-                        Screen.NewPlaylist -> NewPlaylistScreen(libraryVm, playerVm, onDone = ::pop, onBack = ::pop, contentPadding = padding)
+                        Screen.NewPlaylist -> NewPlaylistScreen(libraryVm, null, onDone = ::pop, onBack = ::pop, contentPadding = padding)
+                        is Screen.AddToPlaylist -> NewPlaylistScreen(
+                            libraryVm, userPlaylists.firstOrNull { it.id == screen.id }, onDone = ::pop, onBack = ::pop, contentPadding = padding,
+                        )
                         is Screen.PlaylistDetail -> {
                             val list = userPlaylists.firstOrNull { it.id == screen.id }
-                            TrackListScreen(list?.name ?: "", list?.tracks, playerVm, ::pop, padding)
+                            Box(Modifier.fillMaxSize()) {
+                                TrackListScreen(list?.name ?: "", list?.tracks, playerVm, ::pop, padding)
+                                if (list != null) {
+                                    ExtendedFloatingActionButton(
+                                        onClick = { push(Screen.AddToPlaylist(list.id)) },
+                                        icon = { Icon(Icons.Default.Add, null) },
+                                        text = { Text("Add songs") },
+                                        shape = CircleShape,
+                                        modifier = Modifier.align(Alignment.BottomEnd).padding(padding).padding(16.dp),
+                                    )
+                                }
+                            }
                         }
                         Screen.Favourites -> TrackListScreen("Favourite Songs", playlists.favourites, playerVm, ::pop, padding)
                         Screen.Replay -> ReplayScreen(libraryVm, playerVm, onOpenAlbum = { push(Screen.AlbumDetail(it)) }, onBack = ::pop, contentPadding = padding)

@@ -1,5 +1,11 @@
 package com.kike.musicplayer.ui
 
+import androidx.compose.runtime.remember
+import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.TextButton
+import androidx.compose.material3.AlertDialog
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material3.FloatingActionButton
@@ -178,6 +184,7 @@ fun LibraryScreen(
             "Playlists" -> PlaylistsTab(
                 playlists, libraryVm.userPlaylists.collectAsState().value, playerVm,
                 onOpenRecentTracks, onOpenRecentAlbums, onOpenMostPlayed, onOpenFavourites, onNewPlaylist, onOpenPlaylist,
+                libraryVm::deletePlaylist,
             )
         }
     }
@@ -536,7 +543,19 @@ private fun PlaylistsTab(
     onOpenFavourites: () -> Unit,
     onNewPlaylist: () -> Unit,
     onOpenPlaylist: (Long) -> Unit,
+    onDeletePlaylist: (Long) -> Unit,
 ) {
+    var deleting by remember { mutableStateOf<PlaylistView?>(null) }
+    deleting?.let { p ->
+        AlertDialog(
+            onDismissRequest = { deleting = null },
+            title = { Text("Delete ${p.name}?") },
+            text = { Text("The playlist is deleted; its songs stay in your library.") },
+            confirmButton = { TextButton(onClick = { onDeletePlaylist(p.id); deleting = null }) { Text("Delete") } },
+            dismissButton = { TextButton(onClick = { deleting = null }) { Text("Cancel") } },
+        )
+    }
+    val downloads = LocalDownloads.current
     val recent = playlists.recentTracks
     val albums = playlists.recentAlbums.flatMap { it.tracks }
     val most = playlists.mostPlayed.map { it.item }
@@ -578,10 +597,20 @@ private fun PlaylistsTab(
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     CoverMosaic(playlist.tracks, Modifier.size(72.dp))
-                    Column(Modifier.padding(start = 16.dp)) {
+                    Column(Modifier.weight(1f).padding(start = 16.dp)) {
                         Text(playlist.name, style = MaterialTheme.typography.titleMedium, maxLines = 2, overflow = TextOverflow.Ellipsis)
                         Text(count(playlist.tracks.size, "song"), style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                    Box {
+                        var menu by remember { mutableStateOf(false) }
+                        IconButton(onClick = { menu = true }) { Icon(Icons.Default.MoreVert, "More") }
+                        DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
+                            if (playlist.tracks.any { it.source == Track.SOURCE_DRIVE }) {
+                                DropdownMenuItem(text = { Text("Download") }, onClick = { menu = false; downloads.download(playlist.tracks) })
+                            }
+                            DropdownMenuItem(text = { Text("Delete") }, onClick = { menu = false; deleting = playlist })
+                        }
                     }
                 }
             }
