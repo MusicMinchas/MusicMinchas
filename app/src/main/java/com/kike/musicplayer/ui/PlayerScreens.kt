@@ -99,9 +99,10 @@ fun MiniPlayer(playerVm: PlayerViewModel, onOpen: () -> Unit) {
                 Artwork(item.mediaMetadata.artworkUri, size = 44.dp)
                 Column(Modifier.weight(1f).padding(horizontal = 12.dp)) {
                     Text(item.mediaMetadata.title?.toString() ?: "", maxLines = 1, overflow = TextOverflow.Ellipsis)
-                    Text(
-                        listOfNotNull(item.mediaMetadata.artist?.toString(), castTo?.let { "on ${it.name}" }).joinToString(" · "), maxLines = 1, overflow = TextOverflow.Ellipsis,
-                        style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    val track = LocalNavigation.current.track(PlaybackService.trackIdOf(item.mediaId))
+                    ArtistAlbumText(
+                        item.mediaMetadata.artist?.toString(), listOf(track?.artist, track?.albumArtist),
+                        suffix = castTo?.let { "on ${it.name}" },
                     )
                 }
                 PlayPauseIcon(s, playerVm::togglePlay)
@@ -177,9 +178,11 @@ fun NowPlayingScreen(playerVm: PlayerViewModel, onBack: () -> Unit, onOpenQueue:
                         }
                     }
                 }
-                Text(
-                    listOfNotNull(meta?.artist, meta?.albumTitle).joinToString(" · "),
-                    color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                val track = trackId?.let(LocalNavigation.current.track)
+                ArtistAlbumText(
+                    meta?.artist?.toString(), listOf(track?.artist, track?.albumArtist),
+                    meta?.albumTitle?.toString(), track?.albumKey,
+                    style = MaterialTheme.typography.bodyLarge, textAlign = TextAlign.Center,
                 )
                 val group = castTo
                 if (group != null) {
@@ -466,10 +469,8 @@ private fun QueueRow(
                 item.mediaMetadata.title?.toString() ?: "", maxLines = 1, overflow = TextOverflow.Ellipsis,
                 color = if (highlighted) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
             )
-            Text(
-                item.mediaMetadata.artist?.toString() ?: "", maxLines = 1, overflow = TextOverflow.Ellipsis,
-                style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
+            val track = LocalNavigation.current.track(PlaybackService.trackIdOf(item.mediaId))
+            ArtistAlbumText(item.mediaMetadata.artist?.toString(), listOf(track?.artist, track?.albumArtist))
         }
         trailing()
     }

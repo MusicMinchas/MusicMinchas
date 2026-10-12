@@ -119,8 +119,7 @@ fun HomeTab(
                             Artwork(album.artworkUri, Modifier.fillMaxWidth().aspectRatio(1f))
                             Text(album.title, maxLines = 1, overflow = TextOverflow.Ellipsis,
                                 style = MaterialTheme.typography.bodyMedium, modifier = Modifier.padding(top = 4.dp))
-                            Text(album.artist, maxLines = 1, overflow = TextOverflow.Ellipsis,
-                                style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            ArtistAlbumText(album.artist, listOf(album.artist))
                         }
                     }
                 }

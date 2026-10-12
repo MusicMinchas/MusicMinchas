@@ -29,6 +29,16 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.LinkAnnotation
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.TextLinkStyles
+import androidx.compose.ui.text.style.TextDecoration
+import androidx.compose.ui.text.buildAnnotatedString
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.withLink
 import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -73,6 +83,57 @@ private fun ArtworkPlaceholder() {
 class Favourites(val ids: Set<String>, val toggle: (trackId: String) -> Unit)
 
 val LocalFavourites = compositionLocalOf { Favourites(emptySet()) {} }
+
+/** Opening artist and album pages from anywhere; provided once at the top of the UI. */
+class Navigation(
+    /** Opens the page of the first of these names that is an artist in the library. */
+    val openArtist: (names: List<String?>) -> Unit,
+    val openAlbum: (albumKey: String) -> Unit,
+    /** The library track with this id (for screens that only have the playing media item). */
+    val track: (trackId: String) -> Track?,
+)
+
+val LocalNavigation = compositionLocalOf { Navigation({}, {}, { null }) }
+
+/**
+ * "Artist · Album" in which the artist name opens the artist page and the album name the album
+ * page; taps elsewhere on the line go to the row or card around it. [artistNames]: the artist page
+ * candidates, e.g. the track artist, then the album artist (compilations).
+ */
+@Composable
+fun ArtistAlbumText(
+    artist: String?,
+    artistNames: List<String?>,
+    album: String? = null,
+    albumKey: String? = null,
+    modifier: Modifier = Modifier,
+    style: TextStyle = MaterialTheme.typography.bodySmall,
+    color: Color = MaterialTheme.colorScheme.onSurfaceVariant,
+    textAlign: TextAlign? = null,
+    /** Plain text after the names, e.g. where it is playing. */
+    suffix: String? = null,
+) {
+    val nav = LocalNavigation.current
+    val text = buildAnnotatedString {
+        val parts = mutableListOf<AnnotatedString.Builder.() -> Unit>()
+        artist?.let { name -> parts += { withLink(LinkAnnotation.Clickable("artist", LINK_STYLE) { nav.openArtist(artistNames + name) }) { append(name) } } }
+        album?.let { title ->
+            parts += {
+                if (albumKey != null) withLink(LinkAnnotation.Clickable("album", LINK_STYLE) { nav.openAlbum(albumKey) }) { append(title) }
+                else append(title)
+            }
+        }
+        suffix?.let { s -> parts += { append(s) } }
+        parts.forEachIndexed { i, part ->
+            if (i > 0) append(" · ")
+            part()
+        }
+    }
+    Text(text, modifier, color = color, style = style, maxLines = 1, overflow = TextOverflow.Ellipsis, textAlign = textAlign)
+}
+
+/** Links look like the text around them; underlined while pressed. */
+private val LINK_STYLE = TextLinkStyles(style = SpanStyle(), pressedStyle = SpanStyle(textDecoration = TextDecoration.Underline))
 
 /** Downloading Drive songs to the phone; provided once at the top of the UI. */
 class Downloads(val progress: DownloadProgress?, val download: (List<Track>) -> Unit, val remove: (Track) -> Unit)
@@ -156,11 +217,7 @@ fun TrackRow(
                 fontWeight = if (isCurrent) FontWeight.Bold else FontWeight.Normal,
                 color = if (isCurrent) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
             )
-            Text(
-                listOfNotNull(track.displayArtist, track.album).joinToString(" · "),
-                maxLines = 1, overflow = TextOverflow.Ellipsis,
-                style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
+            ArtistAlbumText(track.displayArtist, listOf(track.artist, track.albumArtist), track.album, track.albumKey)
         }
         badge?.let {
             Text(it, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary,

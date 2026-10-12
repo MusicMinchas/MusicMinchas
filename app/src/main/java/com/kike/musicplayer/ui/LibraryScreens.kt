@@ -253,8 +253,7 @@ private fun SearchResultsList(
                     Artwork(album.artworkUri, size = 48.dp)
                     Column(Modifier.padding(start = 12.dp)) {
                         Text(album.title, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                        Text(album.artist, maxLines = 1, overflow = TextOverflow.Ellipsis,
-                            style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        ArtistAlbumText(album.artist, listOf(album.artist))
                     }
                 }
             }
@@ -376,10 +375,7 @@ internal fun AlbumsGrid(albums: List<Album>, onOpenAlbum: (String) -> Unit) {
             Column(Modifier.clickable { onOpenAlbum(album.key) }) {
                 Artwork(album.artworkUri, Modifier.fillMaxWidth().aspectRatio(1f))
                 Text(album.title, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 4.dp))
-                Text(
-                    album.artist, maxLines = 1, overflow = TextOverflow.Ellipsis,
-                    style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
+                ArtistAlbumText(album.artist, listOf(album.artist))
             }
         }
     }
@@ -409,7 +405,7 @@ fun AlbumScreen(
                     Artwork(album.artworkUri, size = 140.dp)
                     Column(Modifier.padding(start = 16.dp)) {
                         Text(album.title, style = MaterialTheme.typography.titleLarge)
-                        Text(album.artist, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        ArtistAlbumText(album.artist, listOf(album.artist), style = MaterialTheme.typography.bodyLarge)
                         Text(
                             listOfNotNull(album.year?.toString(), count(album.tracks.size, "song"),
                                 formatTime(album.tracks.sumOf { it.durationMs })).joinToString(" · "),

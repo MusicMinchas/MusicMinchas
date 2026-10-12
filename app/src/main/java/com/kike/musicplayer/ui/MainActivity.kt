@@ -109,7 +109,19 @@ class MainActivity : ComponentActivity() {
 
         val favouriteIds by playerVm.favourites.collectAsState()
         val downloadProgress by libraryVm.downloadProgress.collectAsState()
+        val artistNames = remember(library) { library.artists.mapTo(HashSet()) { it.name } }
+        val tracksById = remember(library) { library.tracks.associateBy { it.id } }
+        val navigation = Navigation(
+            openArtist = { names ->
+                names.firstOrNull { it != null && it in artistNames }?.let { name ->
+                    if ((screen as? Screen.ArtistDetail)?.name != name) push(Screen.ArtistDetail(name))
+                }
+            },
+            openAlbum = { key -> if ((screen as? Screen.AlbumDetail)?.key != key) push(Screen.AlbumDetail(key)) },
+            track = { tracksById[it] },
+        )
         CompositionLocalProvider(
+            LocalNavigation provides navigation,
             LocalFavourites provides Favourites(favouriteIds, playerVm::toggleFavourite),
             LocalDownloads provides Downloads(downloadProgress, libraryVm::download, libraryVm::removeDownload),
         ) {
