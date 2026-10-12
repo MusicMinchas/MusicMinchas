@@ -266,6 +266,10 @@ fun TrackRow(
     leading: String? = null,
     /** Short label shown before the menu, e.g. a play count. */
     badge: String? = null,
+    /** "Remove from playlist", in a playlist the user made. */
+    onRemoveFromPlaylist: (() -> Unit)? = null,
+    /** A drag handle after the menu (reorderable lists). */
+    trailing: @Composable () -> Unit = {},
 ) {
     var menu by remember { mutableStateOf(false) }
     var addToPlaylist by remember { mutableStateOf(false) }
@@ -309,7 +313,14 @@ fun TrackRow(
             DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
                 DropdownMenuItem(text = { Text("Play next") }, onClick = { menu = false; onPlayNext() })
                 DropdownMenuItem(text = { Text("Add to queue") }, onClick = { menu = false; onAddToQueue() })
+                DropdownMenuItem(
+                    text = { Text(if (track.id in favourites.ids) "Remove from Favourites" else "Add to Favourites") },
+                    onClick = { menu = false; favourites.toggle(track.id) },
+                )
                 DropdownMenuItem(text = { Text("Add to playlist…") }, onClick = { menu = false; addToPlaylist = true })
+                onRemoveFromPlaylist?.let { remove ->
+                    DropdownMenuItem(text = { Text("Remove from playlist") }, onClick = { menu = false; remove() })
+                }
                 DropdownMenuItem(
                     text = { Text("Go to Artist") },
                     onClick = { menu = false; navigation.openArtist(listOf(track.artist, track.albumArtist)) },
@@ -317,10 +328,6 @@ fun TrackRow(
                 if (track.album != null) {
                     DropdownMenuItem(text = { Text("Go to Album") }, onClick = { menu = false; navigation.openAlbum(track.albumKey) })
                 }
-                DropdownMenuItem(
-                    text = { Text(if (track.id in favourites.ids) "Remove from Favourites" else "Add to Favourites") },
-                    onClick = { menu = false; favourites.toggle(track.id) },
-                )
                 if (track.source == Track.SOURCE_DRIVE) when (track.downloadState) {
                     Track.DOWNLOADED -> DropdownMenuItem(text = { Text("Remove download") }, onClick = { menu = false; downloads.remove(track) })
                     Track.DOWNLOAD_QUEUED -> Unit
@@ -328,6 +335,7 @@ fun TrackRow(
                 }
             }
         }
+        trailing()
     }
 }
 

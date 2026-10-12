@@ -18,6 +18,15 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.DragHandle
+import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material3.ExtendedFloatingActionButton
+import androidx.compose.material3.Surface
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.foundation.lazy.rememberLazyListState
+import sh.calvin.reorderable.ReorderableItem
+import sh.calvin.reorderable.rememberReorderableLazyListState
 import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.AlertDialog
@@ -43,6 +52,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.text.TextRange
+import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.unit.dp
 import com.kike.musicplayer.data.db.Track
 
@@ -161,6 +172,112 @@ fun NewPlaylistScreen(
             },
             dismissButton = { TextButton(onClick = { naming = false }) { Text("Cancel") } },
         )
+    }
+}
+
+/** Renaming a playlist. */
+@Composable
+fun RenamePlaylistDialog(current: String, onDismiss: () -> Unit, onRename: (String) -> Unit) {
+    // Cursor at the end of the current name, ready to edit it.
+    var name by remember { mutableStateOf(TextFieldValue(current, TextRange(current.length))) }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Rename playlist") },
+        text = { OutlinedTextField(value = name, onValueChange = { name = it }, singleLine = true) },
+        confirmButton = {
+            TextButton(onClick = { onRename(name.text); onDismiss() }, enabled = name.text.isNotBlank()) { Text("Rename") }
+        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
+    )
+}
+
+/**
+ * A playlist the user made: Play / Shuffle / Download, its songs (drag the handle to reorder,
+ * the song menu removes one), rename in the top bar, and Add songs.
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun PlaylistScreen(
+    playlist: PlaylistView?,
+    libraryVm: LibraryViewModel,
+    playerVm: PlayerViewModel,
+    onAddSongs: () -> Unit,
+    onBack: () -> Unit,
+    contentPadding: PaddingValues,
+) {
+    val player by playerVm.state.collectAsState()
+    var renaming by remember { mutableStateOf(false) }
+    // Local order, so rows move under the finger; saved when the drag ends.
+    var order by remember { mutableStateOf(playlist?.tracks.orEmpty()) }
+    var dragging by remember { mutableStateOf(false) }
+    LaunchedEffect(playlist?.tracks) { if (!dragging) order = playlist?.tracks.orEmpty() }
+    val listState = rememberLazyListState()
+    val reorderState = rememberReorderableLazyListState(listState) { from, to ->
+        val a = order.indexOfFirst { it.id == from.key }
+        val b = order.indexOfFirst { it.id == to.key }
+        if (a >= 0 && b >= 0) order = order.toMutableList().apply { add(b, removeAt(a)) }
+    }
+    if (renaming && playlist != null) {
+        RenamePlaylistDialog(playlist.name, onDismiss = { renaming = false }) { libraryVm.renamePlaylist(playlist.id, it) }
+    }
+
+    Box(Modifier.fillMaxSize().padding(contentPadding)) {
+        Column(Modifier.fillMaxSize()) {
+            TopAppBar(
+                windowInsets = NoTopInsets,
+                title = { Text(playlist?.name ?: "", maxLines = 1, overflow = TextOverflow.Ellipsis) },
+                navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back") } },
+                actions = {
+                    if (playlist != null) IconButton(onClick = { renaming = true }) { Icon(Icons.Default.Edit, "Rename") }
+                },
+            )
+            if (playlist == null) return@Column
+            LazyColumn(Modifier.fillMaxSize(), state = listState, contentPadding = PaddingValues(bottom = 96.dp)) {
+                item(key = "actions") {
+                    PlayShuffleRow(
+                        onPlay = { playerVm.playTracks(order, 0) },
+                        onShuffle = { playerVm.playTracks(order, 0, shuffle = true) },
+                        enabled = order.isNotEmpty(),
+                        downloads = order,
+                    )
+                }
+                items(order, key = { it.id }) { track ->
+                    ReorderableItem(reorderState, key = track.id) { isDragging ->
+                        Surface(tonalElevation = if (isDragging) 6.dp else 0.dp) {
+                            TrackRow(
+                                track = track,
+                                isCurrent = track.id == player.current?.mediaId,
+                                onClick = { playerVm.playTracks(order, order.indexOf(track)) },
+                                onPlayNext = { playerVm.playNext(track) },
+                                onAddToQueue = { playerVm.addToQueue(track) },
+                                onRemoveFromPlaylist = { libraryVm.removeFromPlaylist(playlist.id, track.id) },
+                                trailing = {
+                                    IconButton(
+                                        onClick = {},
+                                        modifier = Modifier.draggableHandle(
+                                            onDragStarted = { dragging = true },
+                                            onDragStopped = {
+                                                dragging = false
+                                                libraryVm.reorderPlaylist(playlist.id, order.map { it.id })
+                                            },
+                                        ),
+                                    ) { Icon(Icons.Default.DragHandle, "Reorder") }
+                                },
+                            )
+                        }
+                    }
+                }
+            }
+        }
+        if (playlist != null) {
+            ExtendedFloatingActionButton(
+                onClick = onAddSongs,
+                icon = { Icon(Icons.Default.Add, null) },
+                text = { Text("Add songs") },
+                shape = CircleShape,
+                modifier = Modifier.align(Alignment.BottomEnd).padding(16.dp),
+            )
+        }
     }
 }
 

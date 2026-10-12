@@ -184,7 +184,7 @@ fun LibraryScreen(
             "Playlists" -> PlaylistsTab(
                 playlists, libraryVm.userPlaylists.collectAsState().value, playerVm,
                 onOpenRecentTracks, onOpenRecentAlbums, onOpenMostPlayed, onOpenFavourites, onNewPlaylist, onOpenPlaylist,
-                libraryVm::deletePlaylist,
+                libraryVm::deletePlaylist, libraryVm::renamePlaylist,
             )
         }
     }
@@ -544,7 +544,10 @@ private fun PlaylistsTab(
     onNewPlaylist: () -> Unit,
     onOpenPlaylist: (Long) -> Unit,
     onDeletePlaylist: (Long) -> Unit,
+    onRenamePlaylist: (Long, String) -> Unit,
 ) {
+    var renaming by remember { mutableStateOf<PlaylistView?>(null) }
+    renaming?.let { p -> RenamePlaylistDialog(p.name, onDismiss = { renaming = null }) { onRenamePlaylist(p.id, it) } }
     var deleting by remember { mutableStateOf<PlaylistView?>(null) }
     deleting?.let { p ->
         AlertDialog(
@@ -609,6 +612,7 @@ private fun PlaylistsTab(
                             if (playlist.tracks.any { it.source == Track.SOURCE_DRIVE }) {
                                 DropdownMenuItem(text = { Text("Download") }, onClick = { menu = false; downloads.download(playlist.tracks) })
                             }
+                            DropdownMenuItem(text = { Text("Rename") }, onClick = { menu = false; renaming = playlist })
                             DropdownMenuItem(text = { Text("Delete") }, onClick = { menu = false; deleting = playlist })
                         }
                     }

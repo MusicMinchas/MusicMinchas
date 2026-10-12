@@ -193,21 +193,10 @@ class MainActivity : ComponentActivity() {
                         is Screen.AddToPlaylist -> NewPlaylistScreen(
                             libraryVm, userPlaylists.firstOrNull { it.id == screen.id }, onDone = ::pop, onBack = ::pop, contentPadding = padding,
                         )
-                        is Screen.PlaylistDetail -> {
-                            val list = userPlaylists.firstOrNull { it.id == screen.id }
-                            Box(Modifier.fillMaxSize()) {
-                                TrackListScreen(list?.name ?: "", list?.tracks, playerVm, ::pop, padding)
-                                if (list != null) {
-                                    ExtendedFloatingActionButton(
-                                        onClick = { push(Screen.AddToPlaylist(list.id)) },
-                                        icon = { Icon(Icons.Default.Add, null) },
-                                        text = { Text("Add songs") },
-                                        shape = CircleShape,
-                                        modifier = Modifier.align(Alignment.BottomEnd).padding(padding).padding(16.dp),
-                                    )
-                                }
-                            }
-                        }
+                        is Screen.PlaylistDetail -> PlaylistScreen(
+                            userPlaylists.firstOrNull { it.id == screen.id }, libraryVm, playerVm,
+                            onAddSongs = { push(Screen.AddToPlaylist(screen.id)) }, onBack = ::pop, contentPadding = padding,
+                        )
                         Screen.Favourites -> TrackListScreen("Favourite Songs", playlists.favourites, playerVm, ::pop, padding)
                         Screen.Replay -> ReplayScreen(libraryVm, playerVm, onOpenAlbum = { push(Screen.AlbumDetail(it)) }, onBack = ::pop, contentPadding = padding)
                         is Screen.GenreDetail -> {

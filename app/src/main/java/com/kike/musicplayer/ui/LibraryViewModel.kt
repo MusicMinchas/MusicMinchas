@@ -373,6 +373,11 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
     fun addToPlaylist(playlistId: Long, trackIds: List<String>) = viewModelScope.launch { playlistDao.append(playlistId, trackIds) }
 
     fun deletePlaylist(playlistId: Long) = viewModelScope.launch { playlistDao.delete(playlistId) }
+    fun renamePlaylist(playlistId: Long, name: String) = viewModelScope.launch {
+        name.trim().takeIf { it.isNotEmpty() }?.let { playlistDao.rename(playlistId, it) }
+    }
+    fun removeFromPlaylist(playlistId: Long, trackId: String) = viewModelScope.launch { playlistDao.remove(playlistId, trackId) }
+    fun reorderPlaylist(playlistId: Long, trackIds: List<String>) = viewModelScope.launch { playlistDao.reorder(playlistId, trackIds) }
 
     // ---- Downloads ----
 

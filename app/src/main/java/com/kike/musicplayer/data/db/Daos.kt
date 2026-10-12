@@ -293,6 +293,29 @@ interface PlaylistDao {
         deletePlaylist(playlistId)
     }
 
+    @Query("UPDATE playlists SET name = :name WHERE id = :playlistId")
+    suspend fun rename(playlistId: Long, name: String)
+
+    /** Rewrites the playlist's songs as [trackIds], in that order. */
+    @Transaction
+    suspend fun setTracks(playlistId: Long, trackIds: List<String>) {
+        deleteEntries(playlistId)
+        insertEntries(trackIds.mapIndexed { i, t -> PlaylistTrack(playlistId, i, t) })
+    }
+
+    @Transaction
+    suspend fun remove(playlistId: Long, trackId: String) = setTracks(playlistId, trackIds(playlistId) - trackId)
+
+    /**
+     * Puts the playlist in the order of [shown] (its songs as listed); songs not listed (no longer
+     * in the library) keep their place at the end.
+     */
+    @Transaction
+    suspend fun reorder(playlistId: Long, shown: List<String>) {
+        val all = trackIds(playlistId)
+        setTracks(playlistId, shown.filter { it in all } + all.filter { it !in shown })
+    }
+
     /** Adds [trackIds] at the end, leaving out songs already in it; returns how many were added. */
     @Transaction
     suspend fun append(playlistId: Long, trackIds: List<String>): Int {
