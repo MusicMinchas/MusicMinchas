@@ -22,7 +22,6 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.QueueMusic
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Lyrics
-import androidx.compose.material3.LocalContentColor
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.FavoriteBorder
@@ -148,19 +147,6 @@ fun NowPlayingScreen(playerVm: PlayerViewModel, onBack: () -> Unit, onOpenQueue:
                 title = {},
                 colors = TopAppBarDefaults.topAppBarColors(containerColor = Color.Transparent),
                 navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.Default.KeyboardArrowDown, "Close") } },
-                actions = {
-                    IconButton(onClick = { showCast = true }) {
-                        if (castTo != null) Icon(Icons.Default.CastConnected, "Playing on ${castTo!!.name}", tint = MaterialTheme.colorScheme.primary)
-                        else Icon(Icons.Default.Cast, "Play on a speaker")
-                    }
-                    IconButton(onClick = { showLyrics = !showLyrics }, enabled = s.current != null) {
-                        Icon(
-                            Icons.Default.Lyrics, if (showLyrics) "Hide lyrics" else "Lyrics",
-                            tint = if (showLyrics) MaterialTheme.colorScheme.primary else LocalContentColor.current,
-                        )
-                    }
-                    IconButton(onClick = onOpenQueue) { Icon(Icons.AutoMirrored.Filled.QueueMusic, "Queue") }
-                },
             )
             Column(
                 Modifier.fillMaxSize().padding(horizontal = 24.dp),
@@ -173,7 +159,7 @@ fun NowPlayingScreen(playerVm: PlayerViewModel, onBack: () -> Unit, onOpenQueue:
                     back = { LyricsPanel(lyrics, s.positionMs, playerVm::seekTo) },
                     modifier = Modifier.fillMaxWidth().aspectRatio(1f),
                 )
-                Spacer(Modifier.height(24.dp))
+                Spacer(Modifier.height(16.dp))
                 // Title centred; the heart sits at the cover's right edge.
                 Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
                     Text(
@@ -213,7 +199,7 @@ fun NowPlayingScreen(playerVm: PlayerViewModel, onBack: () -> Unit, onOpenQueue:
                     Text(it, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary,
                         modifier = Modifier.padding(top = 4.dp))
                 }
-                Spacer(Modifier.height(16.dp))
+                Spacer(Modifier.height(8.dp))
                 SeekBar(s, playerVm::seekTo)
                 Row(
                     Modifier.fillMaxWidth(),
@@ -245,9 +231,29 @@ fun NowPlayingScreen(playerVm: PlayerViewModel, onBack: () -> Unit, onOpenQueue:
                     Text("Playback error: $it", color = MaterialTheme.colorScheme.error,
                         style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(top = 8.dp))
                 }
+                // Lyrics · Cast · Queue, within thumb reach under the playback controls.
+                Row(
+                    Modifier.fillMaxWidth().padding(top = 4.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    IconButton(onClick = { showLyrics = !showLyrics }, enabled = s.current != null) {
+                        Icon(
+                            Icons.Default.Lyrics, if (showLyrics) "Hide lyrics" else "Lyrics",
+                            tint = if (showLyrics) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                    IconButton(onClick = { showCast = true }) {
+                        if (castTo != null) Icon(Icons.Default.CastConnected, "Playing on ${castTo!!.name}", tint = MaterialTheme.colorScheme.primary)
+                        else Icon(Icons.Default.Cast, "Play on a speaker", tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                    IconButton(onClick = onOpenQueue) {
+                        Icon(Icons.AutoMirrored.Filled.QueueMusic, "Queue", tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                }
                 Spacer(Modifier.weight(1f))
                 s.upNext.firstOrNull()?.let { next ->
-                    TextButton(onClick = onOpenQueue, modifier = Modifier.padding(bottom = 8.dp)) {
+                    TextButton(onClick = onOpenQueue, modifier = Modifier.padding(bottom = 0.dp)) {
                         Text("Up next: ${next.item.mediaMetadata.title}", maxLines = 1, overflow = TextOverflow.Ellipsis)
                     }
                 }
