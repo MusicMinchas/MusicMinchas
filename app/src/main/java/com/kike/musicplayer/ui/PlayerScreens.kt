@@ -277,7 +277,6 @@ fun NowPlayingScreen(playerVm: PlayerViewModel, onBack: () -> Unit, onOpenQueue:
     }
 }
 
-private val FAVOURITE_RED = Color(0xFFE53935)
 
 /** How far the Now Playing cover reaches past the page margin on each side. */
 private val COVER_BLEED = 10.dp

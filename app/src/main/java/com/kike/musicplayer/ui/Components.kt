@@ -17,6 +17,7 @@ import androidx.compose.material.icons.filled.Cloud
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.DownloadDone
 import androidx.compose.material.icons.filled.Downloading
+import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.FilledTonalIconButton
 import com.kike.musicplayer.data.download.DownloadProgress
@@ -142,6 +143,9 @@ fun ArtistAlbumText(
 /** Links look like the text around them; underlined while pressed. */
 private val LINK_STYLE = TextLinkStyles(style = SpanStyle(), pressedStyle = SpanStyle(textDecoration = TextDecoration.Underline))
 
+/** The red of favourite hearts. */
+val FAVOURITE_RED = Color(0xFFE53935)
+
 /** Downloading Drive songs to the phone; provided once at the top of the UI. */
 class Downloads(val progress: DownloadProgress?, val download: (List<Track>) -> Unit, val remove: (Track) -> Unit)
 
@@ -230,6 +234,9 @@ fun TrackRow(
         badge?.let {
             Text(it, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary,
                 modifier = Modifier.padding(horizontal = 6.dp))
+        }
+        if (track.id in favourites.ids) {
+            Icon(Icons.Default.Favorite, "Favourite", Modifier.padding(end = 6.dp).size(16.dp), tint = FAVOURITE_RED)
         }
         if (track.source == Track.SOURCE_DRIVE) DownloadStatus(track, downloads.progress)
         Box {
