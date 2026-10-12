@@ -159,8 +159,8 @@ internal fun SectionTitle(text: String) {
 }
 
 /**
- * A mix or playlist card: 2×2 cover mosaic (one cover when fewer than four) with play and download
- * buttons, title and subtitle. Square, as wide as [modifier] makes it.
+ * A mix or playlist card: 2×2 cover mosaic (one cover when fewer than four) with a play button,
+ * title and subtitle. Square, as wide as [modifier] makes it.
  */
 @Composable
 private fun CollectionCard(
@@ -189,7 +189,6 @@ private fun CollectionCard(
                 FilledIconButton(onClick = onPlay, modifier = Modifier.align(Alignment.BottomEnd).padding(8.dp)) {
                     Icon(Icons.Default.PlayArrow, "Play $title")
                 }
-                DownloadButton(tracks, Modifier.align(Alignment.BottomStart).padding(8.dp))
             }
         }
         Text(title, maxLines = 2, overflow = TextOverflow.Ellipsis, fontWeight = FontWeight.SemiBold,
