@@ -21,6 +21,9 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.QueueMusic
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Lyrics
+import androidx.compose.material3.LocalContentColor
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.FavoriteBorder
 import androidx.compose.material.icons.filled.DragHandle
@@ -128,7 +131,13 @@ fun NowPlayingScreen(playerVm: PlayerViewModel, onBack: () -> Unit, onOpenQueue:
     val castTo by playerVm.castActive.collectAsState()
     val favourites by playerVm.favourites.collectAsState()
     var showCast by remember { mutableStateOf(false) }
+    var showLyrics by rememberSaveable { mutableStateOf(false) }
+    val lyrics by playerVm.lyrics.collectAsState()
     val meta = s.current?.mediaMetadata
+    // While the lyrics side is up, keep it in step with the song.
+    LaunchedEffect(showLyrics, s.current?.mediaId) {
+        if (showLyrics) s.current?.mediaId?.let(playerVm::loadLyrics)
+    }
     val trackId = s.current?.mediaId?.let(PlaybackService::trackIdOf)
     if (showCast) CastSheet(playerVm) { showCast = false }
     Box(Modifier.fillMaxSize()) {
@@ -144,6 +153,12 @@ fun NowPlayingScreen(playerVm: PlayerViewModel, onBack: () -> Unit, onOpenQueue:
                         if (castTo != null) Icon(Icons.Default.CastConnected, "Playing on ${castTo!!.name}", tint = MaterialTheme.colorScheme.primary)
                         else Icon(Icons.Default.Cast, "Play on a speaker")
                     }
+                    IconButton(onClick = { showLyrics = !showLyrics }, enabled = s.current != null) {
+                        Icon(
+                            Icons.Default.Lyrics, if (showLyrics) "Hide lyrics" else "Lyrics",
+                            tint = if (showLyrics) MaterialTheme.colorScheme.primary else LocalContentColor.current,
+                        )
+                    }
                     IconButton(onClick = onOpenQueue) { Icon(Icons.AutoMirrored.Filled.QueueMusic, "Queue") }
                 },
             )
@@ -151,10 +166,12 @@ fun NowPlayingScreen(playerVm: PlayerViewModel, onBack: () -> Unit, onOpenQueue:
                 Modifier.fillMaxSize().padding(horizontal = 24.dp),
                 horizontalAlignment = Alignment.CenterHorizontally,
             ) {
-                Artwork(
-                    meta?.artworkUri,
-                    Modifier.fillMaxWidth().aspectRatio(1f),
-                    shape = RoundedCornerShape(12.dp),
+                FlipCard(
+                    flipped = showLyrics,
+                    onFlip = { if (s.current != null) showLyrics = !showLyrics },
+                    front = { Artwork(meta?.artworkUri, Modifier.fillMaxSize(), shape = RoundedCornerShape(12.dp)) },
+                    back = { LyricsPanel(lyrics, s.positionMs, playerVm::seekTo) },
+                    modifier = Modifier.fillMaxWidth().aspectRatio(1f),
                 )
                 Spacer(Modifier.height(24.dp))
                 // Title centred; the heart sits at the cover's right edge.

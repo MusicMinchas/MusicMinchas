@@ -207,6 +207,26 @@ class PlayerViewModel(app: Application) : AndroidViewModel(app) {
         getApplication<Application>().container.scrobbler.love(trackId, add)
     }
 
+    // ---- Lyrics ----
+
+    private val _lyrics = MutableStateFlow<LyricsState>(LyricsState.Loading)
+    /** Lyrics of the song last asked for with [loadLyrics]. */
+    val lyrics: StateFlow<LyricsState> = _lyrics.asStateFlow()
+    private var lyricsFor: String? = null
+
+    /** Looks up the lyrics of the song with this media id (cached after the first time). */
+    fun loadLyrics(mediaId: String) {
+        if (lyricsFor == mediaId) return
+        lyricsFor = mediaId
+        _lyrics.value = LyricsState.Loading
+        val container = getApplication<Application>().container
+        viewModelScope.launch {
+            val track = container.database.tracks().get(PlaybackService.trackIdOf(mediaId))
+            val found = track?.let { container.lyrics.lyrics(it) }
+            if (lyricsFor == mediaId) _lyrics.value = found?.let { LyricsState.Found(it) } ?: LyricsState.None
+        }
+    }
+
     fun setRemoteVolume(volume: Int) {
         controller?.setDeviceVolume(volume, 0)
         _state.update { it.copy(remoteVolume = volume) }

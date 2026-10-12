@@ -170,6 +170,20 @@ data class Favourite(
     val addedAt: Long,
 )
 
+/**
+ * A song's lyrics from LRCLIB ([synced]: LRC text with timings). [found] false: none found when
+ * [fetchedAt], retried later.
+ */
+@Entity(tableName = "lyrics")
+data class StoredLyrics(
+    @PrimaryKey val trackId: String,
+    val synced: String?,
+    val plain: String?,
+    val instrumental: Boolean,
+    val found: Boolean,
+    val fetchedAt: Long,
+)
+
 /** An artist's photo for the artist page ([url] null: none found when [checkedAt]); [name] lower-cased. */
 @Entity(tableName = "artist_images")
 data class ArtistImage(

@@ -20,6 +20,7 @@ import com.kike.musicplayer.data.drive.DriveLibrary
 import com.kike.musicplayer.data.local.LocalLibrary
 import com.kike.musicplayer.data.metadata.CoverArtApi
 import com.kike.musicplayer.data.metadata.MetadataEnricher
+import com.kike.musicplayer.data.lyrics.LyricsRepository
 import com.kike.musicplayer.data.metadata.ArtistImages
 import com.kike.musicplayer.data.metadata.MusicBrainzApi
 import com.kike.musicplayer.sonos.CastManager
@@ -94,6 +95,8 @@ class AppContainer(app: Application) {
     val driveApi: DriveApi = retrofit(DriveApi.BASE_URL, driveHttp).create(DriveApi::class.java)
     private val musicBrainz = retrofit(MusicBrainzApi.BASE_URL, metadataHttp).create(MusicBrainzApi::class.java)
     private val coverArt = retrofit(CoverArtApi.BASE_URL, metadataHttp).create(CoverArtApi::class.java)
+
+    val lyrics = LyricsRepository(database.lyrics(), metadataHttp, moshi)
 
     val artistImages = ArtistImages(app, database.artistImages(), database.artistInfo(), metadataHttp, moshi)
 

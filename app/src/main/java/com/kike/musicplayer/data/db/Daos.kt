@@ -262,6 +262,15 @@ interface FavouriteDao {
 }
 
 @Dao
+interface LyricsDao {
+    @Query("SELECT * FROM lyrics WHERE trackId = :trackId")
+    suspend fun get(trackId: String): StoredLyrics?
+
+    @Upsert
+    suspend fun upsert(lyrics: StoredLyrics)
+}
+
+@Dao
 interface ArtistImageDao {
     @Query("SELECT * FROM artist_images WHERE name = :name")
     suspend fun get(name: String): ArtistImage?
