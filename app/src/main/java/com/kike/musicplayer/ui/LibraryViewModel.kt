@@ -333,6 +333,13 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
         .map { list -> list.filter { it.counted }.groupingBy { it.trackId }.eachCount() }
         .flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.Eagerly, emptyMap())
 
+    /** Artist photo URLs by lower-cased name, for the Artists tab thumbnails. */
+    val artistImageUrls: StateFlow<Map<String, String>> = container.artistImages.urls
+        .stateIn(viewModelScope, SharingStarted.Eagerly, emptyMap())
+
+    /** Fetches the photos of every artist not looked up yet (the Artists tab was opened). */
+    fun prefetchArtistImages() = container.artistImages.prefetch(library.value.artists.map { it.name }, container.appScope)
+
     /** The artist's photo (looked up online once, then remembered), or null. */
     suspend fun artistImage(name: String): String? = container.artistImages.imageFor(name)
 

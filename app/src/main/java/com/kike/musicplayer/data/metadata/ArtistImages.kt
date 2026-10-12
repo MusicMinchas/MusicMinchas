@@ -1,6 +1,15 @@
 package com.kike.musicplayer.data.metadata
 
+import android.content.Context
 import android.util.Log
+import coil3.SingletonImageLoader
+import coil3.request.ImageRequest
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.launch
 import com.kike.musicplayer.data.db.ArtistImage
 import com.kike.musicplayer.data.db.ArtistImageDao
 import com.kike.musicplayer.data.db.ArtistInfoDao
@@ -22,12 +31,36 @@ import java.util.Locale
  * photos. Artists without one are tried again after a month.
  */
 class ArtistImages(
+    private val context: Context,
     private val dao: ArtistImageDao,
     private val artistInfo: ArtistInfoDao,
     private val http: OkHttpClient,
     private val moshi: Moshi,
 ) {
     private val mutex = Mutex()
+    private var prefetchJob: Job? = null
+
+    /** Photo URLs by lower-cased artist name, as found so far. */
+    val urls: Flow<Map<String, String>> = dao.observeAll()
+        .map { list -> list.mapNotNull { i -> i.url?.let { i.name to it } }.toMap() }
+
+    /**
+     * Looks up the photos of all [artists] not looked up yet and downloads them into the image
+     * cache, so the Artists tab thumbnails and the artist pages show them at once. Runs once at a
+     * time, gently (Deezer allows 50 requests per 5 s).
+     */
+    fun prefetch(artists: List<String>, scope: CoroutineScope) {
+        if (prefetchJob?.isActive == true) return
+        prefetchJob = scope.launch(Dispatchers.IO) {
+            val loader = SingletonImageLoader.get(context)
+            for (name in artists) {
+                val cached = dao.get(name.lowercase(Locale.ROOT))
+                val fresh = cached == null || (cached.url == null && System.currentTimeMillis() - cached.checkedAt >= RETRY_MS)
+                val url = if (fresh) imageFor(name).also { delay(PREFETCH_INTERVAL_MS) } else cached?.url
+                url?.let { loader.enqueue(ImageRequest.Builder(context).data(it).build()) }
+            }
+        }
+    }
 
     /** The image URL for [artist], or null when none is known. */
     suspend fun imageFor(artist: String): String? = withContext(Dispatchers.IO) {
@@ -77,5 +110,6 @@ class ArtistImages(
     private companion object {
         const val TAG = "ArtistImages"
         const val RETRY_MS = 30L * 24 * 60 * 60 * 1000
+        const val PREFETCH_INTERVAL_MS = 150L
     }
 }

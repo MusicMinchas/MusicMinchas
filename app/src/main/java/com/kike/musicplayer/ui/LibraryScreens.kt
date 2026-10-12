@@ -1,5 +1,11 @@
 package com.kike.musicplayer.ui
 
+import androidx.compose.foundation.layout.size
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.material.icons.filled.Person
+import coil3.compose.SubcomposeAsyncImage
+import androidx.compose.ui.draw.clip
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -138,7 +144,7 @@ fun LibraryScreen(
             Text(busy, Modifier.padding(horizontal = 16.dp, vertical = 2.dp), style = MaterialTheme.typography.labelSmall)
         }
         if (query.isNotEmpty()) {
-            SearchResultsList(results, filters, player.current?.mediaId, playerVm, onOpenArtist, onOpenAlbum)
+            SearchResultsList(results, filters, player.current?.mediaId, playerVm, onOpenArtist, onOpenAlbum, libraryVm.artistImageUrls.collectAsState().value)
             return@Column
         }
         PrimaryScrollableTabRow(selectedTabIndex = tab, edgePadding = 0.dp) {
@@ -153,8 +159,14 @@ fun LibraryScreen(
         when (LIBRARY_TABS[tab]) {
             "Home" -> HomeTab(libraryVm, playerVm, onOpenReplay, onOpenMostPlayed, onOpenFavourites, onOpenRecentTracks, onOpenMix, onOpenAlbum)
             "Albums" -> AlbumsGrid(library.albums, onOpenAlbum)
-            "Artists" -> LazyColumn(Modifier.fillMaxSize()) {
-                items(library.artists, key = { it.name }) { artist -> ArtistRow(artist) { onOpenArtist(artist.name) } }
+            "Artists" -> {
+                val photos by libraryVm.artistImageUrls.collectAsState()
+                LaunchedEffect(library.artists.size) { libraryVm.prefetchArtistImages() }
+                LazyColumn(Modifier.fillMaxSize()) {
+                    items(library.artists, key = { it.name }) { artist ->
+                        ArtistRow(artist, photos[artist.name.lowercase()]) { onOpenArtist(artist.name) }
+                    }
+                }
             }
             "Genres" -> GenresTab(genres, onOpenGenre)
             "Songs" -> SongsTab(library.tracks, player.current?.mediaId, playerVm)
@@ -171,15 +183,40 @@ private const val SEARCH_ALBUMS = "Albums"
 private const val SEARCH_SONGS = "Songs"
 
 @Composable
-private fun ArtistRow(artist: Artist, onClick: () -> Unit) {
-    Column(Modifier.fillMaxWidth().clickable(onClick = onClick).padding(horizontal = 16.dp, vertical = 10.dp)) {
-        Text(artist.name, maxLines = 1, overflow = TextOverflow.Ellipsis)
-        Text(
-            "${count(artist.albumCount, "album")} · ${count(artist.tracks.size, "song")}",
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
+private fun ArtistRow(artist: Artist, photo: String?, onClick: () -> Unit) {
+    Row(
+        Modifier.fillMaxWidth().clickable(onClick = onClick).padding(horizontal = 16.dp, vertical = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        ArtistPhoto(photo, Modifier.size(52.dp))
+        Column(Modifier.padding(start = 14.dp)) {
+            Text(artist.name, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text(
+                "${count(artist.albumCount, "album")} · ${count(artist.tracks.size, "song")}",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
     }
+}
+
+/** A round artist photo, or a person icon while there is none. */
+@Composable
+internal fun ArtistPhoto(url: String?, modifier: Modifier = Modifier) {
+    val placeholder = @Composable {
+        Box(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.surfaceVariant), contentAlignment = Alignment.Center) {
+            Icon(Icons.Default.Person, null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+    }
+    SubcomposeAsyncImage(
+        model = url,
+        contentDescription = null,
+        contentScale = ContentScale.Crop,
+        alignment = Alignment.TopCenter,
+        modifier = modifier.clip(CircleShape),
+        loading = { placeholder() },
+        error = { placeholder() },
+    )
 }
 
 /** Search results by kind; the chips narrow them down. */
@@ -191,6 +228,7 @@ private fun SearchResultsList(
     playerVm: PlayerViewModel,
     onOpenArtist: (String) -> Unit,
     onOpenAlbum: (String) -> Unit,
+    photos: Map<String, String>,
 ) {
     fun show(kind: String) = filters.isEmpty() || kind in filters
     val artists = if (show(SEARCH_ARTISTS)) results.artists else emptyList()
@@ -203,7 +241,7 @@ private fun SearchResultsList(
     LazyColumn(Modifier.fillMaxSize()) {
         if (artists.isNotEmpty()) {
             item { ResultsHeader("Artists") }
-            items(artists, key = { "ar:" + it.name }) { artist -> ArtistRow(artist) { onOpenArtist(artist.name) } }
+            items(artists, key = { "ar:" + it.name }) { artist -> ArtistRow(artist, photos[artist.name.lowercase()]) { onOpenArtist(artist.name) } }
         }
         if (albums.isNotEmpty()) {
             item { ResultsHeader("Albums") }

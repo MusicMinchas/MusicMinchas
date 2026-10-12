@@ -266,6 +266,9 @@ interface ArtistImageDao {
     @Query("SELECT * FROM artist_images WHERE name = :name")
     suspend fun get(name: String): ArtistImage?
 
+    @Query("SELECT * FROM artist_images")
+    fun observeAll(): Flow<List<ArtistImage>>
+
     @Upsert
     suspend fun upsert(image: ArtistImage)
 }
