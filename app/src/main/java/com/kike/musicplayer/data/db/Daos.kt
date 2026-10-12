@@ -9,6 +9,8 @@ import androidx.room.Update
 import androidx.room.Upsert
 import kotlinx.coroutines.flow.Flow
 
+data class DownloadTotals(val songs: Int, val bytes: Long)
+
 @Dao
 interface TrackDao {
     // @Transaction: a large library spans several CursorWindows; without a read transaction a
@@ -46,6 +48,16 @@ interface TrackDao {
 
     @Query("SELECT * FROM tracks WHERE downloadState = ${Track.DOWNLOADED} AND localUri IS NOT NULL")
     suspend fun downloaded(): List<Track>
+
+    /** Songs on the phone and the bytes they take (each download is the Drive file, byte for byte). */
+    @Query(
+        "SELECT COUNT(*) AS songs, COALESCE(SUM(sizeBytes), 0) AS bytes FROM tracks " +
+            "WHERE downloadState = ${Track.DOWNLOADED} AND localUri IS NOT NULL"
+    )
+    fun observeDownloadTotals(): Flow<DownloadTotals>
+
+    @Query("UPDATE tracks SET downloadState = ${Track.NOT_DOWNLOADED} WHERE downloadState IN (${Track.DOWNLOAD_QUEUED}, ${Track.DOWNLOAD_FAILED})")
+    suspend fun cancelQueuedDownloads()
 
     @Query("SELECT * FROM tracks WHERE id IN (:ids)")
     suspend fun getByIdsChunk(ids: List<String>): List<Track>

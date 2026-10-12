@@ -67,6 +67,19 @@ class Downloader(
         }
     }
 
+    val totals = dao.observeDownloadTotals()
+
+    /** Deletes every downloaded song from the phone (and drops what's still queued); they play from Drive again. */
+    fun removeAll() {
+        scope.launch(Dispatchers.IO) {
+            dao.cancelQueuedDownloads()
+            for (t in dao.downloaded()) {
+                t.localUri?.let(::deleteFile)
+                dao.setLocal(t.id, null, Track.NOT_DOWNLOADED)
+            }
+        }
+    }
+
     /** Resumes an interrupted queue (call while the app is in front: it starts a foreground service). */
     fun resume() {
         scope.launch { if (dao.countDownloadQueued() > 0) startService() }

@@ -1,5 +1,8 @@
 package com.kike.musicplayer.ui
 
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.material3.TextButton
+import androidx.compose.material3.AlertDialog
 import android.net.Uri
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.clickable
@@ -82,6 +85,8 @@ fun SourcesScreen(
     val syncMode by vm.syncMode.collectAsState()
     val lastSync by vm.lastDriveSync.collectAsState()
     val counts = library.tracks.groupingBy { it.source }.eachCount()
+    val downloads by vm.downloadTotals.collectAsState()
+    var confirmDeleteDownloads by remember { mutableStateOf(false) }
     val lastFm by vm.lastFmState.collectAsState()
     val scrobbling by vm.scrobbleSettings.collectAsState()
     val pendingScrobbles by vm.pendingScrobbles.collectAsState()
@@ -169,6 +174,36 @@ fun SourcesScreen(
                     }
                     OutlinedButton(onClick = { vm.disconnectDrive() }) { Text("Disconnect") }
                 }
+            }
+
+            SourceCard(
+                "Downloaded songs",
+                "Google Drive songs kept on the phone (Music/MusicMinchas), so they play without internet",
+            ) {
+                val songs = downloads?.songs ?: 0
+                Text(
+                    if (songs == 0) "No songs downloaded" else "${if (songs == 1) "1 song" else "$songs songs"} · ${formatBytes(downloads!!.bytes)}",
+                    style = MaterialTheme.typography.bodyMedium,
+                )
+                if (songs > 0) {
+                    OutlinedButton(onClick = { confirmDeleteDownloads = true }) { Text("Delete all downloads") }
+                }
+            }
+            if (confirmDeleteDownloads) {
+                AlertDialog(
+                    onDismissRequest = { confirmDeleteDownloads = false },
+                    title = { Text("Delete all downloads?") },
+                    text = {
+                        Text(
+                            "The ${downloads?.songs ?: 0} downloaded songs are removed from the phone and play from " +
+                                "Google Drive again. Plays, favourites and the files on Drive are not affected."
+                        )
+                    },
+                    confirmButton = {
+                        TextButton(onClick = { confirmDeleteDownloads = false; vm.removeAllDownloads() }) { Text("Delete") }
+                    },
+                    dismissButton = { TextButton(onClick = { confirmDeleteDownloads = false }) { Text("Cancel") } },
+                )
             }
 
             SourceCard(
@@ -316,6 +351,13 @@ private fun SourceCard(title: String, subtitle: String, content: @Composable () 
             content()
         }
     }
+}
+
+/** "850 KB", "312 MB", "4.2 GB" */
+private fun formatBytes(bytes: Long): String = when {
+    bytes >= 1L shl 30 -> "%.1f GB".format(bytes / (1L shl 30).toDouble())
+    bytes >= 1L shl 20 -> "${bytes shr 20} MB"
+    else -> "${(bytes shr 10).coerceAtLeast(1)} KB"
 }
 
 /** "just now", "5 min ago", "3 h ago", "2 days ago" */

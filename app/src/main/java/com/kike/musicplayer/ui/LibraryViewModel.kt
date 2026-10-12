@@ -349,6 +349,8 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
     val downloadProgress = downloader.progress
     fun download(tracks: List<Track>) = downloader.download(tracks)
     fun removeDownload(track: Track) = downloader.remove(track)
+    val downloadTotals = downloader.totals.stateIn(viewModelScope, SharingStarted.Eagerly, null)
+    fun removeAllDownloads() = downloader.removeAll()
 
     // ---- Last.fm ----
 
