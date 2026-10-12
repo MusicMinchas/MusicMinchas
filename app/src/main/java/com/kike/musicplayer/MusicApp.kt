@@ -8,6 +8,7 @@ import coil3.network.okhttp.OkHttpNetworkFetcherFactory
 import com.kike.musicplayer.data.LibraryRepository
 import com.kike.musicplayer.data.Settings
 import com.kike.musicplayer.data.db.AppDatabase
+import com.kike.musicplayer.data.download.Downloader
 import com.kike.musicplayer.data.drive.DriveApi
 import com.kike.musicplayer.data.lastfm.LastFm
 import com.kike.musicplayer.data.lastfm.LastFmClient
@@ -102,6 +103,8 @@ class AppContainer(app: Application) {
         driveHttp.newBuilder().readTimeout(10, TimeUnit.MINUTES).build(),
     )
     val castManager = CastManager(app, appScope)
+
+    val downloader = Downloader(app, database.tracks(), driveHttp, appScope).also { it.verify() }
 
     val lastFm = LastFm(app, LastFmClient(baseHttp, moshi, BuildConfig.LASTFM_API_KEY, BuildConfig.LASTFM_SECRET))
     val scrobbler = Scrobbler(lastFm, database.lastFmOutbox(), database.tracks(), appScope).also { scrobbler ->

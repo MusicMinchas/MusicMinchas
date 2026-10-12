@@ -309,14 +309,19 @@ private fun SongsTab(tracks: List<Track>, currentId: String?, playerVm: PlayerVi
 }
 
 @Composable
-fun PlayShuffleRow(onPlay: () -> Unit, onShuffle: () -> Unit, enabled: Boolean) {
-    Row(Modifier.padding(horizontal = 16.dp, vertical = 4.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+fun PlayShuffleRow(onPlay: () -> Unit, onShuffle: () -> Unit, enabled: Boolean, downloads: List<Track>? = null) {
+    Row(
+        Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
         Button(onClick = onPlay, enabled = enabled) {
             Icon(Icons.Default.PlayArrow, null); Spacer(Modifier.width(4.dp)); Text("Play")
         }
         FilledTonalButton(onClick = onShuffle, enabled = enabled) {
             Icon(Icons.Default.Shuffle, null); Spacer(Modifier.width(4.dp)); Text("Shuffle")
         }
+        downloads?.let { DownloadButton(it) }
     }
 }
 
@@ -389,6 +394,7 @@ fun AlbumScreen(
                     onPlay = { playerVm.playTracks(album.tracks, 0) },
                     onShuffle = { playerVm.playTracks(album.tracks, 0, shuffle = true) },
                     enabled = true,
+                    downloads = album.tracks,
                 )
             }
             itemsIndexed(album.tracks, key = { _, t -> t.id }) { index, track ->
@@ -434,6 +440,7 @@ fun TrackListScreen(
                     onPlay = { playerVm.playTracks(tracks, 0) },
                     onShuffle = { playerVm.playTracks(tracks, 0, shuffle = true) },
                     enabled = tracks.isNotEmpty(),
+                    downloads = tracks,
                 )
             }
             itemsIndexed(tracks, key = { _, t -> t.id }) { index, track ->
@@ -460,6 +467,8 @@ fun AlbumListScreen(
     onOpenAlbum: (String) -> Unit,
     onBack: () -> Unit,
     contentPadding: PaddingValues,
+    /** Offer downloading every song shown (playlists, not whole genres). */
+    downloadable: Boolean = false,
 ) {
     Column(Modifier.fillMaxSize().padding(contentPadding)) {
         TopAppBar(
@@ -472,6 +481,7 @@ fun AlbumListScreen(
             onPlay = { playerVm.playTracks(all, 0) },
             onShuffle = { playerVm.playTracks(all, 0, shuffle = true) },
             enabled = all.isNotEmpty(),
+            downloads = all.takeIf { downloadable },
         )
         AlbumsGrid(albums, onOpenAlbum)
     }

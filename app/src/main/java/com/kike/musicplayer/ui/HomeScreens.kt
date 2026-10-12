@@ -157,6 +157,7 @@ private fun MixCard(mix: Mix, onOpen: () -> Unit, onPlay: () -> Unit) {
             FilledIconButton(onClick = onPlay, modifier = Modifier.align(Alignment.BottomEnd).padding(8.dp)) {
                 Icon(Icons.Default.PlayArrow, "Play ${mix.title}")
             }
+            DownloadButton(mix.tracks, Modifier.align(Alignment.BottomStart).padding(8.dp))
         }
         Text(mix.title, maxLines = 2, overflow = TextOverflow.Ellipsis, fontWeight = FontWeight.SemiBold,
             style = MaterialTheme.typography.bodyMedium, modifier = Modifier.padding(top = 6.dp))

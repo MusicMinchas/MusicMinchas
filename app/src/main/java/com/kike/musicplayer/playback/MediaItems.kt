@@ -8,7 +8,7 @@ import com.kike.musicplayer.data.db.Track
 fun Track.toMediaItem(mediaId: String = id): MediaItem =
     MediaItem.Builder()
         .setMediaId(mediaId)
-        .setUri(uri)
+        .setUri(localUri ?: uri) // the downloaded copy when there is one
         .setMediaMetadata(
             MediaMetadata.Builder()
                 .setTitle(title)

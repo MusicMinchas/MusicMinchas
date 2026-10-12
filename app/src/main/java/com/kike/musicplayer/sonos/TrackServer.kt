@@ -120,7 +120,7 @@ class TrackServer(
     private fun serveTrack(out: OutputStream, method: String, trackId: String?, range: String?) {
         val track = trackId?.let { runBlocking { dao.get(it) } } ?: return respondStatus(out, 404)
         val mime = mimeOf(track)
-        if (track.source == Track.SOURCE_DRIVE) {
+        if (track.source == Track.SOURCE_DRIVE && track.localUri == null) {
             val builder = Request.Builder().url(track.uri)
             // HEAD: ask Drive for one byte, which still reports the total size in Content-Range.
             if (method == "HEAD") builder.header("Range", "bytes=0-0") else range?.let { builder.header("Range", it) }
@@ -134,7 +134,7 @@ class TrackServer(
                 copy(response.body.byteStream(), out)
             }
         } else {
-            val afd = context.contentResolver.openAssetFileDescriptor(Uri.parse(track.uri), "r")
+            val afd = context.contentResolver.openAssetFileDescriptor(Uri.parse(track.localUri ?: track.uri), "r")
                 ?: return respondStatus(out, 404)
             afd.use {
                 val size = afd.length.takeIf { it >= 0 } ?: track.sizeBytes ?: return respondStatus(out, 500)

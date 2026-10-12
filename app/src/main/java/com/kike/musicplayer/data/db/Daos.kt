@@ -28,6 +28,25 @@ interface TrackDao {
     @Query("SELECT * FROM tracks WHERE id = :id")
     suspend fun get(id: String): Track?
 
+    @Query("UPDATE tracks SET downloadState = :state WHERE id IN (:ids)")
+    suspend fun setDownloadState(ids: List<String>, state: Int)
+
+    @Query("UPDATE tracks SET localUri = :uri, downloadState = :state WHERE id = :id")
+    suspend fun setLocal(id: String, uri: String?, state: Int)
+
+    /** The download queue, album by album in track order. */
+    @Query(
+        "SELECT * FROM tracks WHERE downloadState = ${Track.DOWNLOAD_QUEUED} " +
+            "ORDER BY albumArtist, album, discNumber, trackNumber, title"
+    )
+    suspend fun downloadQueued(): List<Track>
+
+    @Query("SELECT COUNT(*) FROM tracks WHERE downloadState = ${Track.DOWNLOAD_QUEUED}")
+    suspend fun countDownloadQueued(): Int
+
+    @Query("SELECT * FROM tracks WHERE downloadState = ${Track.DOWNLOADED} AND localUri IS NOT NULL")
+    suspend fun downloaded(): List<Track>
+
     @Query("SELECT * FROM tracks WHERE id IN (:ids)")
     suspend fun getByIdsChunk(ids: List<String>): List<Track>
 

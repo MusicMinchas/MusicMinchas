@@ -2,6 +2,7 @@ package com.kike.musicplayer.ui
 
 import android.Manifest
 import android.content.Intent
+import com.kike.musicplayer.container
 import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
@@ -63,6 +64,8 @@ class MainActivity : ComponentActivity() {
         super.onResume()
         // Back from Last.fm's approval page (whether or not it sent the callback link).
         libraryVm.finishLastFmConnect(null)
+        // Downloads interrupted by the app being closed carry on.
+        container.downloader.resume()
     }
 
     private fun handleLastFmCallback(intent: Intent?) {
@@ -105,7 +108,11 @@ class MainActivity : ComponentActivity() {
         val showMini = screen !is Screen.NowPlaying && screen !is Screen.Queue && screen !is Screen.DriveFolders
 
         val favouriteIds by playerVm.favourites.collectAsState()
-        CompositionLocalProvider(LocalFavourites provides Favourites(favouriteIds, playerVm::toggleFavourite)) {
+        val downloadProgress by libraryVm.downloadProgress.collectAsState()
+        CompositionLocalProvider(
+            LocalFavourites provides Favourites(favouriteIds, playerVm::toggleFavourite),
+            LocalDownloads provides Downloads(downloadProgress, libraryVm::download, libraryVm::removeDownload),
+        ) {
             Scaffold(bottomBar = { if (showMini) MiniPlayer(playerVm) { push(Screen.NowPlaying) } }) { padding: PaddingValues ->
                 savedStates.SaveableStateProvider(screen.toString()) {
                     when (screen) {
@@ -161,7 +168,7 @@ class MainActivity : ComponentActivity() {
                             TrackListScreen(mix?.title ?: "", mix?.tracks, playerVm, ::pop, padding)
                         }
                         Screen.RecentAlbums -> AlbumListScreen(
-                            "Recently Played Albums", playlists.recentAlbums, playerVm,
+                            "Recently Played Albums", playlists.recentAlbums, playerVm, downloadable = true,
                             onOpenAlbum = { push(Screen.AlbumDetail(it)) }, onBack = ::pop, contentPadding = padding,
                         )
                         Screen.Sources -> SourcesScreen(

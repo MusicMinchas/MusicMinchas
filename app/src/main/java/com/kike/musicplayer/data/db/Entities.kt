@@ -38,6 +38,10 @@ data class Track(
     val mbReleaseId: String? = null,
     val metadataState: Int = META_NEW,
     val dateAdded: Long = System.currentTimeMillis(),
+    /** content:// of the copy downloaded to the phone (Music/MusicMinchas), played instead of Drive. */
+    val localUri: String? = null,
+    /** [NOT_DOWNLOADED], [DOWNLOAD_QUEUED], [DOWNLOADED] or [DOWNLOAD_FAILED]. */
+    @ColumnInfo(defaultValue = "0") val downloadState: Int = NOT_DOWNLOADED,
 ) {
     val displayArtist: String get() = artist ?: albumArtist ?: "Unknown artist"
     val albumKey: String get() = albumKeyOf(album, albumArtist ?: artist)
@@ -47,6 +51,11 @@ data class Track(
         const val SOURCE_MEDIASTORE = "mediastore"
         const val SOURCE_SAF = "saf"
         const val SOURCE_DRIVE = "drive"
+
+        const val NOT_DOWNLOADED = 0
+        const val DOWNLOAD_QUEUED = 1
+        const val DOWNLOADED = 2
+        const val DOWNLOAD_FAILED = 3
 
         /** Not looked at yet. */
         const val META_NEW = 0

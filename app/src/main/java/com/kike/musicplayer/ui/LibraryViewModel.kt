@@ -328,6 +328,13 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
 
     fun disconnectDrive() = viewModelScope.launch { repo.removeDrive() }
 
+    // ---- Downloads ----
+
+    private val downloader = container.downloader
+    val downloadProgress = downloader.progress
+    fun download(tracks: List<Track>) = downloader.download(tracks)
+    fun removeDownload(track: Track) = downloader.remove(track)
+
     // ---- Last.fm ----
 
     private val lastFm = container.lastFm

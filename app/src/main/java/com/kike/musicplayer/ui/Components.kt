@@ -14,6 +14,12 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Cloud
+import androidx.compose.material.icons.filled.Download
+import androidx.compose.material.icons.filled.DownloadDone
+import androidx.compose.material.icons.filled.Downloading
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.FilledTonalIconButton
+import com.kike.musicplayer.data.download.DownloadProgress
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.MusicNote
 import androidx.compose.material3.DropdownMenu
@@ -68,6 +74,51 @@ class Favourites(val ids: Set<String>, val toggle: (trackId: String) -> Unit)
 
 val LocalFavourites = compositionLocalOf { Favourites(emptySet()) {} }
 
+/** Downloading Drive songs to the phone; provided once at the top of the UI. */
+class Downloads(val progress: DownloadProgress?, val download: (List<Track>) -> Unit, val remove: (Track) -> Unit)
+
+val LocalDownloads = compositionLocalOf { Downloads(null, {}, {}) }
+
+/**
+ * Downloads the Drive songs of an album, playlist or mix: a down arrow, a progress ring while they
+ * download, a check once all are on the phone. Nothing when none of them is on Drive.
+ */
+@Composable
+fun DownloadButton(tracks: List<Track>, modifier: Modifier = Modifier) {
+    val drive = tracks.filter { it.source == Track.SOURCE_DRIVE }
+    if (drive.isEmpty()) return
+    val downloads = LocalDownloads.current
+    val done = drive.count { it.downloadState == Track.DOWNLOADED }
+    val busy = drive.any { it.downloadState == Track.DOWNLOAD_QUEUED }
+    FilledTonalIconButton(onClick = { if (!busy && done < drive.size) downloads.download(drive) }, modifier = modifier) {
+        when {
+            // Spinning until the first song is in, then how many of them are.
+            busy && done == 0 -> CircularProgressIndicator(Modifier.size(22.dp), strokeWidth = 2.5.dp)
+            busy -> CircularProgressIndicator(
+                progress = { done.toFloat() / drive.size }, modifier = Modifier.size(22.dp), strokeWidth = 2.5.dp,
+            )
+            done == drive.size -> Icon(Icons.Default.DownloadDone, "Downloaded to the phone")
+            else -> Icon(Icons.Default.Download, "Download to the phone")
+        }
+    }
+}
+
+/** Where a Drive song is: in the cloud, downloading (with progress), or on the phone. */
+@Composable
+private fun DownloadStatus(track: Track, progress: DownloadProgress?) {
+    val tint = MaterialTheme.colorScheme.onSurfaceVariant
+    when (track.downloadState) {
+        Track.DOWNLOADED -> Icon(Icons.Default.DownloadDone, "On the phone", Modifier.size(16.dp), tint = MaterialTheme.colorScheme.primary)
+        Track.DOWNLOAD_QUEUED ->
+            if (progress?.trackId == track.id && progress.total > 0) {
+                CircularProgressIndicator(progress = { progress.done.toFloat() / progress.total }, modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
+            } else {
+                Icon(Icons.Default.Downloading, "Waiting to download", Modifier.size(16.dp), tint = tint)
+            }
+        else -> Icon(Icons.Default.Cloud, "Google Drive", Modifier.size(16.dp), tint = tint)
+    }
+}
+
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun TrackRow(
@@ -83,6 +134,7 @@ fun TrackRow(
 ) {
     var menu by remember { mutableStateOf(false) }
     val favourites = LocalFavourites.current
+    val downloads = LocalDownloads.current
     Row(
         Modifier
             .combinedClickable(onClick = onClick, onLongClick = { menu = true })
@@ -114,9 +166,7 @@ fun TrackRow(
             Text(it, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary,
                 modifier = Modifier.padding(horizontal = 6.dp))
         }
-        if (track.source == Track.SOURCE_DRIVE) {
-            Icon(Icons.Default.Cloud, "Google Drive", Modifier.size(16.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
-        }
+        if (track.source == Track.SOURCE_DRIVE) DownloadStatus(track, downloads.progress)
         Box {
             IconButton(onClick = { menu = true }) { Icon(Icons.Default.MoreVert, "More") }
             DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
@@ -126,6 +176,11 @@ fun TrackRow(
                     text = { Text(if (track.id in favourites.ids) "Remove from Favourites" else "Add to Favourites") },
                     onClick = { menu = false; favourites.toggle(track.id) },
                 )
+                if (track.source == Track.SOURCE_DRIVE) when (track.downloadState) {
+                    Track.DOWNLOADED -> DropdownMenuItem(text = { Text("Remove download") }, onClick = { menu = false; downloads.remove(track) })
+                    Track.DOWNLOAD_QUEUED -> Unit
+                    else -> DropdownMenuItem(text = { Text("Download") }, onClick = { menu = false; downloads.download(listOf(track)) })
+                }
             }
         }
     }
