@@ -244,7 +244,8 @@ fun NowPlayingScreen(playerVm: PlayerViewModel, onBack: () -> Unit, onOpenQueue:
                 }
                 // Lyrics · Cast · Queue, within thumb reach under the playback controls.
                 Row(
-                    Modifier.fillMaxWidth().padding(top = 16.dp, bottom = 8.dp),
+                    // Tighter while casting: the speaker volume row needs the room.
+                    Modifier.fillMaxWidth().padding(top = if (s.remoteVolume != null) 0.dp else 16.dp, bottom = if (s.remoteVolume != null) 0.dp else 8.dp),
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
@@ -293,9 +294,9 @@ private fun Modifier.bleed(horizontal: Dp) = layout { measurable, constraints ->
 @Composable
 private fun RemoteVolume(volume: Int, onChange: (Int) -> Unit) {
     var dragging by remember { mutableStateOf<Float?>(null) }
-    Row(Modifier.fillMaxWidth().padding(top = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+    Row(Modifier.fillMaxWidth().padding(top = 4.dp), verticalAlignment = Alignment.CenterVertically) {
         Icon(Icons.AutoMirrored.Filled.VolumeDown, null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
-        Slider(
+        DotSlider(
             value = dragging ?: (volume / 100f),
             onValueChange = { dragging = it },
             onValueChangeFinished = {
@@ -393,21 +394,53 @@ private fun ArtworkBackdrop(uri: Any?) {
     )
 }
 
-@Composable
+/** A thin track with a round thumb that grows while held (seek bar, speaker volume). */
 @OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun DotSlider(
+    value: Float,
+    onValueChange: (Float) -> Unit,
+    onValueChangeFinished: () -> Unit,
+    modifier: Modifier = Modifier,
+    enabled: Boolean = true,
+) {
+    val interaction = remember { MutableInteractionSource() }
+    val pressed by interaction.collectIsPressedAsState()
+    val dragged by interaction.collectIsDraggedAsState()
+    val thumbSize by animateDpAsState(if (pressed || dragged) 20.dp else 12.dp, label = "thumb")
+    val colors = SliderDefaults.colors()
+    Slider(
+        value = value,
+        onValueChange = onValueChange,
+        onValueChangeFinished = onValueChangeFinished,
+        enabled = enabled,
+        interactionSource = interaction,
+        modifier = modifier.height(28.dp),
+        thumb = {
+            Box(Modifier.size(20.dp), contentAlignment = Alignment.Center) {
+                Box(Modifier.size(thumbSize).clip(CircleShape).background(MaterialTheme.colorScheme.primary))
+            }
+        },
+        track = { state ->
+            SliderDefaults.Track(
+                sliderState = state,
+                modifier = Modifier.height(4.dp),
+                colors = colors,
+                thumbTrackGapSize = 0.dp,
+                drawStopIndicator = null,
+            )
+        },
+    )
+}
+
+@Composable
 private fun SeekBar(s: PlayerUiState, onSeek: (Long) -> Unit) {
     // While dragging, show the thumb where the finger is instead of the live position.
     var dragFraction by remember { mutableStateOf<Float?>(null) }
     val duration = s.durationMs.coerceAtLeast(1)
     val fraction = dragFraction ?: (s.positionMs.toFloat() / duration).coerceIn(0f, 1f)
     Column(Modifier.fillMaxWidth()) {
-        // A thin track with a round thumb that grows while held, instead of the tall bar thumb.
-        val interaction = remember { MutableInteractionSource() }
-        val pressed by interaction.collectIsPressedAsState()
-        val dragged by interaction.collectIsDraggedAsState()
-        val thumbSize by animateDpAsState(if (pressed || dragged) 20.dp else 12.dp, label = "thumb")
-        val colors = SliderDefaults.colors()
-        Slider(
+        DotSlider(
             value = fraction,
             onValueChange = { dragFraction = it },
             onValueChangeFinished = {
@@ -415,22 +448,6 @@ private fun SeekBar(s: PlayerUiState, onSeek: (Long) -> Unit) {
                 dragFraction = null
             },
             enabled = s.durationMs > 0,
-            interactionSource = interaction,
-            modifier = Modifier.height(28.dp),
-            thumb = {
-                Box(Modifier.size(20.dp), contentAlignment = Alignment.Center) {
-                    Box(Modifier.size(thumbSize).clip(CircleShape).background(MaterialTheme.colorScheme.primary))
-                }
-            },
-            track = { state ->
-                SliderDefaults.Track(
-                    sliderState = state,
-                    modifier = Modifier.height(4.dp),
-                    colors = colors,
-                    thumbTrackGapSize = 0.dp,
-                    drawStopIndicator = null,
-                )
-            },
         )
         Row(Modifier.fillMaxWidth()) {
             Text(formatTime((fraction * duration).toLong()), style = MaterialTheme.typography.labelSmall)
