@@ -1,6 +1,8 @@
 package com.kike.musicplayer.ui
 
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -41,12 +43,12 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import com.kike.musicplayer.recommend.Mix
+import com.kike.musicplayer.data.db.Track
 import java.time.Month
 import java.time.format.TextStyle
 import java.util.Locale
 
-/** Home: Recently Played, Replay, Most Played and Favourite Songs tiles, generated mixes, recently played albums. */
+/** Home: the Recently Played tile, Replay / Favourite Songs / Most Played cards, generated mixes, recently played albums. */
 @Composable
 fun HomeTab(
     libraryVm: LibraryViewModel,
@@ -73,23 +75,39 @@ fun HomeTab(
                     onOpen = onOpenRecentTracks,
                     onPlay = if (recent.isEmpty()) null else ({ playerVm.playTracks(recent, 0) }),
                 )
-                val r = replay
-                PlaylistTile(
+            }
+        }
+        // Replay, Favourite Songs and Most Played as cards like the mixes, side by side.
+        item {
+            val r = replay
+            val top = r?.topTracks.orEmpty().map { it.item }
+            val favourites = playlists.favourites
+            val most = playlists.mostPlayed.map { it.item }
+            Row(
+                Modifier.horizontalScroll(rememberScrollState()).padding(start = 16.dp, end = 16.dp, top = 16.dp),
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                CollectionCard(
                     title = "Replay ${r?.period?.year ?: ""}".trim(),
-                    subtitle = if (r == null || r.plays == 0) "Your most played, by year and month" else "${r.plays} plays",
-                    covers = r?.topTracks.orEmpty().mapNotNull { it.item.artworkUri }.distinct().take(4),
-                    onOpen = onOpenReplay,
-                    onPlay = r?.topTracks?.takeIf { it.isNotEmpty() }?.let { top -> { playerVm.playTracks(top.map { it.item }, 0) } },
+                    subtitle = if (r == null || r.plays == 0) "Your most played" else "${r.plays} plays",
+                    tracks = top, onOpen = onOpenReplay,
+                    onPlay = { playerVm.playTracks(top, 0) },
+                    modifier = Modifier.width(MIX_CARD_WIDTH),
                 )
-                val most = playlists.mostPlayed
-                PlaylistTile(
+                CollectionCard(
+                    title = "Favourite Songs",
+                    subtitle = if (favourites.isEmpty()) "Tap the heart on a song" else count(favourites.size, "song"),
+                    tracks = favourites, onOpen = onOpenFavourites,
+                    onPlay = { playerVm.playTracks(favourites, 0) },
+                    modifier = Modifier.width(MIX_CARD_WIDTH),
+                )
+                CollectionCard(
                     title = "Most Played",
-                    subtitle = if (most.isEmpty()) "Nothing played through yet" else "${most.size} songs",
-                    covers = most.mapNotNull { it.item.artworkUri }.distinct().take(4),
-                    onOpen = onOpenMostPlayed,
-                    onPlay = if (most.isEmpty()) null else ({ playerVm.playTracks(most.map { it.item }, 0) }),
+                    subtitle = if (most.isEmpty()) "Nothing played yet" else count(most.size, "song"),
+                    tracks = most, onOpen = onOpenMostPlayed,
+                    onPlay = { playerVm.playTracks(most, 0) },
+                    modifier = Modifier.width(MIX_CARD_WIDTH),
                 )
-                FavouritesTile(playlists.favourites, playerVm, onOpenFavourites)
             }
         }
         item { SectionTitle("Made for you") }
@@ -105,7 +123,11 @@ fun HomeTab(
             } else {
                 LazyRow(contentPadding = PaddingValues(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                     items(mixes, key = { it.id }) { mix ->
-                        MixCard(mix, onOpen = { onOpenMix(mix.id) }, onPlay = { playerVm.playTracks(mix.tracks, 0) })
+                        CollectionCard(
+                            mix.title, mix.subtitle, mix.tracks,
+                            onOpen = { onOpenMix(mix.id) }, onPlay = { playerVm.playTracks(mix.tracks, 0) },
+                            modifier = Modifier.width(MIX_CARD_WIDTH),
+                        )
                     }
                 }
             }
@@ -136,12 +158,22 @@ internal fun SectionTitle(text: String) {
     )
 }
 
-/** A mix: 2×2 cover mosaic with a play button, title and the artists in it. */
+/**
+ * A mix or playlist card: 2×2 cover mosaic (one cover when fewer than four) with play and download
+ * buttons, title and subtitle. Square, as wide as [modifier] makes it.
+ */
 @Composable
-private fun MixCard(mix: Mix, onOpen: () -> Unit, onPlay: () -> Unit) {
-    Column(Modifier.width(160.dp).clickable(onClick = onOpen)) {
-        Box(Modifier.size(160.dp).clip(RoundedCornerShape(12.dp))) {
-            val covers = mix.covers
+private fun CollectionCard(
+    title: String,
+    subtitle: String,
+    tracks: List<Track>,
+    onOpen: () -> Unit,
+    onPlay: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Column(modifier.clickable(onClick = onOpen)) {
+        Box(Modifier.fillMaxWidth().aspectRatio(1f).clip(RoundedCornerShape(12.dp))) {
+            val covers = tracks.mapNotNull { it.artworkUri }.distinct().take(4)
             if (covers.size >= 4) {
                 Column {
                     for (rowCovers in covers.chunked(2)) {
@@ -153,17 +185,23 @@ private fun MixCard(mix: Mix, onOpen: () -> Unit, onPlay: () -> Unit) {
             } else {
                 Artwork(covers.firstOrNull(), Modifier.fillMaxSize(), shape = RoundedCornerShape(0.dp))
             }
-            FilledIconButton(onClick = onPlay, modifier = Modifier.align(Alignment.BottomEnd).padding(8.dp)) {
-                Icon(Icons.Default.PlayArrow, "Play ${mix.title}")
+            if (tracks.isNotEmpty()) {
+                FilledIconButton(onClick = onPlay, modifier = Modifier.align(Alignment.BottomEnd).padding(8.dp)) {
+                    Icon(Icons.Default.PlayArrow, "Play $title")
+                }
+                DownloadButton(tracks, Modifier.align(Alignment.BottomStart).padding(8.dp))
             }
-            DownloadButton(mix.tracks, Modifier.align(Alignment.BottomStart).padding(8.dp))
         }
-        Text(mix.title, maxLines = 2, overflow = TextOverflow.Ellipsis, fontWeight = FontWeight.SemiBold,
+        Text(title, maxLines = 2, overflow = TextOverflow.Ellipsis, fontWeight = FontWeight.SemiBold,
             style = MaterialTheme.typography.bodyMedium, modifier = Modifier.padding(top = 6.dp))
-        Text(mix.subtitle, maxLines = 2, overflow = TextOverflow.Ellipsis,
+        Text(subtitle, maxLines = 2, overflow = TextOverflow.Ellipsis,
             style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
 }
+
+private val MIX_CARD_WIDTH = 160.dp
+
+private fun count(n: Int, noun: String) = if (n == 1) "1 $noun" else "$n ${noun}s"
 
 /** Replay: most played songs, artists and albums of a year or one of its months. */
 @OptIn(ExperimentalMaterial3Api::class)
