@@ -8,8 +8,8 @@ import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
 
 @Database(
-    entities = [Track::class, QueueItem::class, SessionState::class, PlayHistory::class, ArtistInfo::class, Favourite::class, LastFmOutboxItem::class, LastFmScrobble::class],
-    version = 11,
+    entities = [Track::class, QueueItem::class, SessionState::class, PlayHistory::class, ArtistInfo::class, Favourite::class, LastFmOutboxItem::class, LastFmScrobble::class, ReplacedTrack::class],
+    version = 12,
 )
 abstract class AppDatabase : RoomDatabase() {
     abstract fun tracks(): TrackDao
@@ -19,6 +19,7 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun favourites(): FavouriteDao
     abstract fun lastFmOutbox(): LastFmOutboxDao
     abstract fun lastFmScrobbles(): LastFmScrobbleDao
+    abstract fun replacements(): ReplacementDao
 
     companion object {
         /** Adds the play history. Real migrations keep the scanned library (tags, covers) intact. */
@@ -106,9 +107,20 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        private val MIGRATION_11_12 = object : Migration(11, 12) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE `tracks` ADD COLUMN `checksum` TEXT")
+                db.execSQL(
+                    "CREATE TABLE IF NOT EXISTS `replaced_tracks` (`oldId` TEXT NOT NULL, `source` TEXT NOT NULL, " +
+                        "`artist` TEXT, `albumArtist` TEXT, `album` TEXT, `title` TEXT NOT NULL, `trackNumber` INTEGER, " +
+                        "`discNumber` INTEGER, `localUri` TEXT, `removedAt` INTEGER NOT NULL, PRIMARY KEY(`oldId`))"
+                )
+            }
+        }
+
         fun create(context: Context): AppDatabase =
             Room.databaseBuilder(context, AppDatabase::class.java, "music.db")
-                .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11)
+                .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11, MIGRATION_11_12)
                 .build()
     }
 }

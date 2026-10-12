@@ -201,6 +201,50 @@ interface LastFmScrobbleDao {
 }
 
 @Dao
+interface ReplacementDao {
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertAll(tracks: List<ReplacedTrack>)
+
+    @Query("SELECT * FROM replaced_tracks")
+    suspend fun all(): List<ReplacedTrack>
+
+    @Query("DELETE FROM replaced_tracks WHERE oldId IN (:ids)")
+    suspend fun delete(ids: List<String>)
+
+    /** Songs added since [since] (by a sync), with their tags read. */
+    @Query("SELECT * FROM tracks WHERE dateAdded >= :since AND metadataState != ${Track.META_NEW} AND durationMs >= 0")
+    suspend fun addedSince(since: Long): List<Track>
+
+    @Query("SELECT COUNT(*) FROM tracks WHERE dateAdded >= :since AND metadataState = ${Track.META_NEW}")
+    suspend fun unreadSince(since: Long): Int
+
+    @Query("UPDATE play_history SET trackId = :newId WHERE trackId = :oldId")
+    suspend fun movePlays(oldId: String, newId: String)
+
+    @Query("INSERT OR IGNORE INTO favourites (trackId, addedAt) SELECT :newId, addedAt FROM favourites WHERE trackId = :oldId")
+    suspend fun copyFavourite(oldId: String, newId: String)
+
+    @Query("DELETE FROM favourites WHERE trackId = :oldId")
+    suspend fun deleteFavourite(oldId: String)
+
+    @Query("UPDATE lastfm_scrobbles SET trackId = :newId WHERE trackId = :oldId")
+    suspend fun moveScrobbles(oldId: String, newId: String)
+
+    @Query("UPDATE queue_items SET trackId = :newId WHERE trackId = :oldId")
+    suspend fun moveQueue(oldId: String, newId: String)
+
+    /** Everything the app knows about a song by its id moves to the new file's id. */
+    @Transaction
+    suspend fun moveSong(oldId: String, newId: String) {
+        movePlays(oldId, newId)
+        copyFavourite(oldId, newId)
+        deleteFavourite(oldId)
+        moveScrobbles(oldId, newId)
+        moveQueue(oldId, newId)
+    }
+}
+
+@Dao
 interface FavouriteDao {
     /** Newest first. */
     @Query("SELECT * FROM favourites ORDER BY addedAt DESC")

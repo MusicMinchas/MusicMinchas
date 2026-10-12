@@ -2,9 +2,12 @@ package com.kike.musicplayer.data
 
 import android.net.Uri
 import android.util.Log
+import com.kike.musicplayer.data.db.ReplacedTrack
+import com.kike.musicplayer.data.db.ReplacementDao
 import com.kike.musicplayer.data.db.Track
 import com.kike.musicplayer.data.db.TrackDao
 import com.kike.musicplayer.data.db.delete
+import com.kike.musicplayer.data.download.Downloader
 import com.kike.musicplayer.data.drive.DriveAuth
 import com.kike.musicplayer.data.drive.DriveFolder
 import com.kike.musicplayer.data.drive.DriveLibrary
@@ -30,6 +33,8 @@ class LibraryRepository(
     private val drive: DriveLibrary,
     private val driveAuth: DriveAuth,
     private val enricher: MetadataEnricher,
+    private val replacements: ReplacementDao,
+    private val downloader: Downloader,
     private val scope: CoroutineScope,
 ) {
     val tracks: Flow<List<Track>> = dao.observeAll()
@@ -97,12 +102,37 @@ class LibraryRepository(
             } catch (e: Exception) {
                 Log.w(TAG, "Metadata enrichment failed", e)
             }
+            // The new files' tags are known now: carry replaced songs' history over to them.
+            runCatching { pairReplacements() }.onFailure { Log.w(TAG, "Pairing replaced songs failed", it) }
         }
     }
 
     /**
+     * Songs a sync removed get paired with the same songs in files it added (see [Replacements]):
+     * plays, favourites, scrobble links and the saved queue move to the new file, and a download of
+     * the old one is replaced by one of the new. Waits while some added files' tags are unread.
+     */
+    private suspend fun pairReplacements() {
+        val removed = replacements.all()
+        if (removed.isEmpty()) return
+        val since = removed.minOf { it.removedAt } - SYNC_WINDOW_MS
+        if (replacements.unreadSince(since) > 0) return // tags still to come; next pass
+        val pairs = Replacements.pair(removed, replacements.addedSince(since))
+        for ((old, new) in pairs) {
+            Log.i(TAG, "${old.title} (${old.oldId}) is now ${new.fileName}")
+            replacements.moveSong(old.oldId, new.id)
+            if (old.localUri != null) {
+                downloader.deleteFile(old.localUri)
+                downloader.download(listOf(new))
+            }
+        }
+        replacements.delete(removed.map { it.oldId })
+    }
+
+    /**
      * Replaces the rows of one source with a fresh scan. Rows that still exist keep everything the
-     * metadata pipeline already learned; only the file-level fields are refreshed.
+     * metadata pipeline already learned; only the file-level fields are refreshed. A file whose
+     * content changed (Drive checksum, else size) is read again, and downloaded again if it was.
      */
     private suspend fun scan(label: String, source: String, block: suspend () -> List<Track>): Boolean {
         var ok = false
@@ -112,16 +142,37 @@ class LibraryRepository(
                 withContext(Dispatchers.IO) {
                     val scanned = block()
                     val existing = dao.getBySource(source).associateBy { it.id }
+                    var redownload = false
                     val merged = scanned.map { fresh ->
                         val old = existing[fresh.id] ?: return@map fresh
-                        // A file edited in place (e.g. tags or cover added) changes size: read it again.
-                        if (old.sizeBytes != null && fresh.sizeBytes != null && old.sizeBytes != fresh.sizeBytes) {
-                            return@map fresh.copy(localUri = old.localUri, downloadState = old.downloadState)
+                        // Changed content (tags, cover, a new version): read it again. The first sync
+                        // with checksums only records them; sizes decide until then.
+                        val changed = if (old.checksum != null && fresh.checksum != null) old.checksum != fresh.checksum
+                        else old.sizeBytes != null && fresh.sizeBytes != null && old.sizeBytes != fresh.sizeBytes
+                        if (changed) {
+                            val onPhone = old.downloadState == Track.DOWNLOADED || old.downloadState == Track.DOWNLOAD_QUEUED
+                            if (onPhone) redownload = true
+                            // The old copy keeps playing until the new one is down; the downloader replaces it.
+                            return@map fresh.copy(localUri = old.localUri, downloadState = if (onPhone) Track.DOWNLOAD_QUEUED else old.downloadState)
                         }
-                        old.copy(uri = fresh.uri, fileName = fresh.fileName, mimeType = fresh.mimeType, sizeBytes = fresh.sizeBytes)
+                        old.copy(uri = fresh.uri, fileName = fresh.fileName, mimeType = fresh.mimeType, sizeBytes = fresh.sizeBytes, checksum = fresh.checksum)
+                    }
+                    val removedIds = existing.keys - scanned.mapTo(HashSet()) { it.id }
+                    // Songs gone while others arrived may be the same songs in new files: remember them
+                    // until the new files' tags are read (pairReplacements).
+                    if (removedIds.isNotEmpty() && scanned.any { it.id !in existing }) {
+                        val now = System.currentTimeMillis()
+                        replacements.insertAll(removedIds.mapNotNull { existing[it] }.map { t ->
+                            ReplacedTrack(
+                                oldId = t.id, source = t.source, artist = t.artist, albumArtist = t.albumArtist, album = t.album,
+                                title = t.title, trackNumber = t.trackNumber, discNumber = t.discNumber,
+                                localUri = t.localUri.takeIf { t.downloadState == Track.DOWNLOADED }, removedAt = now,
+                            )
+                        })
                     }
                     dao.upsertAll(merged)
-                    dao.delete(existing.keys - scanned.mapTo(HashSet()) { it.id })
+                    dao.delete(removedIds)
+                    if (redownload) downloader.resume()
                 }
                 _lastError.value = null
                 ok = true
@@ -137,6 +188,8 @@ class LibraryRepository(
     }
 
     private companion object {
+        /** New files of a sync are dated just before its removals are noted. */
+        const val SYNC_WINDOW_MS = 30 * 60_000L
         const val TAG = "LibraryRepository"
         const val DAY_MS = 24 * 60 * 60 * 1000L
     }

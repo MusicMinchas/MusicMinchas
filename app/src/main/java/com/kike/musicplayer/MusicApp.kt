@@ -122,6 +122,8 @@ class AppContainer(app: Application) {
         drive = DriveLibrary(driveApi),
         driveAuth = driveAuth,
         enricher = enricher,
+        replacements = database.replacements(),
+        downloader = downloader,
         scope = appScope,
     )
 

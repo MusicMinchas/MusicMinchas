@@ -47,6 +47,8 @@ data class DriveFile(
     /** Absent when the request's `fields` don't ask for it (e.g. the folder-ancestry listing). */
     val name: String = "",
     val mimeType: String? = null,
+    /** Computed by Drive for uploaded files; changes whenever the content does. */
+    val md5Checksum: String? = null,
     /** Drive sends int64 values as JSON strings. */
     val size: String? = null,
     val parents: List<String>? = null,
@@ -87,7 +89,7 @@ class DriveLibrary(private val api: DriveApi) {
             return inside
         }
 
-        return listAll("trashed = false and mimeType contains 'audio/'", "nextPageToken,files(id,name,mimeType,size,parents)")
+        return listAll("trashed = false and mimeType contains 'audio/'", "nextPageToken,files(id,name,mimeType,size,parents,md5Checksum)")
             .filter { file -> LocalLibrary.isAudio(file.name, file.mimeType) && file.parents.orEmpty().any { isInside(it) } }
             .map { file ->
                 Track(
@@ -98,6 +100,7 @@ class DriveLibrary(private val api: DriveApi) {
                     mimeType = file.mimeType,
                     sizeBytes = file.size?.toLongOrNull(),
                     title = file.name.substringBeforeLast('.'),
+                    checksum = file.md5Checksum,
                 )
             }
     }

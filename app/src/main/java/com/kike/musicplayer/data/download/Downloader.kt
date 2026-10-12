@@ -53,6 +53,12 @@ class Downloader(
         }
     }
 
+    /** Deletes a downloaded file (e.g. of a song replaced by a new file). */
+    fun deleteFile(localUri: String) {
+        runCatching { context.contentResolver.delete(Uri.parse(localUri), null, null) }
+            .onFailure { Log.w(TAG, "Couldn't delete $localUri", it) }
+    }
+
     /** Deletes the phone copy; the song plays from Drive again. */
     fun remove(track: Track) {
         scope.launch(Dispatchers.IO) {
@@ -79,7 +85,9 @@ class Downloader(
     }
 
     private fun startService() {
-        context.startForegroundService(Intent(context, DownloadService::class.java))
+        // Not allowed while the app is in the background; the queue then resumes when it's opened.
+        runCatching { context.startForegroundService(Intent(context, DownloadService::class.java)) }
+            .onFailure { Log.i(TAG, "Downloads wait until the app is opened: $it") }
     }
 
     /** Downloads everything queued, one song at a time; [onProgress] feeds the notification. */
@@ -92,6 +100,8 @@ class Downloader(
                 try {
                     val uri = downloadOne(track, queued.size) { onProgress(it, track) }
                     dao.setLocal(track.id, uri.toString(), Track.DOWNLOADED)
+                    // A changed file was downloaded again: drop the old copy if it had another name.
+                    track.localUri?.takeIf { it != uri.toString() }?.let(::deleteFile)
                     failures = 0
                 } catch (e: Exception) {
                     Log.w(TAG, "Download of ${track.title} failed", e)
@@ -110,14 +120,16 @@ class Downloader(
         val name = fileName(track)
         val collection = MediaStore.Audio.Media.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY)
 
-        // Already there (e.g. downloaded before a reinstall of the queue): reuse it when complete.
+        // Already there (e.g. downloaded before the app's data was reset): reuse it when complete,
+        // unless this download replaces an older version of the file.
+        val replacing = track.localUri != null
         resolver.query(
             collection, arrayOf(MediaStore.Audio.Media._ID, MediaStore.Audio.Media.SIZE),
             "${MediaStore.Audio.Media.RELATIVE_PATH} = ? AND ${MediaStore.Audio.Media.DISPLAY_NAME} = ?", arrayOf(folder, name), null,
         )?.use { c ->
             if (c.moveToFirst()) {
                 val existing = Uri.withAppendedPath(collection, c.getLong(0).toString())
-                if (track.sizeBytes == null || c.getLong(1) == track.sizeBytes) return existing
+                if (!replacing && (track.sizeBytes == null || c.getLong(1) == track.sizeBytes)) return existing
                 resolver.delete(existing, null, null)
             }
         }

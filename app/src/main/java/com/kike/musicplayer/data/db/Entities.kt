@@ -42,6 +42,8 @@ data class Track(
     val localUri: String? = null,
     /** [NOT_DOWNLOADED], [DOWNLOAD_QUEUED], [DOWNLOADED] or [DOWNLOAD_FAILED]. */
     @ColumnInfo(defaultValue = "0") val downloadState: Int = NOT_DOWNLOADED,
+    /** Drive's MD5 of the file: a different one on a later sync means the file changed. */
+    val checksum: String? = null,
 ) {
     val displayArtist: String get() = artist ?: albumArtist ?: "Unknown artist"
     val albumKey: String get() = albumKeyOf(album, albumArtist ?: artist)
@@ -139,6 +141,26 @@ data class LastFmScrobble(
     val album: String?,
     val mbid: String?,
     val trackId: String? = null,
+)
+
+/**
+ * A song a sync removed while adding others: once the new files' tags are read, it is paired with
+ * the same song in a new file (e.g. an MP3 re-ripped as FLAC) so plays and favourites move over
+ * ([com.kike.musicplayer.data.Replacements]). Forgotten after that pass.
+ */
+@Entity(tableName = "replaced_tracks")
+data class ReplacedTrack(
+    @PrimaryKey val oldId: String,
+    val source: String,
+    val artist: String?,
+    val albumArtist: String?,
+    val album: String?,
+    val title: String,
+    val trackNumber: Int?,
+    val discNumber: Int?,
+    /** The old song's download, deleted once paired. */
+    val localUri: String?,
+    val removedAt: Long,
 )
 
 /** A song marked as favourite; kept by track id, so it survives rescans. */
