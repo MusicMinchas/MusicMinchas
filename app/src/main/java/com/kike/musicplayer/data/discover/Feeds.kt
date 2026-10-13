@@ -11,8 +11,15 @@ import java.time.OffsetDateTime
 import java.time.ZoneOffset
 import java.util.Locale
 
-/** A story from an RSS or Atom feed. [source]: the site, when the feed says (Google News does). */
-data class FeedItem(val title: String, val link: String, val published: Long, val imageUrl: String?, val source: String?)
+/** A story from an RSS or Atom feed. [source] / [sourceUrl]: the publisher, when the feed says (Google News does). */
+data class FeedItem(
+    val title: String,
+    val link: String,
+    val published: Long,
+    val imageUrl: String?,
+    val source: String?,
+    val sourceUrl: String? = null,
+)
 
 /** Small RSS 2.0 / Atom reader for news feeds. */
 object Feeds {
@@ -28,13 +35,14 @@ object Feeds {
         var date: Long? = null
         var image: String? = null
         var source: String? = null
+        var sourceUrl: String? = null
         var html: String? = null
         while (parser.next() != XmlPullParser.END_DOCUMENT) {
             val name = parser.name
             when (parser.eventType) {
                 XmlPullParser.START_TAG -> when {
                     name == "item" || name == "entry" -> {
-                        inItem = true; title = null; link = null; date = null; image = null; source = null; html = null
+                        inItem = true; title = null; link = null; date = null; image = null; source = null; sourceUrl = null; html = null
                     }
                     !inItem -> Unit
                     name == "title" -> title = parser.nextText().trim()
@@ -46,7 +54,10 @@ object Feeds {
                     }
                     name == "pubDate" || name == "published" || name == "updated" || name == "dc:date" ->
                         parseDate(parser.nextText().trim())?.let { if (date == null) date = it }
-                    name == "source" -> source = parser.nextText().trim()
+                    name == "source" -> {
+                        sourceUrl = parser.getAttributeValue(null, "url")
+                        source = parser.nextText().trim()
+                    }
                     name == "media:content" || name == "media:thumbnail" ->
                         if (image == null && parser.getAttributeValue(null, "medium").let { it == null || it == "image" }) {
                             image = parser.getAttributeValue(null, "url")
@@ -60,10 +71,10 @@ object Feeds {
                 }
                 XmlPullParser.END_TAG -> if (name == "item" || name == "entry") {
                     inItem = false
-                    val t = title?.let(::unescape)
+                    val t = title?.let { unescape(unescape(it)) } // Google News escapes some twice ("&amp;amp;")
                     val l = link
                     if (!t.isNullOrBlank() && !l.isNullOrBlank()) {
-                        items += FeedItem(t, l, date ?: 0L, image ?: html?.let(::firstImage), source?.let(::unescape))
+                        items += FeedItem(t, l, date ?: 0L, image ?: html?.let(::firstImage), source?.let(::unescape), sourceUrl)
                     }
                 }
             }
@@ -112,6 +123,50 @@ object Names {
         }
     }
 
+    /**
+     * Whether [text] names [artist] on its own somewhere, rather than inside a quoted title
+     * ('Ghost Song', "Muse") or as part of another name (Ghost Hounds, Space Ghost, Strange Muse).
+     * Headlines are often in Title Case, so a capitalised neighbour is fine when it's a usual
+     * headline word ("Muse Announce…", "Ghost Frontman…", "Featuring Ghost"); "Ghost's" too. Words
+     * like Song or Tour don't count: "Ghost Song" is a film, "Ghost Tour" a walk.
+     */
+    fun standsAlone(text: String, artist: String): Boolean {
+        var from = 0
+        while (true) {
+            val i = text.indexOf(artist, from)
+            if (i < 0) return false
+            from = i + 1
+            val end = i + artist.length
+            val before = text.getOrNull(i - 1)
+            val after = text.getOrNull(end)
+            if ((before != null && before.isLetterOrDigit()) || (after != null && after.isLetterOrDigit())) continue
+            if (before in QUOTES || (after in QUOTES && !text.startsWith("s", end + 1))) continue
+            val previous = if (before == ' ') text.substring(0, i - 1).substringAfterLast(' ') else ""
+            if (previous.firstOrNull()?.isUpperCase() == true && previous.lowercase() !in HEADLINE_WORDS) continue
+            val next = if (after == ' ') text.substring(end + 1).substringBefore(' ').trimEnd(',', ':', '.', '!', '?') else ""
+            if (next.firstOrNull()?.isUpperCase() == true && next.lowercase() !in HEADLINE_WORDS) continue
+            return true
+        }
+    }
+
+    private val QUOTES = setOf('\'', '"', '‘', '’', '“', '”')
+
+    /** Words that sit next to a band name in Title Case headlines without being part of it. */
+    private val HEADLINE_WORDS = setOf(
+        "a", "an", "the", "and", "&", "or", "of", "with", "by", "from", "for", "to", "at", "on", "in", "as", "like", "than",
+        "vs", "vs.", "x", "is", "are", "was", "were", "will", "have", "has", "had", "can", "could", "would", "should", "do",
+        "does", "did", "not", "featuring", "feat.", "ft.", "ex-", "former", "watch", "watch:", "hear", "see", "meet",
+        "join", "joins", "support", "supports", "supporting", "opening", "about", "after", "before", "without", "plus",
+        "announce", "announces", "share", "shares", "release", "releases", "reveal", "reveals", "drop", "drops", "unveil",
+        "unveils", "confirm", "confirms", "cancel", "cancels", "return", "returns", "add", "adds", "play", "plays",
+        "perform", "performs", "debut", "debuts", "tease", "teases", "celebrate", "celebrates", "postpone", "postpones",
+        "launch", "launches", "kick", "kicks", "bring", "brings", "cover", "covers", "detail", "details", "deliver",
+        "delivers", "headline", "headlines", "premiere", "premieres", "sign", "signs", "team", "teams", "say", "says",
+        "react", "reacts", "pay", "pays", "salute", "salutes", "honor", "honors", "mourn", "mourns", "live", "new",
+        "frontman", "frontwoman", "singer", "vocalist", "guitarist", "drummer", "bassist", "keyboardist", "member",
+        "members", "founder", "co-founder", "leader", "fans", "legends", "icons",
+    )
+
     /** Lower case, no accents, letters and digits only: for comparing titles and names. */
     fun comparable(s: String): String =
         Normalizer.normalize(s.lowercase(Locale.ROOT), Normalizer.Form.NFD).replace(Regex("[^\\p{L}\\p{N}]"), "")
@@ -154,3 +209,56 @@ object Names {
     fun localMillis(date: LocalDate, secondOfDay: Int = 0): Long =
         date.atStartOfDay().toEpochSecond(ZoneOffset.UTC) * 1000 + secondOfDay * 1000L
 }
+
+/**
+ * Telling music news from other news for artists with everyday names (Ghost, Paradise Lost, Muse).
+ * Google News has no topics in its search feed, so this relies on who published a story and on the
+ * headline's words.
+ */
+object MusicNews {
+    /** Headline words that place a story in music even when the artist's name is an ordinary word. */
+    private val STRONG = Regex(
+        """\b(bands?|albums?|songs?|singles?|EPs?|frontman|frontwoman|singer|vocalist|guitarist|drummer|bassist|keyboardist|""" +
+            """musicians?|concerts?|setlist|gigs?|lyrics|metal|rock|discography|songwriter)\b""",
+        RegexOption.IGNORE_CASE,
+    )
+
+    /** Weaker hints, only for measuring how musical an artist's news is ("tour" also means ghost tours). */
+    private val WEAK = Regex(
+        """\b(tours?|festival|headlin\w*|live|video|record|reunion|anniversary|stage|fans|music|show)\b""",
+        RegexOption.IGNORE_CASE,
+    )
+
+    /** Publishers that only (or mostly) cover music: known sites, and hosts that say so. */
+    private val MUSIC_HOST_PARTS = listOf(
+        "music", "metal", "rock", "punk", "guitar", "loud", "riff", "kerrang", "blabbermouth", "billboard", "rollingstone",
+        "consequence", "pitchfork", "stereogum", "revolver", "decibel", "theprp", "axs.com", "brooklynvegan", "spin.com",
+        "nme.com", "uproxx", "moshville", "newnoise", "ghostcult", "distortedsound", "wallofsound", "knotfest", "setlist",
+        "tinnitist", "ericalper", "antimusic", "chaoszine", "deadrhetoric", "bravewords", "exclaim.ca", "clashmusic",
+        "diymag", "thequietus", "undertheradar", "altpress", "sputnikmusic", "angrymetalguy", "invisibleoranges",
+        "heavyblog", "nocleansinging", "sonicperspectives", "everythingisnoise", "jambase", "songkick", "bandsintown",
+    )
+
+    fun isMusicSite(url: String?): Boolean {
+        val host = url?.substringAfter("://")?.substringBefore('/')?.lowercase() ?: return false
+        return MUSIC_HOST_PARTS.any { it in host }
+    }
+
+    /** Clearly about music: a music publisher, or a headline with an unmistakable music word. */
+    fun isClearlyMusic(item: FeedItem) = isMusicSite(item.sourceUrl) || STRONG.containsMatchIn(item.title)
+
+    private fun hintsMusic(item: FeedItem) = isClearlyMusic(item) || WEAK.containsMatchIn(item.title)
+
+    /**
+     * Whether an artist's name is ambiguous: fewer than half of the headlines naming it look like
+     * music news (Metallica: 70%, Judas Priest: 86%; Ghost: 15%, Paradise Lost: 18%, Muse: 1%).
+     */
+    fun isAmbiguous(headlines: List<FeedItem>): Boolean =
+        headlines.size >= MIN_SAMPLE && headlines.count(::hintsMusic) * 2 < headlines.size
+
+    /** Added to the search for an ambiguous name, to bring the music stories up. */
+    const val MUSIC_QUERY = "(band OR album OR song OR singer OR frontman OR guitarist OR concert OR metal OR rock)"
+
+    private const val MIN_SAMPLE = 6
+}
+

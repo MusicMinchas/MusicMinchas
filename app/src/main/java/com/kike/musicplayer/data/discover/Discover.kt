@@ -253,10 +253,14 @@ class DiscoverRepository(
 
     private fun news(name: String, siteNews: List<FeedItem>): List<DiscoverItem> {
         val since = System.currentTimeMillis() - NEWS_DAYS * DAY_MS
-        val google = runCatching { googleNews(name) }.onFailure { Log.i(TAG, "Google News $name: $it") }.getOrDefault(emptyList())
-        val sites = siteNews.filter { Names.mentions(it.title, name) }
-        return (sites + google.take(GOOGLE_PER_ARTIST))
+        val plain = runCatching { googleSearch("\"$name\"", name) }.onFailure { Log.i(TAG, "Google News $name: $it") }.getOrDefault(emptyList())
+        val ambiguous = MusicNews.isAmbiguous(plain)
+        val google = if (!ambiguous) plain else runCatching { musicNews(name, plain) }.getOrDefault(emptyList())
+        // The music sites only cover music, but "Ghost" can still be Ghost Hounds there.
+        val sites = siteNews.filter { Names.mentions(it.title, name) && (!ambiguous || Names.standsAlone(it.title, name)) }
+        return (sites + google.sortedByDescending { it.published }.take(GOOGLE_PER_ARTIST))
             .filter { it.published >= since }
+            .sortedByDescending { it.published }
             .distinctBy { Names.comparable(it.title) }
             .map { item ->
                 DiscoverItem(
@@ -266,15 +270,24 @@ class DiscoverRepository(
             }
     }
 
-    private fun googleNews(name: String): List<FeedItem> {
+    /**
+     * For a name that is also an everyday word or a title (Ghost, Paradise Lost, Muse) most
+     * headlines naming it aren't about the band: search again for music stories, and keep those
+     * clearly about music that name the band on its own ([MusicNews], [Names.standsAlone]).
+     */
+    private fun musicNews(name: String, plain: List<FeedItem>): List<FeedItem> =
+        (googleSearch("\"$name\" ${MusicNews.MUSIC_QUERY}", name) + plain)
+            .filter { MusicNews.isClearlyMusic(it) && Names.standsAlone(it.title, name) }
+            .distinctBy { it.link }
+
+    private fun googleSearch(query: String, name: String): List<FeedItem> {
         val url = "https://news.google.com/rss/search".toHttpUrl().newBuilder()
-            .addQueryParameter("q", "\"$name\" when:${NEWS_DAYS}d")
+            .addQueryParameter("q", "$query when:${NEWS_DAYS}d")
             .addQueryParameter("hl", "en-US").addQueryParameter("gl", "US").addQueryParameter("ceid", "US:en").build()
         return feed(url.toString())
             .map { it.copy(title = Names.stripSource(it.title, it.source)) }
             // The search also matches the name in the article text; keep headlines about the artist.
             .filter { Names.mentions(it.title, name) && it.source?.equals("YouTube", ignoreCase = true) != true }
-            .sortedByDescending { it.published }
     }
 
     /** The music sites' latest stories, read once an hour at most. */
