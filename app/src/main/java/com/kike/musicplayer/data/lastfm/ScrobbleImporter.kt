@@ -56,13 +56,23 @@ class ScrobbleImporter(
                 val result = runCatching {
                     val downloaded = download(user, if (everything) null else scrobbles.latest(user))
                     _status.value = ImportStatus(running = true, text = "Matching with your library…")
-                    downloaded to addPlays()
+                    val added = addPlays()
+                    val waiting = scrobbles.unmatched().mapTo(HashSet()) { it.uts }
+                    val plays = downloaded.count { it in added }
+                    val missing = downloaded.count { it in waiting }
+                    // The rest are songs already played here (e.g. scrobbled by this app) or imported before.
+                    Triple(downloaded.size, plays, missing)
                 }
                 _status.value = result.fold(
-                    onSuccess = { (downloaded, added) ->
+                    onSuccess = { (downloaded, plays, missing) ->
+                        val parts = listOfNotNull(
+                            count(plays, "added as a play", "added as plays").takeIf { plays > 0 },
+                            "${downloaded - plays - missing} already in your plays".takeIf { downloaded - plays - missing > 0 },
+                            "$missing not in your library".takeIf { missing > 0 },
+                        )
                         ImportStatus(text = when (downloaded) {
                             0 -> "No new scrobbles"
-                            else -> "${count(downloaded, "scrobble")} downloaded, ${count(added, "play")} added"
+                            else -> "${count(downloaded, "scrobble")} from Last.fm: ${parts.joinToString(", ")}"
                         })
                     },
                     onFailure = {
@@ -147,7 +157,7 @@ class ScrobbleImporter(
     fun rematch() {
         scope.launch {
             mutex.withLock {
-                runCatching { addPlays() }
+                runCatching { addPlays().size }
                     .onSuccess { if (it > 0) Log.i(TAG, "$it scrobbles matched songs new to the library") }
                     .onFailure { Log.w(TAG, "Rematch failed", it) }
             }
@@ -155,12 +165,12 @@ class ScrobbleImporter(
     }
 
     /** Fetches the user's scrobbles after [afterUts] (all when null), newest first, 200 a page. */
-    private suspend fun download(user: String, afterUts: Long?): Int {
+    private suspend fun download(user: String, afterUts: Long?): Set<Long> {
         // Fixed end, so scrobbles arriving meanwhile don't shift the pages.
         val until = System.currentTimeMillis() / 1000
         var page = 1
         var totalPages = 1
-        var downloaded = 0
+        val downloaded = HashSet<Long>()
         while (page <= totalPages) {
             _status.value = ImportStatus(
                 running = true,
@@ -177,22 +187,22 @@ class ScrobbleImporter(
             val (rows, pages) = parseRecentTracks(json, user)
             totalPages = pages
             scrobbles.insertAll(rows)
-            downloaded += rows.size
+            rows.mapTo(downloaded) { it.uts }
             page++
             delay(REQUEST_INTERVAL_MS) // Last.fm: no more than ~5 requests a second
         }
         return downloaded
     }
 
-    /** Matches unmatched scrobbles with the library and adds the new plays; returns how many. */
-    private suspend fun addPlays(): Int = withContext(Dispatchers.Default) {
+    /** Matches unmatched scrobbles with the library and adds the new plays; returns their timestamps. */
+    private suspend fun addPlays(): Set<Long> = withContext(Dispatchers.Default) {
         val waiting = scrobbles.unmatched()
-        if (waiting.isEmpty()) return@withContext 0
+        if (waiting.isEmpty()) return@withContext emptySet()
         val library = tracks.getAll()
         val matcher = TrackMatcher(library)
         val durations = library.associate { it.id to it.durationMs }
         val matched = waiting.mapNotNull { s -> matcher.match(s.artist, s.track, s.album, s.mbid)?.let { s to it.id } }
-        if (matched.isEmpty()) return@withContext 0
+        if (matched.isEmpty()) return@withContext emptySet()
         scrobbles.setTrackIds(matched.map { (s, id) -> s.copy(trackId = id) })
         // One play per second: a play already there (e.g. this app's own, scrobbled from here) wins.
         val taken = history.allPlayedAt().mapTo(HashSet()) { it / 1000 }
@@ -200,7 +210,7 @@ class ScrobbleImporter(
             PlayHistory(trackId = id, playedAt = s.uts * 1000, listenedMs = durations[id]?.coerceAtLeast(0) ?: 0, counted = true)
         }
         history.insertAll(plays)
-        plays.size
+        plays.mapTo(HashSet()) { it.playedAt / 1000 }
     }
 
     private suspend fun <T> withRetries(block: suspend () -> T): T {
@@ -244,7 +254,7 @@ class ScrobbleImporter(
         return rows to pages
     }
 
-    private fun count(n: Int, noun: String) = if (n == 1) "1 $noun" else "$n ${noun}s"
+    private fun count(n: Int, noun: String, plural: String = "${noun}s") = if (n == 1) "1 $noun" else "$n $plural"
 
     private companion object {
         const val TAG = "ScrobbleImporter"
