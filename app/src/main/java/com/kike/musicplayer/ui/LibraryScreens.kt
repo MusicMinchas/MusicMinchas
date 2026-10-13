@@ -49,6 +49,11 @@ import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.PrimaryScrollableTabRow
+import androidx.compose.ui.text.input.VisualTransformation
+import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.material3.OutlinedTextFieldDefaults
+import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.material3.Tab
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
@@ -127,18 +132,7 @@ fun LibraryScreen(
             title = { Text(stringResource(R.string.app_name)) },
             actions = { IconButton(onClick = onOpenSources) { Icon(Icons.Default.Tune, "Sources & settings") } },
         )
-        OutlinedTextField(
-            value = query,
-            onValueChange = libraryVm::setQuery,
-            placeholder = { Text("Search artists, albums, songs") },
-            leadingIcon = { Icon(Icons.Default.Search, null) },
-            trailingIcon = {
-                if (query.isNotEmpty()) IconButton(onClick = { libraryVm.setQuery("") }) { Icon(Icons.Default.Clear, "Clear") }
-            },
-            singleLine = true,
-            shape = RoundedCornerShape(28.dp),
-            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
-        )
+        SearchField(query, libraryVm::setQuery, Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp))
         if (query.isNotEmpty()) {
             Row(Modifier.padding(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 listOf(SEARCH_ARTISTS, SEARCH_ALBUMS, SEARCH_SONGS).forEach { kind ->
@@ -159,9 +153,12 @@ fun LibraryScreen(
             SearchResultsList(results, filters, player.current?.mediaId, playerVm, onOpenArtist, onOpenAlbum, libraryVm.artistImageUrls.collectAsState().value)
             return@Column
         }
-        PrimaryScrollableTabRow(selectedTabIndex = tab, edgePadding = 0.dp) {
+        // Narrow tabs, so five fit across a phone; the rest scroll in.
+        PrimaryScrollableTabRow(selectedTabIndex = tab, edgePadding = 4.dp, minTabWidth = 0.dp) {
             LIBRARY_TABS.forEachIndexed { i, label ->
-                Tab(selected = tab == i, onClick = { tab = i }, text = { Text(label) })
+                Tab(selected = tab == i, onClick = { tab = i }) {
+                    Text(label, Modifier.padding(horizontal = 10.dp, vertical = 14.dp), style = MaterialTheme.typography.titleSmall)
+                }
             }
         }
         if (library.tracks.isEmpty() && scanStatus == null) {
@@ -194,7 +191,42 @@ fun LibraryScreen(
 
 private fun count(n: Int, noun: String) = if (n == 1) "1 $noun" else "$n ${noun}s"
 
-private val LIBRARY_TABS = listOf("Home", "Discover", "Albums", "Artists", "Genres", "Playlists", "Songs")
+/** The library search box: an outlined pill like OutlinedTextField, but 44 dp tall instead of 56. */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun SearchField(query: String, onChange: (String) -> Unit, modifier: Modifier = Modifier) {
+    val interaction = remember { MutableInteractionSource() }
+    val colors = OutlinedTextFieldDefaults.colors()
+    val shape = RoundedCornerShape(22.dp)
+    BasicTextField(
+        value = query,
+        onValueChange = onChange,
+        modifier = modifier.height(44.dp),
+        singleLine = true,
+        textStyle = MaterialTheme.typography.bodyLarge.copy(color = MaterialTheme.colorScheme.onSurface),
+        cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
+        interactionSource = interaction,
+    ) { inner ->
+        OutlinedTextFieldDefaults.DecorationBox(
+            value = query,
+            innerTextField = inner,
+            enabled = true,
+            singleLine = true,
+            visualTransformation = VisualTransformation.None,
+            interactionSource = interaction,
+            placeholder = { Text("Search artists, albums, songs") },
+            leadingIcon = { Icon(Icons.Default.Search, null) },
+            trailingIcon = {
+                if (query.isNotEmpty()) IconButton(onClick = { onChange("") }) { Icon(Icons.Default.Clear, "Clear") }
+            },
+            colors = colors,
+            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 0.dp),
+            container = { OutlinedTextFieldDefaults.Container(enabled = true, isError = false, interactionSource = interaction, colors = colors, shape = shape) },
+        )
+    }
+}
+
+private val LIBRARY_TABS = listOf("Home", "Discover", "Playlists", "Albums", "Artists", "Genres", "Songs")
 private const val SEARCH_ARTISTS = "Artists"
 private const val SEARCH_ALBUMS = "Albums"
 private const val SEARCH_SONGS = "Songs"
