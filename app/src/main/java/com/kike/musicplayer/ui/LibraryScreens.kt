@@ -104,6 +104,7 @@ fun LibraryScreen(
     onOpenPlaylist: (Long) -> Unit,
     onOpenMix: (String) -> Unit,
     onOpenGenre: (String) -> Unit,
+    onOpenFollowing: () -> Unit,
     contentPadding: PaddingValues,
 ) {
     val library by libraryVm.library.collectAsState()
@@ -169,6 +170,7 @@ fun LibraryScreen(
         }
         when (LIBRARY_TABS[tab]) {
             "Home" -> HomeTab(libraryVm, playerVm, onOpenReplay, onOpenMostPlayed, onOpenFavourites, onOpenRecentTracks, onOpenMix, onOpenAlbum)
+            "Discover" -> DiscoverTab(libraryVm, onOpenArtist, onOpenAlbum, onOpenFollowing)
             "Albums" -> AlbumsGrid(library.albums, onOpenAlbum)
             "Artists" -> {
                 val photos by libraryVm.artistImageUrls.collectAsState()
@@ -192,7 +194,7 @@ fun LibraryScreen(
 
 private fun count(n: Int, noun: String) = if (n == 1) "1 $noun" else "$n ${noun}s"
 
-private val LIBRARY_TABS = listOf("Home", "Albums", "Artists", "Genres", "Playlists", "Songs")
+private val LIBRARY_TABS = listOf("Home", "Discover", "Albums", "Artists", "Genres", "Playlists", "Songs")
 private const val SEARCH_ARTISTS = "Artists"
 private const val SEARCH_ALBUMS = "Albums"
 private const val SEARCH_SONGS = "Songs"

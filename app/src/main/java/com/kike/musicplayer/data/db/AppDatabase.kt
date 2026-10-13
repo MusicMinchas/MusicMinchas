@@ -8,8 +8,8 @@ import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
 
 @Database(
-    entities = [Track::class, QueueItem::class, SessionState::class, PlayHistory::class, ArtistInfo::class, Favourite::class, LastFmOutboxItem::class, LastFmScrobble::class, ReplacedTrack::class, ArtistImage::class, StoredLyrics::class, UserPlaylist::class, PlaylistTrack::class],
-    version = 15,
+    entities = [Track::class, QueueItem::class, SessionState::class, PlayHistory::class, ArtistInfo::class, Favourite::class, LastFmOutboxItem::class, LastFmScrobble::class, ReplacedTrack::class, ArtistImage::class, StoredLyrics::class, UserPlaylist::class, PlaylistTrack::class, FollowedArtist::class, DiscoverItem::class],
+    version = 16,
 )
 abstract class AppDatabase : RoomDatabase() {
     abstract fun tracks(): TrackDao
@@ -23,6 +23,7 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun artistImages(): ArtistImageDao
     abstract fun lyrics(): LyricsDao
     abstract fun playlists(): PlaylistDao
+    abstract fun discover(): DiscoverDao
 
     companion object {
         /** Adds the play history. Real migrations keep the scanned library (tags, covers) intact. */
@@ -153,9 +154,25 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        /** Followed artists and what the Discover tab found for them. */
+        private val MIGRATION_15_16 = object : Migration(15, 16) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    "CREATE TABLE IF NOT EXISTS `followed_artists` (`name` TEXT NOT NULL, `followedAt` INTEGER NOT NULL, " +
+                        "`deezerId` INTEGER, `ticketmasterId` TEXT, PRIMARY KEY(`name`))"
+                )
+                db.execSQL(
+                    "CREATE TABLE IF NOT EXISTS `discover_items` (`id` TEXT NOT NULL, `kind` INTEGER NOT NULL, `artist` TEXT NOT NULL, " +
+                        "`title` TEXT NOT NULL, `detail` TEXT, `date` INTEGER NOT NULL, `imageUrl` TEXT, `url` TEXT, " +
+                        "`upcoming` INTEGER NOT NULL, PRIMARY KEY(`id`))"
+                )
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_discover_items_artist` ON `discover_items` (`artist`)")
+            }
+        }
+
         fun create(context: Context): AppDatabase =
             Room.databaseBuilder(context, AppDatabase::class.java, "music.db")
-                .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11, MIGRATION_11_12, MIGRATION_12_13, MIGRATION_13_14, MIGRATION_14_15)
+                .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11, MIGRATION_11_12, MIGRATION_12_13, MIGRATION_13_14, MIGRATION_14_15, MIGRATION_15_16)
                 .build()
     }
 }

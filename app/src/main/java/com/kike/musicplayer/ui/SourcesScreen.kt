@@ -415,7 +415,7 @@ private fun formatBytes(bytes: Long): String = when {
 }
 
 /** "just now", "5 min ago", "3 h ago", "2 days ago" */
-private fun relativeTime(time: Long): String {
+internal fun relativeTime(time: Long): String {
     val minutes = (System.currentTimeMillis() - time) / 60_000
     return when {
         minutes < 1 -> "just now"

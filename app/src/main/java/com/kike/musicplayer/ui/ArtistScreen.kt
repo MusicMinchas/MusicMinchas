@@ -25,10 +25,15 @@ import androidx.compose.runtime.remember
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Shuffle
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.FilledIconButton
+import androidx.compose.material3.FilledTonalButton
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.FilledTonalIconButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -67,6 +72,7 @@ fun ArtistScreen(
 ) {
     val player by playerVm.state.collectAsState()
     val playCounts by libraryVm.playCounts.collectAsState()
+    val followed by libraryVm.followedArtists.collectAsState()
     val image by produceState<String?>(null, artist?.name) { value = artist?.name?.let { libraryVm.artistImage(it) } }
     // Edge to edge: the photo goes under the status bar.
     Box(Modifier.fillMaxSize().padding(bottom = contentPadding.calculateBottomPadding())) {
@@ -102,6 +108,9 @@ fun ArtistScreen(
                         Icon(Icons.Default.Shuffle, "Shuffle")
                     }
                     DownloadButton(tracks)
+                    FollowButton(artist.name in followed, onClick = {
+                        if (artist.name in followed) libraryVm.unfollow(artist.name) else libraryVm.follow(artist.name)
+                    })
                 }
             }
             if (albums.isNotEmpty()) {
@@ -203,6 +212,22 @@ private fun Header(name: String, image: String?) {
 private fun HeaderPlaceholder() {
     Box(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.surfaceVariant), contentAlignment = Alignment.Center) {
         Icon(Icons.Default.Person, null, Modifier.size(96.dp).padding(bottom = 48.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
+    }
+}
+
+/** Follow: the artist's releases, concerts and news appear in Discover. */
+@Composable
+private fun FollowButton(following: Boolean, onClick: () -> Unit) {
+    if (following) {
+        FilledTonalButton(onClick = onClick, contentPadding = ButtonDefaults.ButtonWithIconContentPadding) {
+            Icon(Icons.Default.Check, null, Modifier.size(ButtonDefaults.IconSize))
+            Text("Following", Modifier.padding(start = 6.dp))
+        }
+    } else {
+        OutlinedButton(onClick = onClick, contentPadding = ButtonDefaults.ButtonWithIconContentPadding) {
+            Icon(Icons.Default.Add, null, Modifier.size(ButtonDefaults.IconSize))
+            Text("Follow", Modifier.padding(start = 6.dp))
+        }
     }
 }
 

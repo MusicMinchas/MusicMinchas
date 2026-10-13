@@ -219,3 +219,40 @@ data class ArtistInfo(
 ) {
     val tagList: List<String> get() = if (tags.isEmpty()) emptyList() else tags.split(',')
 }
+
+/**
+ * An artist the user follows for the Discover tab, by the library's artist name. The service ids
+ * are looked up once: null = not yet, 0 / "" = not found there.
+ */
+@Entity(tableName = "followed_artists")
+data class FollowedArtist(
+    @PrimaryKey val name: String,
+    val followedAt: Long,
+    val deezerId: Long? = null,
+    val ticketmasterId: String? = null,
+)
+
+/**
+ * Something the Discover tab shows for a followed [artist]: a release, a concert or a news story.
+ * [date]: for releases and concerts the local calendar date (and time, if known) encoded as UTC;
+ * for news the publication instant. [detail]: release type, "venue · city" or the news source.
+ */
+@Entity(tableName = "discover_items", indices = [Index("artist")])
+data class DiscoverItem(
+    @PrimaryKey val id: String,
+    val kind: Int,
+    val artist: String,
+    val title: String,
+    val detail: String?,
+    val date: Long,
+    val imageUrl: String?,
+    val url: String?,
+    /** A release that isn't out yet. */
+    val upcoming: Boolean = false,
+) {
+    companion object {
+        const val RELEASE = 0
+        const val CONCERT = 1
+        const val NEWS = 2
+    }
+}

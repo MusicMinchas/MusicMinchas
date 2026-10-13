@@ -78,6 +78,20 @@ class Settings(context: Context) {
         _driveFolders.value = folders.sortedBy { it.name.lowercase() }
     }
 
+    private val _concertCountry = MutableStateFlow(prefs.getString(KEY_CONCERT_COUNTRY, null) ?: "BE")
+    /** ISO country code whose concerts the Discover tab lists. */
+    val concertCountry: StateFlow<String> = _concertCountry.asStateFlow()
+
+    fun setConcertCountry(code: String) {
+        prefs.edit { putString(KEY_CONCERT_COUNTRY, code) }
+        _concertCountry.value = code
+    }
+
+    /** When the Discover tab last fetched everything. */
+    var discoverRefreshedAt: Long
+        get() = prefs.getLong(KEY_DISCOVER_REFRESHED, 0L)
+        set(value) = prefs.edit { putLong(KEY_DISCOVER_REFRESHED, value) }
+
     fun setOnlineMetadata(enabled: Boolean) {
         prefs.edit { putBoolean(KEY_ONLINE, enabled) }
         _onlineMetadata.value = enabled
@@ -85,6 +99,8 @@ class Settings(context: Context) {
 
     private companion object {
         const val KEY_SAF = "saf_folders"
+        const val KEY_CONCERT_COUNTRY = "concert_country"
+        const val KEY_DISCOVER_REFRESHED = "discover_refreshed_at"
         const val KEY_ONLINE = "online_metadata"
         const val KEY_SYNC_MODE = "drive_sync_mode"
         const val KEY_LAST_SYNC = "drive_last_sync"

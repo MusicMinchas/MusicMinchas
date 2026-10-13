@@ -9,6 +9,7 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.kike.musicplayer.container
 import com.kike.musicplayer.data.DriveSyncMode
+import com.kike.musicplayer.data.db.DiscoverItem
 import com.kike.musicplayer.data.db.Track
 import com.kike.musicplayer.data.drive.DriveFolder
 import com.kike.musicplayer.recommend.ListeningStats
@@ -398,6 +399,32 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
     val downloadTotals = downloader.totals.stateIn(viewModelScope, SharingStarted.Eagerly, null)
     fun removeAllDownloads() = downloader.removeAll()
 
+    // ---- Discover ----
+
+    private val discover = container.discover
+    val followedArtists: StateFlow<List<String>> = discover.followed.map { list -> list.map { it.name } }
+        .stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
+    val discoverItems: StateFlow<List<DiscoverItem>> = discover.items.stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
+    val discoverRefreshing = discover.refreshing
+    val concertCountry = settings.concertCountry
+    fun follow(name: String) = discover.follow(name)
+    fun unfollow(name: String) = discover.unfollow(name)
+    fun refreshDiscover(force: Boolean) = discover.refresh(force)
+    fun setConcertCountry(code: String) {
+        if (code == settings.concertCountry.value) return
+        settings.setConcertCountry(code)
+        discover.refreshConcerts()
+    }
+
+    /** The most played artists not followed yet, offered on an empty Discover tab. */
+    val suggestedArtists: StateFlow<List<String>> = combine(library, playCounts, followedArtists) { lib, counts, followed ->
+        val names = lib.artists.mapTo(HashSet()) { it.name }
+        lib.tracks.mapNotNull { t -> t.artist?.takeIf { it in names }?.let { it to (counts[t.id] ?: 0) } }
+            .groupingBy { it.first }.fold(0) { sum, (_, n) -> sum + n }
+            .filter { (name, plays) -> plays > 0 && name !in followed }
+            .entries.sortedByDescending { it.value }.take(SUGGESTED_ARTISTS).map { it.key }
+    }.flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
+
     // ---- Last.fm ----
 
     private val lastFm = container.lastFm
@@ -472,5 +499,6 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
         const val TAG = "LibraryViewModel"
         const val RECENT_TRACKS = 30
         const val RECENT_ALBUMS = 10
+        const val SUGGESTED_ARTISTS = 8
     }
 }

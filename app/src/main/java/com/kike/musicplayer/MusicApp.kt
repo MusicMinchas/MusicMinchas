@@ -8,6 +8,7 @@ import coil3.network.okhttp.OkHttpNetworkFetcherFactory
 import com.kike.musicplayer.data.LibraryRepository
 import com.kike.musicplayer.data.Settings
 import com.kike.musicplayer.data.db.AppDatabase
+import com.kike.musicplayer.data.discover.DiscoverRepository
 import com.kike.musicplayer.data.download.Downloader
 import com.kike.musicplayer.data.drive.DriveApi
 import com.kike.musicplayer.data.lastfm.LastFm
@@ -99,6 +100,10 @@ class AppContainer(app: Application) {
     val lyrics = LyricsRepository(database.lyrics(), metadataHttp, moshi)
 
     val artistImages = ArtistImages(app, database.artistImages(), database.artistInfo(), metadataHttp, moshi)
+
+    val discover = DiscoverRepository(
+        database.discover(), database.artistInfo(), settings, metadataHttp, moshi, BuildConfig.TICKETMASTER_KEY, appScope,
+    )
 
     val enricher = MetadataEnricher(app, database.tracks(), settings, driveAuth, driveScanHttp, database.artistInfo(), musicBrainz, coverArt)
 

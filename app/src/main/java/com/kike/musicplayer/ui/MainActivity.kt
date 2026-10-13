@@ -62,6 +62,7 @@ private sealed interface Screen {
     data class PlaylistDetail(val id: Long) : Screen
     data class MixDetail(val id: String) : Screen
     data class GenreDetail(val key: String) : Screen
+    data object Following : Screen
 }
 
 class MainActivity : ComponentActivity() {
@@ -179,6 +180,7 @@ class MainActivity : ComponentActivity() {
                         onOpenPlaylist = { push(Screen.PlaylistDetail(it)) },
                             onOpenMix = { push(Screen.MixDetail(it)) },
                             onOpenGenre = { push(Screen.GenreDetail(it)) },
+                            onOpenFollowing = { push(Screen.Following) },
                             contentPadding = padding,
                         )
                         is Screen.AlbumDetail -> {
@@ -234,6 +236,7 @@ class MainActivity : ComponentActivity() {
                             "Recently Played Albums", playlists.recentAlbums, playerVm, downloadable = true,
                             onOpenAlbum = { push(Screen.AlbumDetail(it)) }, onBack = ::pop, contentPadding = padding,
                         )
+                        Screen.Following -> FollowingScreen(libraryVm, onOpenArtist = { push(Screen.ArtistDetail(it)) }, onBack = ::pop, contentPadding = padding)
                         Screen.Sources -> SourcesScreen(
                             libraryVm,
                             onBack = ::pop,

@@ -19,6 +19,12 @@ val lastFmProps = Properties().apply {
     if (file.exists()) file.inputStream().use { load(it) }
 }
 
+// Ticketmaster Discovery API key (git-ignored), for concerts in the Discover tab.
+val ticketmasterProps = Properties().apply {
+    val file = rootProject.file("ticketmaster.properties")
+    if (file.exists()) file.inputStream().use { load(it) }
+}
+
 android {
     namespace = "com.kike.musicplayer"
     compileSdk = 37
@@ -27,10 +33,11 @@ android {
         applicationId = "com.kike.musicplayer"
         minSdk = 30
         targetSdk = 36
-        versionCode = 41
-        versionName = "1.21"
+        versionCode = 42
+        versionName = "1.22"
         buildConfigField("String", "LASTFM_API_KEY", "\"${lastFmProps.getProperty("apiKey", "")}\"")
         buildConfigField("String", "LASTFM_SECRET", "\"${lastFmProps.getProperty("sharedSecret", "")}\"")
+        buildConfigField("String", "TICKETMASTER_KEY", "\"${ticketmasterProps.getProperty("apiKey", "")}\"")
     }
 
     signingConfigs {

@@ -386,3 +386,52 @@ interface ArtistInfoDao {
     @Upsert
     suspend fun upsert(info: ArtistInfo)
 }
+
+@Dao
+interface DiscoverDao {
+    @Query("SELECT * FROM followed_artists ORDER BY name COLLATE NOCASE")
+    fun observeFollowed(): Flow<List<FollowedArtist>>
+
+    @Query("SELECT * FROM followed_artists")
+    suspend fun followed(): List<FollowedArtist>
+
+    @Query("SELECT * FROM followed_artists WHERE name = :name")
+    suspend fun followed(name: String): FollowedArtist?
+
+    @Insert(onConflict = OnConflictStrategy.IGNORE)
+    suspend fun follow(artist: FollowedArtist)
+
+    @Update
+    suspend fun update(artist: FollowedArtist)
+
+    @Query("DELETE FROM followed_artists WHERE name = :name")
+    suspend fun deleteFollowed(name: String)
+
+    @Query("DELETE FROM discover_items WHERE artist = :artist")
+    suspend fun clearArtist(artist: String)
+
+    @Transaction
+    suspend fun unfollow(name: String) {
+        deleteFollowed(name)
+        clearArtist(name)
+    }
+
+    @Query("SELECT * FROM discover_items ORDER BY date")
+    fun observeItems(): Flow<List<DiscoverItem>>
+
+    @Query("DELETE FROM discover_items WHERE artist = :artist AND kind = :kind")
+    suspend fun clear(artist: String, kind: Int)
+
+    @Query("DELETE FROM discover_items WHERE kind = :kind")
+    suspend fun clearKind(kind: Int)
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertAll(items: List<DiscoverItem>)
+
+    /** One artist's items of one kind, as just fetched. */
+    @Transaction
+    suspend fun replace(artist: String, kind: Int, items: List<DiscoverItem>) {
+        clear(artist, kind)
+        insertAll(items)
+    }
+}
