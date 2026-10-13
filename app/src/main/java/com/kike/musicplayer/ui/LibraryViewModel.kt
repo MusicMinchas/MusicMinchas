@@ -201,6 +201,7 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
     val safFolders = settings.safFolders
     val onlineMetadata = settings.onlineMetadata
     val driveAccount = driveAuth.account
+    val driveNeedsReconnect = driveAuth.needsReconnect
 
     private val _driveMessage = MutableStateFlow<String?>(null)
     val driveMessage: StateFlow<String?> = _driveMessage.asStateFlow()
@@ -293,13 +294,18 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
         viewModelScope.launch { repo.refreshFolders() }
     }
 
+    /** The account Drive was connected with before a reconnect, to warn if another one is picked. */
+    private var accountBeforeConnect: String? = null
+
     /**
-     * Starts the Drive OAuth flow. If Google needs the user to pick an account or consent,
+     * Starts the Drive OAuth flow; also reconnects after Google asks to sign in again (nothing is
+     * removed). If Google needs the user to pick an account or consent,
      * [launchConsent] receives the PendingIntent to start; its result goes to [onDriveConsentResult].
      */
     fun connectDrive(launchConsent: (PendingIntent) -> Unit) {
         viewModelScope.launch {
             try {
+                accountBeforeConnect = driveAuth.account.value
                 val result = driveAuth.authorize()
                 if (result.hasResolution()) launchConsent(result.pendingIntent!!)
                 else finishDriveConnect(driveAuth.onAuthorized(result))
@@ -324,14 +330,18 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
             _driveMessage.value = "Google did not return an access token."
             return
         }
-        _driveMessage.value = null
+        val before = accountBeforeConnect
+        val now = driveAuth.account.value
+        _driveMessage.value = if (!before.isNullOrBlank() && !now.isNullOrBlank() && !before.equals(now, ignoreCase = true)) {
+            "Connected as $now, but your Drive folders belong to $before. Disconnect and connect $before again if songs don't play."
+        } else null
         // Nothing is imported until the user picks folders (unless some are already chosen).
         if (settings.driveFolders.value.isNotEmpty()) viewModelScope.launch { repo.refreshDrive() }
     }
 
     fun refreshDrive() = viewModelScope.launch { repo.refreshDrive() }
 
-    fun disconnectDrive() = viewModelScope.launch { repo.removeDrive() }
+    fun disconnectDrive(deleteDownloads: Boolean) = viewModelScope.launch { repo.removeDrive(deleteDownloads) }
 
     /** Counted plays (half listened) per track id, for the artist page's top songs. */
     val playCounts: StateFlow<Map<String, Int>> = history

@@ -30,6 +30,10 @@ class DriveAuth(context: Context, private val settings: Settings) {
     /** Null when Drive is not connected; otherwise the account e-mail (blank if unknown). */
     val account: StateFlow<String?> = _account.asStateFlow()
 
+    private val _needsReconnect = MutableStateFlow(false)
+    /** Google wants the user to sign in again (access expired or was removed); [authorize] with UI fixes it. */
+    val needsReconnect: StateFlow<Boolean> = _needsReconnect.asStateFlow()
+
     @Volatile private var token: String? = null
 
     private val request: AuthorizationRequest = AuthorizationRequest.Builder()
@@ -51,6 +55,7 @@ class DriveAuth(context: Context, private val settings: Settings) {
         settings.driveConnected = true
         settings.driveAccount = email
         _account.value = email ?: ""
+        _needsReconnect.value = false
         return true
     }
 
@@ -59,7 +64,7 @@ class DriveAuth(context: Context, private val settings: Settings) {
      * Play services refreshes it silently because the user already granted the scope.
      */
     fun tokenBlocking(forceRefresh: Boolean = false): String? {
-        if (!settings.driveConnected) return null
+        if (!settings.driveConnected || _needsReconnect.value) return null
         synchronized(this) {
             val current = token
             if (current != null && !forceRefresh) return current
@@ -70,6 +75,8 @@ class DriveAuth(context: Context, private val settings: Settings) {
                 val result = Tasks.await(client.authorize(request), 20, TimeUnit.SECONDS)
                 if (result.hasResolution()) {
                     Log.w(TAG, "Drive access needs user interaction again")
+                    token = null
+                    _needsReconnect.value = true
                     null
                 } else {
                     result.accessToken.also { token = it }
@@ -95,6 +102,7 @@ class DriveAuth(context: Context, private val settings: Settings) {
             }.onFailure { Log.w(TAG, "Revoke failed", it) }
         }
         token = null
+        _needsReconnect.value = false
         settings.driveConnected = false
         settings.driveAccount = null
         _account.value = null

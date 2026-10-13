@@ -83,7 +83,13 @@ class LibraryRepository(
 
     suspend fun resolveDriveFolderId(id: String): String = drive.resolveId(id)
 
-    suspend fun removeDrive() {
+    /**
+     * Disconnects Google Drive and removes its songs from the library. Plays, favourites and playlist
+     * entries stay (keyed by Drive file id) and return if the same files are added again; kept
+     * downloads are linked again then ([Downloader.relink]).
+     */
+    suspend fun removeDrive(deleteDownloads: Boolean) {
+        if (deleteDownloads) downloader.deleteAll()
         driveAuth.disconnect()
         settings.clearDriveFolders()
         dao.deleteSource(Track.SOURCE_DRIVE)
@@ -104,6 +110,9 @@ class LibraryRepository(
             }
             // The new files' tags are known now: carry replaced songs' history over to them.
             runCatching { pairReplacements() }.onFailure { Log.w(TAG, "Pairing replaced songs failed", it) }
+            runCatching { downloader.relink() }
+                .onSuccess { if (it > 0) Log.i(TAG, "Linked $it songs to files already downloaded") }
+                .onFailure { Log.w(TAG, "Linking downloaded files failed", it) }
         }
     }
 

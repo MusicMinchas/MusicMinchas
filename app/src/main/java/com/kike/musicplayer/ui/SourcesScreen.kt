@@ -3,6 +3,7 @@ package com.kike.musicplayer.ui
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Checkbox
 import android.net.Uri
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.clickable
@@ -87,6 +88,8 @@ fun SourcesScreen(
     val counts = library.tracks.groupingBy { it.source }.eachCount()
     val downloads by vm.downloadTotals.collectAsState()
     var confirmDeleteDownloads by remember { mutableStateOf(false) }
+    var confirmDisconnect by remember { mutableStateOf(false) }
+    val needsReconnect by vm.driveNeedsReconnect.collectAsState()
     val lastFm by vm.lastFmState.collectAsState()
     val scrobbling by vm.scrobbleSettings.collectAsState()
     val pendingScrobbles by vm.pendingScrobbles.collectAsState()
@@ -130,6 +133,12 @@ fun SourcesScreen(
                 },
             ) {
                 driveMessage?.let { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) }
+                if (account != null && needsReconnect) {
+                    Text(
+                        "Google asks you to sign in again before Drive songs can play. Your library is kept.",
+                        color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall,
+                    )
+                }
                 if (account == null) {
                     Button(onClick = onConnectDrive) { Text("Connect Google Drive") }
                 } else {
@@ -172,8 +181,20 @@ fun SourcesScreen(
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                     }
-                    OutlinedButton(onClick = { vm.disconnectDrive() }) { Text("Disconnect") }
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        if (needsReconnect) Button(onClick = onConnectDrive) { Text("Reconnect") }
+                        else OutlinedButton(onClick = onConnectDrive) { Text("Reconnect") }
+                        OutlinedButton(onClick = { confirmDisconnect = true }) { Text("Disconnect") }
+                    }
                 }
+            }
+            if (confirmDisconnect) {
+                DisconnectDriveDialog(
+                    songs = counts[Track.SOURCE_DRIVE] ?: 0,
+                    downloaded = downloads?.songs ?: 0,
+                    onDismiss = { confirmDisconnect = false },
+                    onConfirm = { deleteDownloads -> confirmDisconnect = false; vm.disconnectDrive(deleteDownloads) },
+                )
             }
 
             SourceCard(
@@ -248,6 +269,39 @@ fun SourcesScreen(
             }
         }
     }
+}
+
+/** Disconnecting removes the Drive songs from the library; downloads stay unless ticked. */
+@Composable
+private fun DisconnectDriveDialog(songs: Int, downloaded: Int, onDismiss: () -> Unit, onConfirm: (deleteDownloads: Boolean) -> Unit) {
+    var deleteDownloads by remember { mutableStateOf(false) }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Disconnect Google Drive?") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Text(
+                    "The ${if (songs == 1) "1 Google Drive song" else "$songs Google Drive songs"} will be removed from the " +
+                        "library. Plays, favourites and playlists are kept and come back if you connect the same Drive " +
+                        "folders again. To refresh Google's access instead, use Reconnect."
+                )
+                if (downloaded > 0) {
+                    Row(
+                        Modifier.fillMaxWidth().clickable { deleteDownloads = !deleteDownloads },
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Checkbox(checked = deleteDownloads, onCheckedChange = null)
+                        Text(
+                            "Also delete the ${if (downloaded == 1) "downloaded song" else "$downloaded downloaded songs"} from the phone",
+                            Modifier.padding(start = 12.dp),
+                        )
+                    }
+                }
+            }
+        },
+        confirmButton = { TextButton(onClick = { onConfirm(deleteDownloads) }) { Text("Disconnect") } },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
+    )
 }
 
 /** Scrobbling on/off and when: X% of the song or Y minutes, whichever comes first (never below 50% / 4 min). */

@@ -71,13 +71,46 @@ class Downloader(
 
     /** Deletes every downloaded song from the phone (and drops what's still queued); they play from Drive again. */
     fun removeAll() {
-        scope.launch(Dispatchers.IO) {
-            dao.cancelQueuedDownloads()
-            for (t in dao.downloaded()) {
-                t.localUri?.let(::deleteFile)
-                dao.setLocal(t.id, null, Track.NOT_DOWNLOADED)
-            }
+        scope.launch { deleteAll() }
+    }
+
+    /** [removeAll], finishing before it returns. */
+    suspend fun deleteAll() = withContext(Dispatchers.IO) {
+        dao.cancelQueuedDownloads()
+        for (t in dao.downloaded()) {
+            t.localUri?.let(::deleteFile)
+            dao.setLocal(t.id, null, Track.NOT_DOWNLOADED)
         }
+    }
+
+    /**
+     * Links Drive songs to copies already in Music/MusicMinchas, e.g. kept when Google Drive was
+     * disconnected and connected again: same folder, file name and size a download would have.
+     * The tags must be read for the names to match. Only files this installation of the app put
+     * there are visible to it. Returns how many songs were linked.
+     */
+    suspend fun relink(): Int = withContext(Dispatchers.IO) {
+        val candidates = dao.getBySource(Track.SOURCE_DRIVE)
+            .filter { it.localUri == null && it.downloadState != Track.DOWNLOAD_QUEUED }
+        if (candidates.isEmpty()) return@withContext 0
+        val collection = MediaStore.Audio.Media.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY)
+        val files = HashMap<String, Pair<Long, Long>>()
+        context.contentResolver.query(
+            collection,
+            arrayOf(MediaStore.Audio.Media._ID, MediaStore.Audio.Media.RELATIVE_PATH, MediaStore.Audio.Media.DISPLAY_NAME, MediaStore.Audio.Media.SIZE),
+            "${MediaStore.Audio.Media.RELATIVE_PATH} LIKE ?", arrayOf("$RELATIVE_ROOT/%"), null,
+        )?.use { c ->
+            while (c.moveToNext()) files[c.getString(1) + c.getString(2)] = c.getLong(0) to c.getLong(3)
+        }
+        if (files.isEmpty()) return@withContext 0
+        var linked = 0
+        for (t in candidates) {
+            val (id, size) = files[folder(t) + fileName(t)] ?: continue
+            if (t.sizeBytes != null && size != t.sizeBytes) continue
+            dao.setLocal(t.id, Uri.withAppendedPath(collection, id.toString()).toString(), Track.DOWNLOADED)
+            linked++
+        }
+        linked
     }
 
     /** Resumes an interrupted queue (call while the app is in front: it starts a foreground service). */
@@ -129,7 +162,7 @@ class Downloader(
 
     private fun downloadOne(track: Track, queued: Int, onProgress: (DownloadProgress) -> Unit): Uri {
         val resolver = context.contentResolver
-        val folder = "${RELATIVE_ROOT}/${safe(track.albumArtist ?: track.artist ?: "Unknown artist")}/${safe(track.album ?: "Unknown album")}/"
+        val folder = folder(track)
         val name = fileName(track)
         val collection = MediaStore.Audio.Media.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY)
 
@@ -192,6 +225,10 @@ class Downloader(
         private const val BUFFER = 64 * 1024
         private const val REPORT_EVERY = 512 * 1024L
         private const val MAX_FAILURES_IN_A_ROW = 3
+
+        /** "Music/MusicMinchas/Artist/Album/", as MediaStore stores RELATIVE_PATH. */
+        fun folder(track: Track): String =
+            "$RELATIVE_ROOT/${safe(track.albumArtist ?: track.artist ?: "Unknown artist")}/${safe(track.album ?: "Unknown album")}/"
 
         /** "01 Title.m4a"; "2-01 Title.m4a" on a second disc, as iTunes names them. */
         fun fileName(track: Track): String {
