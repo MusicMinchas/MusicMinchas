@@ -12,10 +12,12 @@ import java.security.MessageDigest
 
 /** A Last.fm API error; [code] is Last.fm's error number (https://www.last.fm/api/errorcodes). */
 class LastFmException(val code: Int, message: String) : IOException("Last.fm error $code: $message") {
-    /** Worth trying again later: the service is offline or temporarily unavailable. */
-    val isTemporary get() = code == SERVICE_OFFLINE || code == TEMPORARILY_UNAVAILABLE || code == RATE_LIMITED
+    /** Worth trying again later: the backend failed, or the service is offline, busy or rate limiting. */
+    val isTemporary get() = code == OPERATION_FAILED || code == SERVICE_OFFLINE || code == TEMPORARILY_UNAVAILABLE || code == RATE_LIMITED
 
     companion object {
+        /** "Operation failed - Most likely the backend service failed. Please try again." */
+        const val OPERATION_FAILED = 8
         const val INVALID_SESSION = 9
         const val SERVICE_OFFLINE = 11
         const val TOKEN_NOT_AUTHORIZED = 14
