@@ -9,6 +9,7 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.kike.musicplayer.container
 import com.kike.musicplayer.data.DriveSyncMode
+import com.kike.musicplayer.Bench
 import com.kike.musicplayer.data.db.DiscoverItem
 import com.kike.musicplayer.data.db.Track
 import com.kike.musicplayer.data.drive.DriveFolder
@@ -108,7 +109,7 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
     val query: StateFlow<String> = _query.asStateFlow()
 
     val library: StateFlow<Library> = repo.tracks
-        .map(::buildLibrary)
+        .map { Bench.time("buildLibrary ${it.size} tracks") { buildLibrary(it) } }
         .flowOn(Dispatchers.Default)
         .stateIn(viewModelScope, SharingStarted.Eagerly, Library())
 
@@ -116,11 +117,13 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
     val searchResults: StateFlow<SearchResults> = combine(library, _query) { lib, q ->
         val needle = q.trim().lowercase()
         if (needle.isEmpty()) SearchResults()
-        else SearchResults(
-            artists = lib.artists.filter { needle in it.name.lowercase() },
-            albums = lib.albums.filter { needle in it.title.lowercase() },
-            songs = lib.tracks.filter { needle in it.title.lowercase() },
-        )
+        else Bench.time("search '$needle'") {
+            SearchResults(
+                artists = lib.artists.filter { needle in it.name.lowercase() },
+                albums = lib.albums.filter { needle in it.title.lowercase() },
+                songs = lib.tracks.filter { needle in it.title.lowercase() },
+            )
+        }
     }.flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.Eagerly, SearchResults())
 
     private val history = container.database.history().observeAll()
@@ -134,7 +137,7 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
      * An album is listed under every genre one of its songs has, holding only that genre's songs,
      * so no genre is left without albums.
      */
-    val genres: StateFlow<List<Genre>> = combine(library, artistTags) { lib, tags ->
+    val genres: StateFlow<List<Genre>> = combine(library, artistTags) { lib, tags -> Bench.time("genres") {
         val keyOf = lib.tracks.associate { it.id to (effectiveGenreKey(it, tags) ?: UNKNOWN_GENRE) }
         val albumsByGenre = HashMap<String, MutableList<Album>>()
         for (album in lib.albums) {
@@ -154,9 +157,9 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
                 artistCount = tracks.map { it.albumArtist ?: it.artist }.distinct().size,
             )
         }.sortedWith(compareBy({ it.key == UNKNOWN_GENRE }, { it.name.lowercase() }))
-    }.flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
+    } }.flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
 
-    val playlists: StateFlow<Playlists> = combine(history, library, container.database.favourites().observeAll()) { history, lib, favourites ->
+    val playlists: StateFlow<Playlists> = combine(history, library, container.database.favourites().observeAll()) { history, lib, favourites -> Bench.time("playlists") {
         val byId = lib.tracks.associateBy { it.id }
         val albumsByKey = lib.albums.associateBy { it.key }
         val stats = ListeningStats(history, System.currentTimeMillis())
@@ -167,14 +170,14 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
             mostPlayed = mostPlayed(byId, stats),
             favourites = favourites.mapNotNull { byId[it.trackId] },
         )
-    }.flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.Eagerly, Playlists())
+    } }.flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.Eagerly, Playlists())
 
     /** Generated mixes for the Home tab. */
     val mixes: StateFlow<List<Mix>> = combine(
         library, history, artistTags, container.database.favourites().observeAll(),
     ) { lib, history, tags, favourites ->
         // Recommendations are a nice-to-have: a bug there must never take the app down.
-        runCatching { Recommender(lib.tracks, history, tags, favourites = favourites.mapTo(HashSet()) { it.trackId }).mixes() }
+        runCatching { Bench.time("mixes") { Recommender(lib.tracks, history, tags, favourites = favourites.mapTo(HashSet()) { it.trackId }).mixes() } }
             .onFailure { Log.w(TAG, "Recommender failed", it) }
             .getOrDefault(emptyList())
     }.flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
@@ -182,7 +185,7 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
     private val replayPeriod = MutableStateFlow<ReplayPeriod?>(null)
 
     val replay: StateFlow<Replay?> = combine(library, history, replayPeriod) { lib, history, period ->
-        replay(history, lib.tracks.associateBy { it.id }, period)
+        Bench.time("replay") { replay(history, lib.tracks.associateBy { it.id }, period) }
     }.flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.Eagerly, null)
 
     fun setReplayPeriod(period: ReplayPeriod) {

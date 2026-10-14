@@ -43,6 +43,9 @@ interface TrackDao {
     )
     suspend fun downloadQueued(): List<Track>
 
+    @Query("SELECT COUNT(*) FROM tracks")
+    suspend fun countAll(): Int
+
     @Query("SELECT COUNT(*) FROM tracks WHERE downloadState = ${Track.DOWNLOAD_QUEUED}")
     suspend fun countDownloadQueued(): Int
 

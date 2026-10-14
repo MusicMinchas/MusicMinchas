@@ -13,8 +13,8 @@ enum class DriveSyncMode(val label: String) {
     APP_START("At app start"),
 }
 
-class Settings(context: Context) {
-    private val prefs = context.getSharedPreferences("settings", Context.MODE_PRIVATE)
+class Settings(context: Context, name: String = "settings") {
+    private val prefs = context.getSharedPreferences(name, Context.MODE_PRIVATE)
 
     private val _safFolders = MutableStateFlow(prefs.getStringSet(KEY_SAF, emptySet())!!.toSet())
     val safFolders: StateFlow<Set<String>> = _safFolders.asStateFlow()

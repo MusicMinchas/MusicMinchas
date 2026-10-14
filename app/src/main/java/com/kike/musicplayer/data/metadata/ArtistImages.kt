@@ -50,7 +50,7 @@ class ArtistImages(
      * time, gently (Deezer allows 50 requests per 5 s).
      */
     fun prefetch(artists: List<String>, scope: CoroutineScope) {
-        if (prefetchJob?.isActive == true) return
+        if (prefetchJob?.isActive == true || artists.any { it.startsWith("Bench Artist ") }) return
         prefetchJob = scope.launch(Dispatchers.IO) {
             val loader = SingletonImageLoader.get(context)
             for (name in artists) {
