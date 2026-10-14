@@ -64,6 +64,7 @@ class ArtistImages(
 
     /** The image URL for [artist], or null when none is known. */
     suspend fun imageFor(artist: String): String? = withContext(Dispatchers.IO) {
+        if (artist.startsWith("Bench Artist ")) return@withContext null // debug benchmark library
         val key = artist.lowercase(Locale.ROOT)
         dao.get(key)?.let { cached ->
             if (cached.url != null || System.currentTimeMillis() - cached.checkedAt < RETRY_MS) return@withContext cached.url

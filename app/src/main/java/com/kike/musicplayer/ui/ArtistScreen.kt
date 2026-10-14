@@ -62,8 +62,7 @@ import com.kike.musicplayer.data.db.Track
  */
 @Composable
 fun ArtistScreen(
-    artist: Artist?,
-    albums: List<Album>,
+    name: String,
     libraryVm: LibraryViewModel,
     playerVm: PlayerViewModel,
     onOpenAlbum: (String) -> Unit,
@@ -71,14 +70,17 @@ fun ArtistScreen(
     contentPadding: PaddingValues,
 ) {
     val player by playerVm.state.collectAsState()
-    val playCounts by libraryVm.playCounts.collectAsState()
+    val artistOrNull by remember(name) { libraryVm.artist(name) }.collectAsState(null)
+    val albums by remember(name) { libraryVm.artistAlbums(name) }.collectAsState(emptyList())
+    val tracks by remember(name) { libraryVm.artistTracks(name) }.collectAsState(emptyList())
+    val topPlays by remember(name) { libraryVm.artistTop(name) }.collectAsState(emptyList())
     val followed by libraryVm.followedArtists.collectAsState()
-    val image by produceState<String?>(null, artist?.name) { value = artist?.name?.let { libraryVm.artistImage(it) } }
+    val image by produceState<String?>(null, name) { value = libraryVm.artistImage(name) }
     // Edge to edge: the photo goes under the status bar.
     Box(Modifier.fillMaxSize().padding(bottom = contentPadding.calculateBottomPadding())) {
-        if (artist == null) return@Box
-        val tracks = artist.tracks
-        val top = tracks.filter { (playCounts[it.id] ?: 0) > 0 }.sortedByDescending { playCounts[it.id] ?: 0 }.take(TOP_SONGS)
+        val artist = artistOrNull ?: return@Box
+        val top = topPlays.map { it.track }
+        val playCounts = topPlays.associate { it.track.id to it.plays }
         val listState = rememberLazyListState()
         // Once the photo has scrolled away, the status bar gets a solid background and the back
         // button sits in a bar, so neither covers the songs.

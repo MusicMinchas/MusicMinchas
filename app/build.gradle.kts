@@ -119,6 +119,9 @@ dependencies {
     implementation("androidx.room:room-runtime:$room")
     implementation("androidx.room:room-ktx:$room")
     ksp("androidx.room:room-compiler:$room")
+    implementation("androidx.room:room-paging:$room")
+    // Large libraries: lists load page by page
+    implementation("androidx.paging:paging-compose:3.3.6")
 
     // Drag-to-reorder for the queue
     implementation("sh.calvin.reorderable:reorderable:3.1.0")

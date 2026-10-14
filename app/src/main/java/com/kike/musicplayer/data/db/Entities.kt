@@ -11,7 +11,10 @@ import androidx.room.PrimaryKey
  */
 @Entity(
     tableName = "tracks",
-    indices = [Index("source"), Index("metadataState"), Index("indexAlbum"), Index("indexArtist"), Index("indexGenre")],
+    indices = [
+        Index("source"), Index("metadataState"), Index("indexAlbum"), Index("indexArtist"), Index("indexGenre"),
+        Index("indexTitle"),
+    ],
 )
 data class Track(
     /** "saf:<document uri>" or "drive:<file id>". */
@@ -55,6 +58,8 @@ data class Track(
     @ColumnInfo(defaultValue = "") val indexAlbum: String = "",
     @ColumnInfo(defaultValue = "") val indexArtist: String = "",
     @ColumnInfo(defaultValue = "") val indexGenre: String = "",
+    /** The title for sorting the Songs tab (lower case, no accents); empty while not indexed or unplayable. */
+    @ColumnInfo(defaultValue = "") val indexTitle: String = "",
 ) {
     val displayArtist: String get() = artist ?: albumArtist ?: "Unknown artist"
     val albumKey: String get() = albumKeyOf(album, albumArtist ?: artist)
@@ -278,7 +283,7 @@ data class AlbumIndex(
     val artworkUri: String?,
     val trackCount: Int,
     val durationMs: Long,
-    /** Order of the Albums tab: albums without a name last, then by lower-cased title. */
+    /** Order of the Albums tab: albums without a name last, then by title (lower case, no accents). */
     val sortKey: String,
 )
 
@@ -300,6 +305,8 @@ data class GenreIndex(
     val artistCount: Int,
     val albumCount: Int,
     val sortKey: String,
+    /** A cover from one of the genre's albums, for the Genres tab. */
+    val artworkUri: String?,
 )
 
 /**

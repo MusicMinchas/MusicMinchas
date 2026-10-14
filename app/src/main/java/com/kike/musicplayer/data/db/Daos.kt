@@ -1,6 +1,8 @@
 package com.kike.musicplayer.data.db
 
+import androidx.paging.PagingSource
 import androidx.room.Dao
+import androidx.room.Embedded
 import androidx.room.Insert
 import androidx.room.OnConflictStrategy
 import androidx.room.Query
@@ -466,8 +468,8 @@ interface LibraryIndexDao {
     @Query("SELECT * FROM tracks WHERE id IN (:ids)")
     suspend fun tracks(ids: List<String>): List<Track>
 
-    @Query("UPDATE tracks SET indexAlbum = :album, indexArtist = :artist, indexGenre = :genre WHERE id = :id")
-    suspend fun setIndex(id: String, album: String, artist: String, genre: String)
+    @Query("UPDATE tracks SET indexAlbum = :album, indexArtist = :artist, indexGenre = :genre, indexTitle = :title WHERE id = :id")
+    suspend fun setIndex(id: String, album: String, artist: String, genre: String, title: String)
 
     @Query("SELECT * FROM tracks WHERE indexAlbum IN (:keys)")
     suspend fun tracksOfAlbums(keys: List<String>): List<Track>
@@ -496,6 +498,9 @@ interface LibraryIndexDao {
     )
     suspend fun genreCounts(keys: List<String>): List<GenreCounts>
 
+    @Query("SELECT artworkUri FROM tracks WHERE indexGenre = :key AND artworkUri IS NOT NULL LIMIT 1")
+    suspend fun genreCover(key: String): String?
+
     /** The genre's most common spelling in the files, e.g. "Hard Rock" for "hard rock". */
     @Query("SELECT genre FROM tracks WHERE indexGenre = :key AND genre IS NOT NULL GROUP BY genre ORDER BY COUNT(*) DESC, genre LIMIT 1")
     suspend fun genreSpelling(key: String): String?
@@ -523,5 +528,99 @@ interface LibraryIndexDao {
 
     @Query("SELECT COUNT(*) FROM genre_index")
     suspend fun genreCount(): Int
+}
+
+/** How many entries of a list start with each first character (for the A–Z bar). */
+data class FirstChar(val ch: String, val count: Int)
+
+data class TrackPlays(@Embedded val track: Track, val plays: Int)
+
+/**
+ * The library screens' data, straight from the database: songs, albums and artists page by page,
+ * the rest as small lists (an album's songs, an artist's albums, the genres).
+ */
+@Dao
+interface BrowseDao {
+    // Songs tab: listed songs are the indexed, playable ones, by title.
+    @Query("SELECT * FROM tracks WHERE indexTitle <> '' ORDER BY indexTitle, id")
+    fun songs(): PagingSource<Int, Track>
+
+    @Query("SELECT COUNT(*) FROM tracks WHERE indexTitle <> ''")
+    fun observeSongCount(): Flow<Int>
+
+    @Query("SELECT * FROM tracks WHERE indexTitle <> '' ORDER BY indexTitle, id LIMIT :limit OFFSET :offset")
+    suspend fun songsFrom(offset: Int, limit: Int): List<Track>
+
+    @Query("SELECT * FROM tracks WHERE indexTitle <> '' ORDER BY RANDOM() LIMIT :limit")
+    suspend fun randomSongs(limit: Int): List<Track>
+
+    @Query("SELECT substr(indexTitle, 1, 1) AS ch, COUNT(*) AS count FROM tracks WHERE indexTitle <> '' GROUP BY ch ORDER BY ch")
+    fun songFirstChars(): Flow<List<FirstChar>>
+
+    // Albums tab
+    @Query("SELECT * FROM album_index ORDER BY sortKey, `key`")
+    fun albums(): PagingSource<Int, AlbumIndex>
+
+    @Query("SELECT substr(sortKey, 2, 1) AS ch, COUNT(*) AS count FROM album_index GROUP BY substr(sortKey, 1, 2) ORDER BY substr(sortKey, 1, 2)")
+    fun albumFirstChars(): Flow<List<FirstChar>>
+
+    @Query("SELECT * FROM album_index WHERE `key` = :key")
+    fun observeAlbum(key: String): Flow<AlbumIndex?>
+
+    @Query("SELECT * FROM tracks WHERE indexAlbum = :key")
+    fun observeAlbumTracks(key: String): Flow<List<Track>>
+
+    // Artists tab
+    @Query("SELECT * FROM artist_index ORDER BY sortKey, name")
+    fun artists(): PagingSource<Int, ArtistIndex>
+
+    @Query("SELECT substr(sortKey, 2, 1) AS ch, COUNT(*) AS count FROM artist_index GROUP BY substr(sortKey, 1, 2) ORDER BY substr(sortKey, 1, 2)")
+    fun artistFirstChars(): Flow<List<FirstChar>>
+
+    @Query("SELECT * FROM artist_index WHERE name = :name")
+    fun observeArtist(name: String): Flow<ArtistIndex?>
+
+    /** The artist's albums, newest first. */
+    @Query("SELECT * FROM album_index WHERE artist = :name ORDER BY year IS NULL, year DESC, sortKey")
+    fun observeArtistAlbums(name: String): Flow<List<AlbumIndex>>
+
+    /** The artist's songs by album, then disc and track number. */
+    @Query(
+        "SELECT * FROM tracks WHERE indexArtist = :name " +
+            "ORDER BY indexAlbum, IFNULL(discNumber, 0), IFNULL(trackNumber, 2147483647), indexTitle"
+    )
+    fun observeArtistTracks(name: String): Flow<List<Track>>
+
+    /** The artist's most played songs (counted plays). */
+    @Query(
+        "SELECT tracks.*, COUNT(play_history.id) AS plays FROM tracks " +
+            "JOIN play_history ON play_history.trackId = tracks.id AND play_history.counted = 1 " +
+            "WHERE tracks.indexArtist = :name GROUP BY tracks.id ORDER BY plays DESC, tracks.indexTitle LIMIT :limit"
+    )
+    fun observeArtistTop(name: String, limit: Int): Flow<List<TrackPlays>>
+
+    // Genres tab
+    @Query("SELECT * FROM genre_index ORDER BY sortKey")
+    fun observeGenres(): Flow<List<GenreIndex>>
+
+    @Query("SELECT * FROM genre_index WHERE `key` = :key")
+    fun observeGenre(key: String): Flow<GenreIndex?>
+
+    /** Albums with at least one song of the genre. */
+    @Query("SELECT * FROM album_index WHERE `key` IN (SELECT DISTINCT indexAlbum FROM tracks WHERE indexGenre = :genre) ORDER BY sortKey, `key`")
+    fun genreAlbums(genre: String): PagingSource<Int, AlbumIndex>
+
+    @Query("SELECT * FROM tracks WHERE indexAlbum = :album AND indexGenre = :genre")
+    fun observeAlbumTracksInGenre(album: String, genre: String): Flow<List<Track>>
+
+    /** The genre's songs album by album (for Play), at most [limit]. */
+    @Query(
+        "SELECT tracks.* FROM tracks JOIN album_index ON album_index.`key` = tracks.indexAlbum WHERE tracks.indexGenre = :genre " +
+            "ORDER BY album_index.sortKey, tracks.indexAlbum, IFNULL(discNumber, 0), IFNULL(trackNumber, 2147483647) LIMIT :limit"
+    )
+    suspend fun genreTracks(genre: String, limit: Int): List<Track>
+
+    @Query("SELECT * FROM tracks WHERE indexGenre = :genre ORDER BY RANDOM() LIMIT :limit")
+    suspend fun randomGenreTracks(genre: String, limit: Int): List<Track>
 }
 

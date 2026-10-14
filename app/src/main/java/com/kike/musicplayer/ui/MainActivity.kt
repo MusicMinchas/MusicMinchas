@@ -183,22 +183,9 @@ class MainActivity : ComponentActivity() {
                             onOpenFollowing = { push(Screen.Following) },
                             contentPadding = padding,
                         )
-                        is Screen.AlbumDetail -> {
-                            val full = library.albums.firstOrNull { it.key == screen.key }
-                            val genre = screen.genreKey?.let { key -> genres.firstOrNull { it.key == key } }
-                            val album = genre?.albums?.firstOrNull { it.key == screen.key } ?: full
-                            AlbumScreen(
-                                album, playerVm, ::pop, padding,
-                                note = if (genre != null && full != null && album !== full) {
-                                    "Only ${genre.name} songs · ${full.tracks.size} on the album"
-                                } else null,
-                            )
-                        }
+                        is Screen.AlbumDetail -> AlbumScreen(screen.key, screen.genreKey, libraryVm, playerVm, ::pop, padding)
                         is Screen.ArtistDetail -> ArtistScreen(
-                            library.artists.firstOrNull { it.name == screen.name },
-                            albums = library.albums.filter { it.artist == screen.name }
-                                .sortedWith(compareByDescending<Album> { it.year ?: 0 }.thenBy { it.title.lowercase() }),
-                            libraryVm, playerVm,
+                            screen.name, libraryVm, playerVm,
                             onOpenAlbum = { push(Screen.AlbumDetail(it)) }, onBack = ::pop, contentPadding = padding,
                         )
                         Screen.NowPlaying -> NowPlayingScreen(playerVm, ::pop, { push(Screen.Queue) }, padding)
@@ -221,13 +208,10 @@ class MainActivity : ComponentActivity() {
                         )
                         Screen.Favourites -> TrackListScreen("Favourite Songs", playlists.favourites, playerVm, ::pop, padding)
                         Screen.Replay -> ReplayScreen(libraryVm, playerVm, onOpenAlbum = { push(Screen.AlbumDetail(it)) }, onBack = ::pop, contentPadding = padding)
-                        is Screen.GenreDetail -> {
-                            val genre = genres.firstOrNull { it.key == screen.key }
-                            AlbumListScreen(
-                                genre?.name ?: "", genre?.albums.orEmpty(), playerVm,
-                                onOpenAlbum = { push(Screen.AlbumDetail(it, genreKey = screen.key)) }, onBack = ::pop, contentPadding = padding,
-                            )
-                        }
+                        is Screen.GenreDetail -> GenreScreen(
+                            screen.key, libraryVm, playerVm,
+                            onOpenAlbum = { push(Screen.AlbumDetail(it, genreKey = screen.key)) }, onBack = ::pop, contentPadding = padding,
+                        )
                         is Screen.MixDetail -> {
                             val mix = mixes.firstOrNull { it.id == screen.id }
                             TrackListScreen(mix?.title ?: "", mix?.tracks, playerVm, ::pop, padding)

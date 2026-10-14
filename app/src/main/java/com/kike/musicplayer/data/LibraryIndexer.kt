@@ -27,6 +27,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
+import java.text.Normalizer
 
 /**
  * Keeps the album, artist and genre summaries (album_index, artist_index, genre_index) in step with
@@ -84,8 +85,9 @@ class LibraryIndexer(private val db: AppDatabase, private val scope: CoroutineSc
                             for (ids in batch.mapNotNull { it.trackId }.distinct().chunked(CHUNK)) {
                                 for (t in dao.tracks(ids)) {
                                     val (album, artist, genre) = keysOf(t, tags)
-                                    if (album != t.indexAlbum || artist != t.indexArtist || genre != t.indexGenre) {
-                                        dao.setIndex(t.id, album, artist, genre)
+                                    val title = if (album.isEmpty()) "" else sortText(t.title)
+                                    if (album != t.indexAlbum || artist != t.indexArtist || genre != t.indexGenre || title != t.indexTitle) {
+                                        dao.setIndex(t.id, album, artist, genre, title)
                                     }
                                     albums += album
                                     artists += artist
@@ -132,7 +134,11 @@ class LibraryIndexer(private val db: AppDatabase, private val scope: CoroutineSc
             if (gone.isNotEmpty()) dao.deleteGenres(gone)
             dao.upsertGenres(counts.values.map { c ->
                 val name = genreName(c.key, dao.genreSpelling(c.key))
-                GenreIndex(c.key, name, c.songCount, c.artistCount, c.albumCount, (if (c.key == UNKNOWN_GENRE) "1" else "0") + name.lowercase())
+                GenreIndex(
+                    c.key, name, c.songCount, c.artistCount, c.albumCount,
+                    sortKey = (if (c.key == UNKNOWN_GENRE) "1" else "0") + sortText(name),
+                    artworkUri = dao.genreCover(c.key),
+                )
             })
         }
     }
@@ -171,8 +177,13 @@ class LibraryIndexer(private val db: AppDatabase, private val scope: CoroutineSc
             )
         }
 
-        /** Names like "Unknown album" sort last, the rest by their lower-cased name. */
-        fun sortKey(name: String, unknown: String) = (if (name == unknown) "1" else "0") + name.lowercase()
+        /** Names like "Unknown album" sort last, the rest by [sortText]. */
+        fun sortKey(name: String, unknown: String) = (if (name == unknown) "1" else "0") + sortText(name)
+
+        private val MARKS = Regex("""\p{Mn}+""")
+
+        /** For sorting and the A–Z bar: lower case without accents, so "Ángel" sorts with A. */
+        fun sortText(s: String): String = Normalizer.normalize(s.lowercase(), Normalizer.Form.NFD).replace(MARKS, "")
 
         fun genreName(key: String, spelling: String?): String = when {
             key == UNKNOWN_GENRE -> "Unknown genre"

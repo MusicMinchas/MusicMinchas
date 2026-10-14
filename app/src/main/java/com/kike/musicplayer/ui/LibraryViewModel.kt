@@ -11,7 +11,16 @@ import com.kike.musicplayer.container
 import com.kike.musicplayer.data.DriveSyncMode
 import com.kike.musicplayer.Bench
 import com.kike.musicplayer.IndexCheck
+import androidx.paging.Pager
+import androidx.paging.PagingConfig
+import androidx.paging.PagingData
+import androidx.paging.cachedIn
+import com.kike.musicplayer.data.db.AlbumIndex
+import com.kike.musicplayer.data.db.ArtistIndex
 import com.kike.musicplayer.data.db.DiscoverItem
+import com.kike.musicplayer.data.db.FirstChar
+import com.kike.musicplayer.data.db.GenreIndex
+import com.kike.musicplayer.data.db.TrackPlays
 import com.kike.musicplayer.data.db.Track
 import com.kike.musicplayer.data.drive.DriveFolder
 import com.kike.musicplayer.recommend.ListeningStats
@@ -27,6 +36,7 @@ import com.kike.musicplayer.recommend.mostPlayed
 import com.kike.musicplayer.recommend.replay
 import com.kike.musicplayer.playback.albumTrackOrder
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -71,6 +81,25 @@ data class SearchResults(
     val albums: List<Album> = emptyList(),
     val songs: List<Track> = emptyList(),
 )
+
+/** An A–Z bar entry: [label] ("#", "A"…) and the list position of its first entry. */
+data class Jump(val label: String, val position: Int)
+
+/**
+ * A–Z bar entries from the first characters of a sorted list (lower case, no accents): letters
+ * by themselves, digits and symbols together as "#"; each label at its first position.
+ */
+fun jumps(firsts: List<FirstChar>): List<Jump> {
+    val out = ArrayList<Jump>()
+    var position = 0
+    for (f in firsts) {
+        val c = f.ch.firstOrNull()
+        val label = if (c != null && c.isLetter()) c.uppercase() else "#"
+        if (out.none { it.label == label }) out += Jump(label, position)
+        position += f.count
+    }
+    return out
+}
 
 data class Genre(
     /** Lower-cased genre (or [UNKNOWN_GENRE]). */
@@ -402,6 +431,48 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
     val downloadTotals = downloader.totals.stateIn(viewModelScope, SharingStarted.Eagerly, null)
     fun removeAllDownloads() = downloader.removeAll()
 
+    // ---- Browsing: straight from the database, page by page (large libraries) ----
+
+    private val browse = container.database.browse()
+
+    /** Pages of 60; placeholders give lists their full length, so the A–Z bar can jump anywhere. */
+    private val paging = PagingConfig(pageSize = 60, initialLoadSize = 120, enablePlaceholders = true, jumpThreshold = 240)
+
+    val songPages: Flow<PagingData<Track>> = Pager(paging) { browse.songs() }.flow.cachedIn(viewModelScope)
+    val albumPages: Flow<PagingData<AlbumIndex>> = Pager(paging) { browse.albums() }.flow.cachedIn(viewModelScope)
+    val artistPages: Flow<PagingData<ArtistIndex>> = Pager(paging) { browse.artists() }.flow.cachedIn(viewModelScope)
+
+    val songJumps: StateFlow<List<Jump>> = browse.songFirstChars().map(::jumps).stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
+    val albumJumps: StateFlow<List<Jump>> = browse.albumFirstChars().map(::jumps).stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
+    val artistJumps: StateFlow<List<Jump>> = browse.artistFirstChars().map(::jumps).stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
+
+    /** True while the album, artist and genre summaries are being brought up to date. */
+    val indexing: StateFlow<Boolean> = container.indexer.busy
+
+    val songCount: StateFlow<Int> = browse.observeSongCount().stateIn(viewModelScope, SharingStarted.Eagerly, 0)
+    val genreList: StateFlow<List<GenreIndex>> = browse.observeGenres().stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
+
+    fun genre(key: String): Flow<GenreIndex?> = browse.observeGenre(key)
+    fun genreAlbumPages(key: String): Flow<PagingData<AlbumIndex>> = Pager(paging) { browse.genreAlbums(key) }.flow
+
+    fun album(key: String): Flow<AlbumIndex?> = browse.observeAlbum(key)
+
+    /** The album's songs in album order; only those of [genreKey] when given. */
+    fun albumTracks(key: String, genreKey: String? = null): Flow<List<Track>> =
+        (if (genreKey == null) browse.observeAlbumTracks(key) else browse.observeAlbumTracksInGenre(key, genreKey))
+            .map { it.sortedWith(albumTrackOrder) }
+
+    fun artist(name: String): Flow<ArtistIndex?> = browse.observeArtist(name)
+    fun artistAlbums(name: String): Flow<List<AlbumIndex>> = browse.observeArtistAlbums(name)
+    fun artistTracks(name: String): Flow<List<Track>> = browse.observeArtistTracks(name)
+    fun artistTop(name: String): Flow<List<TrackPlays>> = browse.observeArtistTop(name, ARTIST_TOP_SONGS)
+
+    /** A queue for the Songs tab: [QUEUE_LIMIT] songs from position [index] on. */
+    suspend fun songsFrom(index: Int): List<Track> = browse.songsFrom(index, QUEUE_LIMIT)
+    suspend fun randomSongs(): List<Track> = browse.randomSongs(QUEUE_LIMIT)
+    suspend fun genreTracks(key: String, shuffle: Boolean): List<Track> =
+        if (shuffle) browse.randomGenreTracks(key, QUEUE_LIMIT) else browse.genreTracks(key, QUEUE_LIMIT)
+
     // ---- Discover ----
 
     private val discover = container.discover
@@ -512,5 +583,8 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
         const val RECENT_TRACKS = 30
         const val RECENT_ALBUMS = 10
         const val SUGGESTED_ARTISTS = 8
+        /** Songs queued at most by Play / Shuffle of a whole tab or genre. */
+        const val QUEUE_LIMIT = 1000
+        const val ARTIST_TOP_SONGS = 10
     }
 }

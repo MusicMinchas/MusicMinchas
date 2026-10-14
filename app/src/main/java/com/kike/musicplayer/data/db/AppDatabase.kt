@@ -26,6 +26,7 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun playlists(): PlaylistDao
     abstract fun discover(): DiscoverDao
     abstract fun libraryIndex(): LibraryIndexDao
+    abstract fun browse(): BrowseDao
 
     companion object {
         /** Adds the play history. Real migrations keep the scanned library (tags, covers) intact. */
@@ -178,7 +179,7 @@ abstract class AppDatabase : RoomDatabase() {
          */
         private val MIGRATION_16_17 = object : Migration(16, 17) {
             override fun migrate(db: SupportSQLiteDatabase) {
-                for (column in listOf("indexAlbum", "indexArtist", "indexGenre")) {
+                for (column in listOf("indexAlbum", "indexArtist", "indexGenre", "indexTitle")) {
                     db.execSQL("ALTER TABLE `tracks` ADD COLUMN `$column` TEXT NOT NULL DEFAULT ''")
                     db.execSQL("CREATE INDEX IF NOT EXISTS `index_tracks_$column` ON `tracks` (`$column`)")
                 }
@@ -196,7 +197,7 @@ abstract class AppDatabase : RoomDatabase() {
                 db.execSQL("CREATE INDEX IF NOT EXISTS `index_artist_index_sortKey` ON `artist_index` (`sortKey`)")
                 db.execSQL(
                     "CREATE TABLE IF NOT EXISTS `genre_index` (`key` TEXT NOT NULL, `name` TEXT NOT NULL, `songCount` INTEGER NOT NULL, " +
-                        "`artistCount` INTEGER NOT NULL, `albumCount` INTEGER NOT NULL, `sortKey` TEXT NOT NULL, PRIMARY KEY(`key`))"
+                        "`artistCount` INTEGER NOT NULL, `albumCount` INTEGER NOT NULL, `sortKey` TEXT NOT NULL, `artworkUri` TEXT, PRIMARY KEY(`key`))"
                 )
                 db.execSQL("CREATE INDEX IF NOT EXISTS `index_genre_index_sortKey` ON `genre_index` (`sortKey`)")
                 db.execSQL(
@@ -218,7 +219,7 @@ abstract class AppDatabase : RoomDatabase() {
                     "INSERT INTO index_dirty(trackId) VALUES (NEW.id); END"
             )
             db.execSQL(
-                "CREATE TRIGGER IF NOT EXISTS index_track_update AFTER UPDATE OF album, albumArtist, artist, genre, year, " +
+                "CREATE TRIGGER IF NOT EXISTS index_track_update AFTER UPDATE OF title, album, albumArtist, artist, genre, year, " +
                     "artworkUri, trackNumber, discNumber, durationMs ON tracks BEGIN " +
                     "INSERT INTO index_dirty(trackId, oldAlbum, oldArtist, oldGenre) " +
                     "VALUES (NEW.id, OLD.indexAlbum, OLD.indexArtist, OLD.indexGenre); END"

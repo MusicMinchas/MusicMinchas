@@ -52,7 +52,7 @@ class LibraryIndexerTest {
         assertEquals("art-2", a.artworkUri)
         assertEquals(3, a.trackCount)
         assertEquals(500_000, a.durationMs)
-        assertEquals("0más guapa", a.sortKey)
+        assertEquals("0mas guapa", a.sortKey)
     }
 
     @Test
