@@ -31,7 +31,9 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.AlertDialog
@@ -270,6 +272,12 @@ fun TrackRow(
     onRemoveFromPlaylist: (() -> Unit)? = null,
     /** A drag handle after the menu (reorderable lists). */
     trailing: @Composable () -> Unit = {},
+    /** A chart position, shown before the artwork (Replay). */
+    rank: Int? = null,
+    /** 0-1: a thin bar under the names, e.g. plays relative to the top song (Replay). */
+    share: Float? = null,
+    /** The favourite heart and the Drive / download icon. */
+    showStatus: Boolean = true,
 ) {
     var menu by remember { mutableStateOf(false) }
     var addToPlaylist by remember { mutableStateOf(false) }
@@ -283,6 +291,12 @@ fun TrackRow(
             .padding(start = 16.dp, top = 6.dp, bottom = 6.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
+        if (rank != null) {
+            Text(
+                "$rank", Modifier.width(28.dp), style = MaterialTheme.typography.titleSmall,
+                fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary,
+            )
+        }
         if (leading != null) {
             Text(
                 leading, Modifier.width(32.dp), style = MaterialTheme.typography.bodyMedium,
@@ -299,15 +313,20 @@ fun TrackRow(
                 color = if (isCurrent) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
             )
             ArtistAlbumText(track.displayArtist, listOf(track.artist, track.albumArtist), track.album, track.albumKey, links = false)
+            if (share != null) {
+                Box(Modifier.padding(top = 4.dp).fillMaxWidth().height(3.dp).clip(RoundedCornerShape(2.dp)).background(MaterialTheme.colorScheme.surfaceVariant)) {
+                    Box(Modifier.fillMaxWidth(share.coerceIn(0.02f, 1f)).fillMaxHeight().background(MaterialTheme.colorScheme.primary))
+                }
+            }
         }
         badge?.let {
             Text(it, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary,
                 modifier = Modifier.padding(horizontal = 6.dp))
         }
-        if (track.id in favourites.ids) {
+        if (showStatus && track.id in favourites.ids) {
             Icon(Icons.Default.Favorite, "Favourite", Modifier.padding(end = 6.dp).size(16.dp), tint = FAVOURITE_RED)
         }
-        if (track.source == Track.SOURCE_DRIVE) DownloadStatus(track, downloads.progress)
+        if (showStatus && track.source == Track.SOURCE_DRIVE) DownloadStatus(track, downloads.progress)
         Box {
             IconButton(onClick = { menu = true }) { Icon(Icons.Default.MoreVert, "More") }
             DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {

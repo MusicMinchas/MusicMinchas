@@ -3,6 +3,7 @@ package com.kike.musicplayer.recommend
 import com.kike.musicplayer.data.db.PlayHistory
 import com.kike.musicplayer.data.db.Track
 import java.time.Instant
+import java.time.LocalDate
 import java.time.ZoneId
 
 /** Per-track statistics from the play history. */
@@ -70,14 +71,30 @@ data class RankedArtist(val name: String, val plays: Int, val artworkUri: String
 
 data class RankedAlbum(val key: String, val title: String, val artist: String, val artworkUri: String?, val plays: Int)
 
+/** The song played most often in one day of the period. */
+data class OnRepeat(val track: Track, val plays: Int, val day: LocalDate)
+
 data class Replay(
     val period: ReplayPeriod,
     /** Years with counted plays (always includes the current one), newest first. */
     val years: List<Int>,
     /** Months of [period]'s year with counted plays. */
     val months: List<Int>,
+    /** Counted plays in each month (index 0 = January) of [period]'s year. */
+    val monthPlays: List<Int>,
     val plays: Int,
     val listenedMs: Long,
+    /** Different artists played. */
+    val artists: Int,
+    /** Artists whose first counted play ever falls in the period. */
+    val newArtists: Int,
+    /** Hour of the day (0-23) with the most plays, or null without plays. */
+    val peakHour: Int?,
+    val onRepeat: OnRepeat?,
+    /** The genre with the most plays (file genres), or null. */
+    val topGenre: String?,
+    /** Counted plays in the period before (the previous month, or the previous year); null for the first. */
+    val previousPlays: Int?,
     val topTracks: List<Ranked<Track>>,
     val topArtists: List<RankedArtist>,
     val topAlbums: List<RankedAlbum>,
@@ -107,12 +124,46 @@ fun replay(history: List<PlayHistory>, tracks: Map<String, Track>, period: Repla
         RankedAlbum(key, first.album!!, first.albumArtist ?: first.displayArtist, list.firstNotNullOfOrNull { it.item.artworkUri }, list.sumOf { it.plays })
     }.sortedByDescending { it.plays }
 
+    val countedInPeriod = inPeriod.filter { it.counted }
+    val monthPlays = IntArray(12).also { m -> inYear.filter { it.counted }.forEach { m[dateOf(it).monthValue - 1]++ } }.toList()
+
+    // An artist is new when their first counted play ever is in the period.
+    fun artistOf(h: PlayHistory) = tracks[h.trackId]?.let { it.albumArtist ?: it.displayArtist }
+    val firstPlay = HashMap<String, Long>()
+    counted.forEach { h -> artistOf(h)?.let { firstPlay.merge(it, h.playedAt, ::minOf) } }
+    val periodArtists = countedInPeriod.mapNotNullTo(HashSet(), ::artistOf)
+    val periodStart = if (selected.month == null) LocalDate.of(selected.year, 1, 1) else LocalDate.of(selected.year, selected.month, 1)
+    val periodStartMs = periodStart.atStartOfDay(zone).toInstant().toEpochMilli()
+    val newArtists = periodArtists.count { (firstPlay[it] ?: Long.MAX_VALUE) >= periodStartMs }
+
+    val peakHour = countedInPeriod.groupingBy { dateOf(it).hour }.eachCount().maxByOrNull { it.value }?.key
+    val onRepeat = countedInPeriod.groupingBy { it.trackId to dateOf(it).toLocalDate() }.eachCount()
+        .maxByOrNull { it.value }?.takeIf { it.value >= 2 }
+        ?.let { (key, n) -> tracks[key.first]?.let { OnRepeat(it, n, key.second) } }
+    val topGenre = countedInPeriod.mapNotNull { tracks[it.trackId]?.genre?.takeIf(String::isNotBlank) }
+        .groupingBy { it.lowercase() }.eachCount().maxByOrNull { it.value }?.key
+        ?.let { key -> countedInPeriod.firstNotNullOf { h -> tracks[h.trackId]?.genre?.takeIf { it.lowercase() == key } } }
+
+    val previous = if (selected.month == null) ReplayPeriod(selected.year - 1)
+    else if (selected.month == 1) ReplayPeriod(selected.year - 1, 12) else ReplayPeriod(selected.year, selected.month - 1)
+    val previousPlays = counted.count { h ->
+        val d = dateOf(h)
+        d.year == previous.year && (previous.month == null || d.monthValue == previous.month)
+    }.takeIf { it > 0 }
+
     return Replay(
         period = selected,
         years = years,
         months = months,
+        monthPlays = monthPlays,
         plays = playsByTrack.values.sum(),
         listenedMs = inPeriod.sumOf { it.listenedMs },
+        artists = periodArtists.size,
+        newArtists = newArtists,
+        peakHour = peakHour,
+        onRepeat = onRepeat,
+        topGenre = topGenre,
+        previousPlays = previousPlays,
         topTracks = topTracks.take(50),
         topArtists = topArtists.take(10),
         topAlbums = topAlbums.take(10),

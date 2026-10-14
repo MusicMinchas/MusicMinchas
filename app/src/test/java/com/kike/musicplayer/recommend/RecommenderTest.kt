@@ -48,6 +48,28 @@ class RecommenderTest {
     }
 
     @Test
+    fun `replay insights - months, new artists, on repeat, comparison`() {
+        val history = listOf(
+            play("m1-1-1", 1.0), play("m1-1-1", 1.1), play("m1-1-1", 1.2), // three times on 8 October
+            play("m2-1-1", 2.0), // Metal 2: first ever play this month
+            play("m1-1-2", 40.0), play("j1-1-1", 41.0), // late August
+        )
+        val byId = tracks.associateBy { it.id }
+        val october = replay(history, byId, ReplayPeriod(2026, 10), zone)
+        assertEquals(4, october.monthPlays[9])
+        assertEquals(2, october.monthPlays[7])
+        assertEquals(2, october.artists)
+        assertEquals(1, october.newArtists) // Metal 1 was already played in August
+        assertEquals("m1-1-1", october.onRepeat?.track?.id)
+        assertEquals(3, october.onRepeat?.plays)
+        assertEquals(null, october.previousPlays) // nothing in September
+        val year = replay(history, byId, ReplayPeriod(2026), zone)
+        assertEquals(3, year.artists)
+        assertEquals(3, year.newArtists)
+        assertEquals(6, year.monthPlays.sum())
+    }
+
+    @Test
     fun `favourites lift their genre and get a mix when forgotten for half a year`() {
         // A few recent metal plays, and a dozen jazz favourites not played in a year.
         val history = (1..3).map { play("m${it}-1-1", it.toDouble()) } + (1..12).map { play("j${it % 4 + 1}-1-${it % 4 + 1}", 400.0) }
