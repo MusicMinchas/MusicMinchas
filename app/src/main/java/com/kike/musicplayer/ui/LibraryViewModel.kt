@@ -10,6 +10,7 @@ import androidx.lifecycle.viewModelScope
 import com.kike.musicplayer.container
 import com.kike.musicplayer.data.DriveSyncMode
 import com.kike.musicplayer.Bench
+import com.kike.musicplayer.IndexCheck
 import com.kike.musicplayer.data.db.DiscoverItem
 import com.kike.musicplayer.data.db.Track
 import com.kike.musicplayer.data.drive.DriveFolder
@@ -19,6 +20,8 @@ import com.kike.musicplayer.recommend.Ranked
 import com.kike.musicplayer.recommend.Recommender
 import com.kike.musicplayer.recommend.effectiveGenreKey
 import com.kike.musicplayer.recommend.Replay
+import com.kike.musicplayer.recommend.UNKNOWN_GENRE
+import com.kike.musicplayer.recommend.artistTagMap
 import com.kike.musicplayer.recommend.ReplayPeriod
 import com.kike.musicplayer.recommend.mostPlayed
 import com.kike.musicplayer.recommend.replay
@@ -78,7 +81,6 @@ data class Genre(
     val artistCount: Int,
 )
 
-const val UNKNOWN_GENRE = "\u0000unknown"
 
 /** The automatic playlists, built from the play history. */
 data class Playlists(
@@ -128,9 +130,7 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
 
     private val history = container.database.history().observeAll()
 
-    private val artistTags = container.database.artistInfo().observeAll()
-        // One- and two-letter tags are country codes and the like ("be", "uk"), not genres.
-        .map { list -> list.associate { info -> info.name to info.tagList.filter { it.length > 2 } } }
+    private val artistTags = container.database.artistInfo().observeAll().map(::artistTagMap)
 
     /**
      * Genres for the Genres tab: each track's file genre, else its artist's top MusicBrainz tag.
@@ -463,6 +463,15 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
         @OptIn(kotlinx.coroutines.FlowPreview::class)
         viewModelScope.launch {
             repo.tracks.map { it.size }.distinctUntilChanged().debounce(30_000).collect { importer.rematch() }
+        }
+        // Debug: check the database summaries against the in-memory grouping once indexing is idle.
+        if (com.kike.musicplayer.BuildConfig.DEBUG) {
+            @OptIn(kotlinx.coroutines.FlowPreview::class)
+            viewModelScope.launch(Dispatchers.Default) {
+                combine(genres, container.indexer.busy) { g, busy -> if (busy) null else g }
+                    .debounce(3_000)
+                    .collect { g -> if (!g.isNullOrEmpty()) IndexCheck.compare(container.database, library.value.albums, library.value.artists, g) }
+            }
         }
     }
 

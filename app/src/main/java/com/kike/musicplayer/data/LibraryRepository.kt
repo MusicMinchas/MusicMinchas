@@ -36,8 +36,10 @@ class LibraryRepository(
     private val replacements: ReplacementDao,
     private val downloader: Downloader,
     private val scope: CoroutineScope,
+    private val indexOnly: Boolean = false,
 ) {
-    val tracks: Flow<List<Track>> = dao.observeAll()
+    /** Every song, for the screens that still group the library in memory (none in the bench "indexonly" mode). */
+    val tracks: Flow<List<Track>> = if (indexOnly) kotlinx.coroutines.flow.flowOf(emptyList()) else dao.observeAll()
     val pendingMetadata: Flow<Int> = dao.observePendingCount()
     val unplayableCount: Flow<Int> = dao.observeUnplayableCount()
     val metadataProgress = enricher.progress

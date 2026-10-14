@@ -5,6 +5,7 @@ import coil3.ImageLoader
 import coil3.PlatformContext
 import coil3.SingletonImageLoader
 import coil3.network.okhttp.OkHttpNetworkFetcherFactory
+import com.kike.musicplayer.data.LibraryIndexer
 import com.kike.musicplayer.data.LibraryRepository
 import com.kike.musicplayer.data.Settings
 import com.kike.musicplayer.data.db.AppDatabase
@@ -113,6 +114,9 @@ class AppContainer(app: Application) {
         database.discover(), database.artistInfo(), settings, metadataHttp, moshi, BuildConfig.TICKETMASTER_KEY, appScope,
     )
 
+    /** Album, artist and genre summaries for paging large libraries. */
+    val indexer = LibraryIndexer(database, appScope).also { it.start() }
+
     val enricher = MetadataEnricher(app, database.tracks(), settings, driveAuth, driveScanHttp, database.artistInfo(), musicBrainz, coverArt)
 
     /** Lets Sonos fetch tracks from the phone while casting. */
@@ -144,6 +148,7 @@ class AppContainer(app: Application) {
         replacements = database.replacements(),
         downloader = downloader,
         scope = appScope,
+        indexOnly = Bench.indexOnly(app),
     )
 
     private companion object {

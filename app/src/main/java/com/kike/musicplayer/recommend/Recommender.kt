@@ -1,5 +1,6 @@
 package com.kike.musicplayer.recommend
 
+import com.kike.musicplayer.data.db.ArtistInfo
 import com.kike.musicplayer.data.db.PlayHistory
 import com.kike.musicplayer.data.db.Track
 import java.util.Locale
@@ -9,6 +10,13 @@ import java.util.Random
  * Lower-cased genre of a track: the file's genre tag, else its artist's top MusicBrainz tag.
  * Shared by the genre mixes and the Genres view.
  */
+/** The genre key of songs with no genre at all. */
+const val UNKNOWN_GENRE = "\u0000unknown"
+
+/** Artist genre tags by lower-cased artist name; one- and two-letter tags are country codes and the like ("be", "uk"). */
+fun artistTagMap(infos: List<ArtistInfo>): Map<String, List<String>> =
+    infos.associate { info -> info.name to info.tagList.filter { it.length > 2 } }
+
 fun effectiveGenreKey(t: Track, artistTags: Map<String, List<String>>): String? =
     t.genre?.lowercase(Locale.ROOT)
         ?: artistTags[(t.albumArtist ?: t.artist ?: "").lowercase(Locale.ROOT)]?.firstOrNull()

@@ -384,6 +384,9 @@ interface ArtistInfoDao {
     @Query("SELECT name FROM artist_info")
     suspend fun names(): List<String>
 
+    @Query("SELECT * FROM artist_info")
+    suspend fun all(): List<ArtistInfo>
+
     @Query("SELECT * FROM artist_info WHERE name = :name")
     suspend fun get(name: String): ArtistInfo?
 
@@ -439,3 +442,86 @@ interface DiscoverDao {
         insertAll(items)
     }
 }
+
+data class ArtistCounts(val name: String, val trackCount: Int, val albumCount: Int)
+
+data class GenreCounts(val key: String, val songCount: Int, val artistCount: Int, val albumCount: Int)
+
+/** The album, artist and genre summaries, and the queue of songs to (re)index (see LibraryIndexer). */
+@Dao
+interface LibraryIndexDao {
+    @Query("SELECT COUNT(*) FROM index_dirty")
+    fun observeDirtyCount(): Flow<Int>
+
+    @Query("SELECT * FROM index_dirty ORDER BY seq LIMIT :limit")
+    suspend fun dirty(limit: Int): List<IndexDirty>
+
+    @Query("DELETE FROM index_dirty WHERE seq <= :seq")
+    suspend fun clearDirty(seq: Long)
+
+    /** Songs without a genre of their own take their artist's: index them again when artist tags change. */
+    @Query("INSERT INTO index_dirty(trackId) SELECT id FROM tracks WHERE genre IS NULL")
+    suspend fun markUntaggedDirty()
+
+    @Query("SELECT * FROM tracks WHERE id IN (:ids)")
+    suspend fun tracks(ids: List<String>): List<Track>
+
+    @Query("UPDATE tracks SET indexAlbum = :album, indexArtist = :artist, indexGenre = :genre WHERE id = :id")
+    suspend fun setIndex(id: String, album: String, artist: String, genre: String)
+
+    @Query("SELECT * FROM tracks WHERE indexAlbum IN (:keys)")
+    suspend fun tracksOfAlbums(keys: List<String>): List<Track>
+
+    @Upsert
+    suspend fun upsertAlbums(albums: List<AlbumIndex>)
+
+    @Query("DELETE FROM album_index WHERE `key` IN (:keys)")
+    suspend fun deleteAlbums(keys: List<String>)
+
+    @Query(
+        "SELECT indexArtist AS name, COUNT(*) AS trackCount, COUNT(DISTINCT indexAlbum) AS albumCount " +
+            "FROM tracks WHERE indexArtist IN (:names) GROUP BY indexArtist"
+    )
+    suspend fun artistCounts(names: List<String>): List<ArtistCounts>
+
+    @Upsert
+    suspend fun upsertArtists(artists: List<ArtistIndex>)
+
+    @Query("DELETE FROM artist_index WHERE name IN (:names)")
+    suspend fun deleteArtists(names: List<String>)
+
+    @Query(
+        "SELECT indexGenre AS `key`, COUNT(*) AS songCount, COUNT(DISTINCT indexArtist) AS artistCount, " +
+            "COUNT(DISTINCT indexAlbum) AS albumCount FROM tracks WHERE indexGenre IN (:keys) GROUP BY indexGenre"
+    )
+    suspend fun genreCounts(keys: List<String>): List<GenreCounts>
+
+    /** The genre's most common spelling in the files, e.g. "Hard Rock" for "hard rock". */
+    @Query("SELECT genre FROM tracks WHERE indexGenre = :key AND genre IS NOT NULL GROUP BY genre ORDER BY COUNT(*) DESC, genre LIMIT 1")
+    suspend fun genreSpelling(key: String): String?
+
+    @Upsert
+    suspend fun upsertGenres(genres: List<GenreIndex>)
+
+    @Query("DELETE FROM genre_index WHERE `key` IN (:keys)")
+    suspend fun deleteGenres(keys: List<String>)
+
+    @Query("SELECT * FROM album_index")
+    suspend fun allAlbums(): List<AlbumIndex>
+
+    @Query("SELECT * FROM artist_index")
+    suspend fun allArtists(): List<ArtistIndex>
+
+    @Query("SELECT * FROM genre_index")
+    suspend fun allGenres(): List<GenreIndex>
+
+    @Query("SELECT COUNT(*) FROM album_index")
+    suspend fun albumCount(): Int
+
+    @Query("SELECT COUNT(*) FROM artist_index")
+    suspend fun artistCount(): Int
+
+    @Query("SELECT COUNT(*) FROM genre_index")
+    suspend fun genreCount(): Int
+}
+
