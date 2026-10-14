@@ -195,8 +195,9 @@ data class ScrobbleCounts(val total: Int, val unmatched: Int)
 
 @Dao
 interface LastFmScrobbleDao {
+    /** Row ids, -1 for scrobbles already stored. */
     @Insert(onConflict = OnConflictStrategy.IGNORE)
-    suspend fun insertAll(scrobbles: List<LastFmScrobble>)
+    suspend fun insertAll(scrobbles: List<LastFmScrobble>): List<Long>
 
     /** Time of the newest imported scrobble, so the next import only fetches what came after. */
     @Query("SELECT MAX(uts) FROM lastfm_scrobbles WHERE user = :user")

@@ -54,7 +54,16 @@ class ScrobbleImporter(
             mutex.withLock {
                 _status.value = ImportStatus(running = true, text = "Connecting to Last.fm…")
                 val result = runCatching {
-                    val downloaded = download(user, if (everything) null else scrobbles.latest(user))
+                    val latest = if (everything) null else scrobbles.latest(user)
+                    // Taken first: a scrobble arriving during the download then can't look like a backfill.
+                    val total = totalOnLastFm(user)
+                    var downloaded = download(user, latest)
+                    // Last.fm grew by more than what came after the newest scrobble here: some were
+                    // added with older dates (bulk scrobbling). Only a full pass finds those.
+                    if (latest != null && (lastFm.importedTotal < 0 || total > lastFm.importedTotal + downloaded.size)) {
+                        downloaded = downloaded + download(user, null)
+                    }
+                    lastFm.importedTotal = total
                     _status.value = ImportStatus(running = true, text = "Matching with your library…")
                     val added = addPlays()
                     val waiting = scrobbles.unmatched().mapTo(HashSet()) { it.uts }
@@ -72,7 +81,7 @@ class ScrobbleImporter(
                         )
                         ImportStatus(text = when (downloaded) {
                             0 -> "No new scrobbles"
-                            else -> "${count(downloaded, "scrobble")} from Last.fm: ${parts.joinToString(", ")}"
+                            else -> "${count(downloaded, "new scrobble")} from Last.fm: ${parts.joinToString(", ")}"
                         })
                     },
                     onFailure = {
@@ -164,7 +173,18 @@ class ScrobbleImporter(
         }
     }
 
-    /** Fetches the user's scrobbles after [afterUts] (all when null), newest first, 200 a page. */
+    /** The number of scrobbles on the user's Last.fm profile. */
+    private suspend fun totalOnLastFm(user: String): Int {
+        val json = withRetries { lastFm.client.call("user.getRecentTracks", mapOf("user" to user, "limit" to "1")) }
+        val root = lastFm.client.moshi.adapter(Map::class.java).fromJson(json) as Map<*, *>
+        val attr = (root["recenttracks"] as? Map<*, *>)?.get("@attr") as? Map<*, *>
+        return (attr?.get("total") as? String)?.toIntOrNull() ?: throw IOException("Unexpected Last.fm response")
+    }
+
+    /**
+     * Fetches the user's scrobbles after [afterUts] (all when null), newest first, 200 a page.
+     * Returns the timestamps of those not stored before.
+     */
     private suspend fun download(user: String, afterUts: Long?): Set<Long> {
         // Fixed end, so scrobbles arriving meanwhile don't shift the pages.
         val until = System.currentTimeMillis() / 1000
@@ -186,8 +206,8 @@ class ScrobbleImporter(
             val json = withRetries { lastFm.client.call("user.getRecentTracks", params) }
             val (rows, pages) = parseRecentTracks(json, user)
             totalPages = pages
-            scrobbles.insertAll(rows)
-            rows.mapTo(downloaded) { it.uts }
+            val ids = scrobbles.insertAll(rows)
+            rows.filterIndexed { i, _ -> ids[i] != -1L }.mapTo(downloaded) { it.uts }
             page++
             delay(REQUEST_INTERVAL_MS) // Last.fm: no more than ~5 requests a second
         }

@@ -122,8 +122,17 @@ class LastFm(context: Context, val client: LastFmClient) {
         _state.update { it.copy(awaitingApproval = false, message = null) }
     }
 
+    /**
+     * How many scrobbles Last.fm had at the last import (-1: unknown), to notice scrobbles added
+     * with older dates, e.g. by bulk-scrobbling tools, which an import of the newest ones misses.
+     */
+    var importedTotal: Int
+        get() = prefs.getInt(KEY_IMPORTED_TOTAL, -1)
+        set(value) = prefs.edit { putInt(KEY_IMPORTED_TOTAL, value) }
+
     fun disconnect() {
         prefs.edit {
+            remove(KEY_IMPORTED_TOTAL)
             remove(KEY_USER)
             remove(KEY_SESSION)
             remove(KEY_TOKEN)
@@ -151,5 +160,6 @@ class LastFm(context: Context, val client: LastFmClient) {
         private const val KEY_SCROBBLE = "scrobble"
         private const val KEY_PERCENT = "scrobble_percent"
         private const val KEY_CAP = "scrobble_cap_minutes"
+        private const val KEY_IMPORTED_TOTAL = "imported_total"
     }
 }
