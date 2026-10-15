@@ -14,6 +14,7 @@ import java.text.Normalizer
  * picks one. Last resorts, both within the same artist: on the same album, a library title equal to
  * the scrobble's once its trailing subtitle is dropped ("Uah lúa (Folla do Visgo)"); then a nearly
  * identical spelling ("Olla meu irmau" / "Olla meu irmao"), with the same live/remix/demo markers.
+ * The user's own copy of a song (device, Drive) is preferred over the server's.
  */
 class TrackMatcher(tracks: List<Track>) {
     private val byMbid = HashMap<String, Track>()
@@ -22,7 +23,8 @@ class TrackMatcher(tracks: List<Track>) {
     private val byArtist = HashMap<String, MutableList<Track>>()
 
     init {
-        for (t in tracks) {
+        // Own copies first, so they come first in every list below.
+        for (t in tracks.sortedBy { it.fromServer }) {
             if (t.durationMs < 0) continue // unplayable (DRM)
             t.mbRecordingId?.let { byMbid.putIfAbsent(it, t) }
             for (artist in listOfNotNull(t.artist, t.albumArtist).distinct()) {
@@ -39,7 +41,9 @@ class TrackMatcher(tracks: List<Track>) {
         val candidates = exact[key(basic(artist), basic(title))]
             ?: loose[key(looseArtist(artist), looseTitle(title))]
             ?: return lastResort(artist, title, wanted)
-        return candidates.firstOrNull { wanted != null && it.album?.let(::basic) == wanted } ?: candidates.first()
+        val onAlbum = { t: Track -> wanted != null && t.album?.let(::basic) == wanted }
+        return candidates.firstOrNull { !it.fromServer && onAlbum(it) } ?: candidates.firstOrNull { !it.fromServer }
+            ?: candidates.firstOrNull(onAlbum) ?: candidates.first()
     }
 
     private fun lastResort(artist: String, title: String, album: String?): Track? {
@@ -58,11 +62,16 @@ class TrackMatcher(tracks: List<Track>) {
             .filter { markers(basic(it.title)) == markers }
             .map { it to similarity(wanted, compact(it.title)) }
             .filter { it.second >= FUZZY_SIMILARITY }
-            .sortedWith(compareByDescending<Pair<Track, Double>> { it.second }.thenByDescending { it.first.album?.let(::basic) == album })
+            .sortedWith(
+                compareBy<Pair<Track, Double>> { it.first.fromServer }.thenByDescending { it.second }
+                    .thenByDescending { it.first.album?.let(::basic) == album }
+            )
             .firstOrNull()?.first
     }
 
     companion object {
+        private val Track.fromServer get() = source == Track.SOURCE_SUBSONIC
+
         /**
          * A matcher over just the library songs that can match these scrobbles: those by one of
          * their artists (however spelled) or with one of their MusicBrainz recording IDs, so a

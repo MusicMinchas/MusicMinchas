@@ -70,6 +70,18 @@ class RecommenderTest {
     }
 
     @Test
+    fun `mixes pick only from the chosen sources but learn the taste from every source`() {
+        // The server has the same artists; only Drive songs were ever played, all metal.
+        val server = tracks.map { it.copy(id = "s-" + it.id, source = Track.SOURCE_SUBSONIC, scope = Track.SCOPE_SERVER) }
+        val history = (1..12).map { play("m${it % 6 + 1}-1-${it % 4 + 1}", it.toDouble()) }
+        val mixes = Recommender(tracks + server, history, tags, now, pickable = { it.scope == Track.SCOPE_SERVER }).mixes()
+        assertTrue(mixes.isNotEmpty())
+        assertTrue(mixes.all { mix -> mix.tracks.all { it.source == Track.SOURCE_SUBSONIC } })
+        // Metal leads, from the Drive plays, although no server song was played.
+        assertEquals("genre:heavy metal", mixes.first { it.id.startsWith("genre:") }.id)
+    }
+
+    @Test
     fun `favourites lift their genre and get a mix when forgotten for half a year`() {
         // A few recent metal plays, and a dozen jazz favourites not played in a year.
         val history = (1..3).map { play("m${it}-1-1", it.toDouble()) } + (1..12).map { play("j${it % 4 + 1}-1-${it % 4 + 1}", 400.0) }

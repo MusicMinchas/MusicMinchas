@@ -18,8 +18,8 @@ interface TrackDao {
     // @Transaction: a large library spans several CursorWindows; without a read transaction a
     // concurrent write between window refills makes rows vanish ("Couldn't read row N").
     @Transaction
-    @Query("SELECT * FROM tracks WHERE durationMs >= 0 AND scope <> ${Track.SCOPE_SERVER} ORDER BY title COLLATE NOCASE")
-    suspend fun getAll(): List<Track>
+    @Query("SELECT * FROM tracks WHERE durationMs >= 0 AND scope IN (:scopes) ORDER BY title COLLATE NOCASE")
+    suspend fun getAll(scopes: List<Int>): List<Track>
 
     @Transaction
     @Query("SELECT * FROM tracks WHERE source = :source")
@@ -71,17 +71,17 @@ interface TrackDao {
     suspend fun getByIdsChunk(ids: List<String>): List<Track>
 
     /** Every artist / album artist spelling in the library (for matching scrobbles by artist). */
-    @Query("SELECT DISTINCT artist, albumArtist FROM tracks WHERE scope <> ${Track.SCOPE_SERVER}")
+    @Query("SELECT DISTINCT artist, albumArtist FROM tracks")
     suspend fun artistPairs(): List<ArtistPair>
 
-    @Query("SELECT * FROM tracks WHERE (artist IN (:names) OR albumArtist IN (:names)) AND scope <> ${Track.SCOPE_SERVER}")
+    @Query("SELECT * FROM tracks WHERE artist IN (:names) OR albumArtist IN (:names)")
     suspend fun byArtistNamesChunk(names: List<String>): List<Track>
 
-    @Query("SELECT * FROM tracks WHERE mbRecordingId IN (:ids) AND scope <> ${Track.SCOPE_SERVER}")
+    @Query("SELECT * FROM tracks WHERE mbRecordingId IN (:ids)")
     suspend fun byRecordingIdsChunk(ids: List<String>): List<Track>
 
-    @Query("SELECT COUNT(*) FROM tracks WHERE durationMs >= 0 AND scope <> ${Track.SCOPE_SERVER}")
-    suspend fun countPlayable(): Int
+    @Query("SELECT COUNT(*) FROM tracks WHERE durationMs >= 0 AND scope IN (:scopes)")
+    suspend fun countPlayable(scopes: List<Int>): Int
 
     /** Every artist and album artist in the library (for the genre lookup). */
     @Query(

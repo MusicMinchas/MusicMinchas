@@ -124,6 +124,13 @@ data class Playlists(
     val favourites: List<Track> = emptyList(),
 )
 
+private data class MixInput(
+    val history: List<PlayHistory>,
+    val tags: Map<String, List<String>>,
+    val favourites: List<Favourite>,
+    val scopes: List<Int>,
+)
+
 /** A user playlist with its songs (those still in the library), in order. */
 data class PlaylistView(val id: Long, val name: String, val tracks: List<Track>)
 
@@ -234,15 +241,22 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
-    /** Generated mixes for the Home tab. */
+    /**
+     * Generated mixes for the Home tab: made of songs from the sources switched on in the library
+     * menu, while plays and favourites from every source show the taste.
+     */
     @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
-    val mixes: StateFlow<List<Mix>> = combine(history, artistTags, favouriteRows, tracksChanged) { h, tags, f, _ -> Triple(h, tags, f) }
-        .mapLatest { (history, tags, favourites) ->
+    val mixes: StateFlow<List<Mix>> = combine(history, artistTags, favouriteRows, tracksChanged, viewScopes) { h, tags, f, _, scopes ->
+        MixInput(h, tags, f, scopes)
+    }
+        .mapLatest { (history, tags, favourites, scopes) ->
             // Recommendations are a nice-to-have: a bug there must never take the app down.
             runCatching {
                 val favouriteIds = favourites.mapTo(HashSet()) { it.trackId }
-                val candidates = MixCandidates.load(database, history, favouriteIds)
-                Bench.time("mixes from ${candidates.size} songs") { Recommender(candidates, history, tags, favourites = favouriteIds).mixes() }
+                val candidates = MixCandidates.load(database, history, favouriteIds, scopes)
+                Bench.time("mixes from ${candidates.size} songs") {
+                    Recommender(candidates, history, tags, favourites = favouriteIds, pickable = { it.scope in scopes }).mixes()
+                }
             }.onFailure { Log.w(TAG, "Recommender failed", it) }.getOrDefault(emptyList())
         }
         .flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
