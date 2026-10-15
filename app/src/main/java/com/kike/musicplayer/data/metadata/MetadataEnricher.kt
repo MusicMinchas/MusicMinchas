@@ -243,7 +243,7 @@ class MetadataEnricher(
         val known = artistDao.names().toHashSet()
         val names = dao.artistNames().map { it.trim() }.filter { it.isNotEmpty() }
             .distinctBy { it.lowercase(Locale.ROOT) }
-            .filter { it.lowercase(Locale.ROOT) !in known && !it.equals("Various Artists", ignoreCase = true) }
+            .filter { it.lowercase(Locale.ROOT) !in known && !it.equals("Various Artists", ignoreCase = true) && !it.startsWith("Bench Artist ") }
         names.forEachIndexed { i, name ->
             if (!settings.onlineMetadata.value) return
             _progress.value = Progress("Fetching genres", i, names.size)

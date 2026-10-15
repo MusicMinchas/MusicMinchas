@@ -72,7 +72,6 @@ fun SourcesScreen(
     onAddDriveFolder: () -> Unit,
     contentPadding: PaddingValues,
 ) {
-    val library by vm.library.collectAsState()
     val folders by vm.safFolders.collectAsState()
     val account by vm.driveAccount.collectAsState()
     val driveFolders by vm.driveFolders.collectAsState()
@@ -85,7 +84,7 @@ fun SourcesScreen(
     val unplayable by vm.unplayableCount.collectAsState()
     val syncMode by vm.syncMode.collectAsState()
     val lastSync by vm.lastDriveSync.collectAsState()
-    val counts = library.tracks.groupingBy { it.source }.eachCount()
+    val counts by vm.sourceCounts.collectAsState()
     val downloads by vm.downloadTotals.collectAsState()
     var confirmDeleteDownloads by remember { mutableStateOf(false) }
     var confirmDisconnect by remember { mutableStateOf(false) }

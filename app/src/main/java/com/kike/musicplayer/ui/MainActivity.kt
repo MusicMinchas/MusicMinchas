@@ -1,5 +1,8 @@
 package com.kike.musicplayer.ui
 
+import com.kike.musicplayer.playback.PlaybackService
+import kotlinx.coroutines.launch
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.material.icons.Icons
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Text
@@ -137,25 +140,30 @@ class MainActivity : ComponentActivity() {
             }
         }
 
-        val library by libraryVm.library.collectAsState()
         val playlists by libraryVm.playlists.collectAsState()
         val mixes by libraryVm.mixes.collectAsState()
-        val genres by libraryVm.genres.collectAsState()
         val userPlaylists by libraryVm.userPlaylists.collectAsState()
         val showMini = screen !is Screen.NowPlaying && screen !is Screen.Queue && screen !is Screen.DriveFolders
 
         val favouriteIds by playerVm.favourites.collectAsState()
         val downloadProgress by libraryVm.downloadProgress.collectAsState()
-        val artistNames = remember(library) { library.artists.mapTo(HashSet()) { it.name } }
-        val tracksById = remember(library) { library.tracks.associateBy { it.id } }
+        // The playing song and the queue, looked up in the library for Now Playing and the queue.
+        val player by playerVm.state.collectAsState()
+        val trackCache by libraryVm.trackCache.collectAsState()
+        LaunchedEffect(player.current?.mediaId, player.upNext) {
+            libraryVm.cacheTracks(listOfNotNull(player.current?.mediaId).plus(player.upNext.map { it.item.mediaId }).map(PlaybackService::trackIdOf))
+        }
+        val scope = rememberCoroutineScope()
         val navigation = Navigation(
             openArtist = { names ->
-                names.firstOrNull { it != null && it in artistNames }?.let { name ->
-                    if ((screen as? Screen.ArtistDetail)?.name != name) push(Screen.ArtistDetail(name))
+                scope.launch {
+                    libraryVm.firstArtist(names)?.let { name ->
+                        if ((screen as? Screen.ArtistDetail)?.name != name) push(Screen.ArtistDetail(name))
+                    }
                 }
             },
             openAlbum = { key -> if ((screen as? Screen.AlbumDetail)?.key != key) push(Screen.AlbumDetail(key)) },
-            track = { tracksById[it] },
+            track = { trackCache[it] },
         )
         CompositionLocalProvider(
             LocalPlaylists provides PlaylistActions(userPlaylists, libraryVm::addToPlaylist, libraryVm::createPlaylist, libraryVm::nextPlaylistName),
@@ -183,22 +191,9 @@ class MainActivity : ComponentActivity() {
                             onOpenFollowing = { push(Screen.Following) },
                             contentPadding = padding,
                         )
-                        is Screen.AlbumDetail -> {
-                            val full = library.albums.firstOrNull { it.key == screen.key }
-                            val genre = screen.genreKey?.let { key -> genres.firstOrNull { it.key == key } }
-                            val album = genre?.albums?.firstOrNull { it.key == screen.key } ?: full
-                            AlbumScreen(
-                                album, playerVm, ::pop, padding,
-                                note = if (genre != null && full != null && album !== full) {
-                                    "Only ${genre.name} songs · ${full.tracks.size} on the album"
-                                } else null,
-                            )
-                        }
+                        is Screen.AlbumDetail -> AlbumScreen(screen.key, screen.genreKey, libraryVm, playerVm, ::pop, padding)
                         is Screen.ArtistDetail -> ArtistScreen(
-                            library.artists.firstOrNull { it.name == screen.name },
-                            albums = library.albums.filter { it.artist == screen.name }
-                                .sortedWith(compareByDescending<Album> { it.year ?: 0 }.thenBy { it.title.lowercase() }),
-                            libraryVm, playerVm,
+                            screen.name, libraryVm, playerVm,
                             onOpenAlbum = { push(Screen.AlbumDetail(it)) }, onBack = ::pop, contentPadding = padding,
                         )
                         Screen.NowPlaying -> NowPlayingScreen(playerVm, ::pop, { push(Screen.Queue) }, padding)
@@ -221,13 +216,10 @@ class MainActivity : ComponentActivity() {
                         )
                         Screen.Favourites -> TrackListScreen("Favourite Songs", playlists.favourites, playerVm, ::pop, padding)
                         Screen.Replay -> ReplayScreen(libraryVm, playerVm, onOpenAlbum = { push(Screen.AlbumDetail(it)) }, onBack = ::pop, contentPadding = padding)
-                        is Screen.GenreDetail -> {
-                            val genre = genres.firstOrNull { it.key == screen.key }
-                            AlbumListScreen(
-                                genre?.name ?: "", genre?.albums.orEmpty(), playerVm,
-                                onOpenAlbum = { push(Screen.AlbumDetail(it, genreKey = screen.key)) }, onBack = ::pop, contentPadding = padding,
-                            )
-                        }
+                        is Screen.GenreDetail -> GenreScreen(
+                            screen.key, libraryVm, playerVm,
+                            onOpenAlbum = { push(Screen.AlbumDetail(it, genreKey = screen.key)) }, onBack = ::pop, contentPadding = padding,
+                        )
                         is Screen.MixDetail -> {
                             val mix = mixes.firstOrNull { it.id == screen.id }
                             TrackListScreen(mix?.title ?: "", mix?.tracks, playerVm, ::pop, padding)

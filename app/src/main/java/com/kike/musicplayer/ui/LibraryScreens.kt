@@ -1,5 +1,6 @@
 package com.kike.musicplayer.ui
 
+import kotlinx.coroutines.flow.flowOf
 import androidx.compose.runtime.remember
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material3.DropdownMenuItem
@@ -112,9 +113,7 @@ fun LibraryScreen(
     onOpenFollowing: () -> Unit,
     contentPadding: PaddingValues,
 ) {
-    val library by libraryVm.library.collectAsState()
     val playlists by libraryVm.playlists.collectAsState()
-    val genres by libraryVm.genres.collectAsState()
     val results by libraryVm.searchResults.collectAsState()
     val query by libraryVm.query.collectAsState()
     val scanStatus by libraryVm.scanStatus.collectAsState()
@@ -161,25 +160,19 @@ fun LibraryScreen(
                 }
             }
         }
-        if (library.tracks.isEmpty() && scanStatus == null) {
+        val songCount by libraryVm.songCount.collectAsState()
+        val indexing by libraryVm.indexing.collectAsState()
+        if (songCount == 0 && scanStatus == null && !indexing) {
             EmptyLibrary(onOpenSources)
             return@Column
         }
         when (LIBRARY_TABS[tab]) {
             "Home" -> HomeTab(libraryVm, playerVm, onOpenReplay, onOpenMostPlayed, onOpenFavourites, onOpenRecentTracks, onOpenMix, onOpenAlbum)
             "Discover" -> DiscoverTab(libraryVm, onOpenArtist, onOpenAlbum, onOpenFollowing)
-            "Albums" -> AlbumsGrid(library.albums, onOpenAlbum)
-            "Artists" -> {
-                val photos by libraryVm.artistImageUrls.collectAsState()
-                LaunchedEffect(library.artists.size) { libraryVm.prefetchArtistImages() }
-                LazyColumn(Modifier.fillMaxSize()) {
-                    items(library.artists, key = { it.name }) { artist ->
-                        ArtistRow(artist, photos[artist.name.lowercase()]) { onOpenArtist(artist.name) }
-                    }
-                }
-            }
-            "Genres" -> GenresTab(genres, onOpenGenre)
-            "Songs" -> SongsTab(library.tracks, player.current?.mediaId, playerVm)
+            "Albums" -> AlbumsTab(libraryVm, onOpenAlbum)
+            "Artists" -> ArtistsTab(libraryVm, onOpenArtist)
+            "Genres" -> GenresTab(libraryVm.genreList.collectAsState().value, onOpenGenre)
+            "Songs" -> SongsTab(libraryVm, playerVm)
             "Playlists" -> PlaylistsTab(
                 playlists, libraryVm.userPlaylists.collectAsState().value, playerVm,
                 onOpenRecentTracks, onOpenRecentAlbums, onOpenMostPlayed, onOpenFavourites, onNewPlaylist, onOpenPlaylist,
@@ -232,16 +225,16 @@ private const val SEARCH_ALBUMS = "Albums"
 private const val SEARCH_SONGS = "Songs"
 
 @Composable
-private fun ArtistRow(artist: Artist, photo: String?, onClick: () -> Unit) {
+internal fun ArtistRow(name: String, albumCount: Int, songCount: Int, photo: String?, onClick: () -> Unit) {
     Row(
         Modifier.fillMaxWidth().clickable(onClick = onClick).padding(horizontal = 16.dp, vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         ArtistPhoto(photo, Modifier.size(52.dp))
         Column(Modifier.padding(start = 14.dp)) {
-            Text(artist.name, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text(name, maxLines = 1, overflow = TextOverflow.Ellipsis)
             Text(
-                "${count(artist.albumCount, "album")} · ${count(artist.tracks.size, "song")}",
+                "${count(albumCount, "album")} · ${count(songCount, "song")}",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
@@ -290,7 +283,9 @@ private fun SearchResultsList(
     LazyColumn(Modifier.fillMaxSize()) {
         if (artists.isNotEmpty()) {
             item { ResultsHeader("Artists") }
-            items(artists, key = { "ar:" + it.name }) { artist -> ArtistRow(artist, photos[artist.name.lowercase()]) { onOpenArtist(artist.name) } }
+            items(artists, key = { "ar:" + it.name }) { artist ->
+                ArtistRow(artist.name, artist.albumCount, artist.trackCount, photos[artist.name.lowercase()]) { onOpenArtist(artist.name) }
+            }
         }
         if (albums.isNotEmpty()) {
             item { ResultsHeader("Albums") }
@@ -330,30 +325,6 @@ private fun ResultsHeader(text: String) {
     )
 }
 
-/** Genres A–Z with their size; tap for the genre's albums. */
-@Composable
-private fun GenresTab(genres: List<Genre>, onOpenGenre: (String) -> Unit) {
-    LazyColumn(Modifier.fillMaxSize()) {
-        items(genres, key = { it.key }) { genre ->
-            Row(
-                Modifier.fillMaxWidth().clickable { onOpenGenre(genre.key) }.padding(horizontal = 16.dp, vertical = 8.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Artwork(genre.albums.firstNotNullOfOrNull { it.artworkUri }, size = 52.dp)
-                Column(Modifier.padding(start = 12.dp)) {
-                    Text(genre.name, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                    Text(
-                        listOf(count(genre.artistCount, "artist"), count(genre.albums.size, "album"), count(genre.songCount, "song"))
-                            .joinToString(" · "),
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
-            }
-        }
-    }
-}
-
 @Composable
 private fun EmptyLibrary(onOpenSources: () -> Unit) {
     Column(
@@ -369,28 +340,6 @@ private fun EmptyLibrary(onOpenSources: () -> Unit) {
         )
         Spacer(Modifier.height(16.dp))
         Button(onClick = onOpenSources) { Text("Add music sources") }
-    }
-}
-
-@Composable
-private fun SongsTab(tracks: List<Track>, currentId: String?, playerVm: PlayerViewModel) {
-    LazyColumn(Modifier.fillMaxSize()) {
-        item {
-            PlayShuffleRow(
-                onPlay = { playerVm.playTracks(tracks, 0) },
-                onShuffle = { playerVm.playTracks(tracks, 0, shuffle = true) },
-                enabled = tracks.isNotEmpty(),
-            )
-        }
-        itemsIndexed(tracks, key = { _, t -> t.id }) { index, track ->
-            TrackRow(
-                track = track,
-                isCurrent = track.id == currentId,
-                onClick = { playerVm.playTracks(tracks, index) },
-                onPlayNext = { playerVm.playNext(track) },
-                onAddToQueue = { playerVm.addToQueue(track) },
-            )
-        }
     }
 }
 
@@ -433,21 +382,28 @@ internal fun AlbumsGrid(albums: List<Album>, onOpenAlbum: (String) -> Unit) {
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun AlbumScreen(
-    album: Album?,
+    albumKey: String,
+    /** Opened from a genre: only the album's songs of that genre. */
+    genreKey: String?,
+    libraryVm: LibraryViewModel,
     playerVm: PlayerViewModel,
     onBack: () -> Unit,
     contentPadding: PaddingValues,
-    /** Shown under the album info, e.g. when only some of its songs are listed. */
-    note: String? = null,
 ) {
     val player by playerVm.state.collectAsState()
+    val albumOrNull by remember(albumKey) { libraryVm.album(albumKey) }.collectAsState(null)
+    val tracks by remember(albumKey, genreKey) { libraryVm.albumTracks(albumKey, genreKey) }.collectAsState(emptyList())
+    val genre by remember(genreKey) { genreKey?.let { libraryVm.genre(it) } ?: flowOf(null) }.collectAsState(null)
     Column(Modifier.fillMaxSize().padding(contentPadding)) {
         TopAppBar(
             windowInsets = NoTopInsets,
-            title = { Text(album?.title ?: "", maxLines = 1, overflow = TextOverflow.Ellipsis) },
+            title = { Text(albumOrNull?.title ?: "", maxLines = 1, overflow = TextOverflow.Ellipsis) },
             navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back") } },
         )
-        if (album == null) return@Column
+        val album = albumOrNull ?: return@Column
+        // Shown under the album info when only some of its songs are listed.
+        val note = genre?.takeIf { tracks.isNotEmpty() && tracks.size < album.trackCount }
+            ?.let { "Only ${it.name} songs · ${album.trackCount} on the album" }
         LazyColumn(Modifier.fillMaxSize()) {
             item {
                 Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -456,8 +412,8 @@ fun AlbumScreen(
                         Text(album.title, style = MaterialTheme.typography.titleLarge)
                         ArtistAlbumText(album.artist, listOf(album.artist), style = MaterialTheme.typography.bodyLarge)
                         Text(
-                            listOfNotNull(album.year?.toString(), count(album.tracks.size, "song"),
-                                formatTime(album.tracks.sumOf { it.durationMs })).joinToString(" · "),
+                            listOfNotNull(album.year?.toString(), count(tracks.size, "song"),
+                                formatTime(tracks.sumOf { it.durationMs })).joinToString(" · "),
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
@@ -474,17 +430,17 @@ fun AlbumScreen(
             }
             item {
                 PlayShuffleRow(
-                    onPlay = { playerVm.playTracks(album.tracks, 0) },
-                    onShuffle = { playerVm.playTracks(album.tracks, 0, shuffle = true) },
-                    enabled = true,
-                    downloads = album.tracks,
+                    onPlay = { playerVm.playTracks(tracks, 0) },
+                    onShuffle = { playerVm.playTracks(tracks, 0, shuffle = true) },
+                    enabled = tracks.isNotEmpty(),
+                    downloads = tracks,
                 )
             }
-            itemsIndexed(album.tracks, key = { _, t -> t.id }) { index, track ->
+            itemsIndexed(tracks, key = { _, t -> t.id }) { index, track ->
                 TrackRow(
                     track = track,
                     isCurrent = track.id == player.current?.mediaId,
-                    onClick = { playerVm.playTracks(album.tracks, index) },
+                    onClick = { playerVm.playTracks(tracks, index) },
                     onPlayNext = { playerVm.playNext(track) },
                     onAddToQueue = { playerVm.addToQueue(track) },
                     leading = track.trackNumber?.toString() ?: "–",

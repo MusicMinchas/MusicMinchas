@@ -5,6 +5,7 @@ import coil3.ImageLoader
 import coil3.PlatformContext
 import coil3.SingletonImageLoader
 import coil3.network.okhttp.OkHttpNetworkFetcherFactory
+import com.kike.musicplayer.data.LibraryIndexer
 import com.kike.musicplayer.data.LibraryRepository
 import com.kike.musicplayer.data.Settings
 import com.kike.musicplayer.data.db.AppDatabase
@@ -31,6 +32,7 @@ import com.squareup.moshi.kotlin.reflect.KotlinJsonAdapterFactory
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.launch
 import okhttp3.Dispatcher
 import okhttp3.OkHttpClient
 import retrofit2.Retrofit
@@ -55,8 +57,15 @@ class MusicApp : Application(), SingletonImageLoader.Factory {
 /** Hand-wired dependencies; small enough not to need a DI framework. */
 class AppContainer(app: Application) {
     val appScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
-    val settings = Settings(app)
-    val database = AppDatabase.create(app)
+
+    /** Debug benchmark mode: synthetic library of this many songs on separate data (see [Bench]). */
+    val benchSize: Int? = Bench.size(app)
+    private val suffix = if (benchSize != null) "-bench" else ""
+
+    val settings = Settings(app, "settings$suffix")
+    val database = AppDatabase.create(app, if (benchSize != null) "bench.db" else "music.db").also { db ->
+        benchSize?.let { n -> appScope.launch { Bench.seed(db, n) } }
+    }
     val driveAuth = DriveAuth(app, settings)
 
     private val moshi = Moshi.Builder().add(KotlinJsonAdapterFactory()).build()
@@ -105,6 +114,9 @@ class AppContainer(app: Application) {
         database.discover(), database.artistInfo(), settings, metadataHttp, moshi, BuildConfig.TICKETMASTER_KEY, appScope,
     )
 
+    /** Album, artist and genre summaries for paging large libraries. */
+    val indexer = LibraryIndexer(database, appScope).also { it.start() }
+
     val enricher = MetadataEnricher(app, database.tracks(), settings, driveAuth, driveScanHttp, database.artistInfo(), musicBrainz, coverArt)
 
     /** Lets Sonos fetch tracks from the phone while casting. */
@@ -117,7 +129,7 @@ class AppContainer(app: Application) {
 
     val downloader = Downloader(app, database.tracks(), driveHttp, appScope).also { it.verify() }
 
-    val lastFm = LastFm(app, LastFmClient(baseHttp, moshi, BuildConfig.LASTFM_API_KEY, BuildConfig.LASTFM_SECRET))
+    val lastFm = LastFm(app, LastFmClient(baseHttp, moshi, BuildConfig.LASTFM_API_KEY, BuildConfig.LASTFM_SECRET), "lastfm$suffix")
     val scrobbler = Scrobbler(lastFm, database.lastFmOutbox(), database.tracks(), appScope).also { scrobbler ->
         lastFm.onConnected = scrobbler::flush
         scrobbler.flush() // whatever was left unsent last time

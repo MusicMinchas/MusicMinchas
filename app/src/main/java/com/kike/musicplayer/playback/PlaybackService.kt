@@ -27,6 +27,7 @@ import androidx.media3.session.MediaSession.MediaItemsWithStartPosition
 import com.google.common.collect.ImmutableList
 import com.google.common.util.concurrent.ListenableFuture
 import com.kike.musicplayer.container
+import com.kike.musicplayer.data.SongSearch
 import com.kike.musicplayer.data.db.PlayHistory
 import com.kike.musicplayer.data.db.SessionState
 import com.kike.musicplayer.data.db.Track
@@ -71,6 +72,7 @@ class PlaybackService : MediaLibraryService(), CastHost {
     private var castWifiLock: WifiManager.WifiLock? = null
 
     private val dao by lazy { container.database.tracks() }
+    private val browse by lazy { container.database.browse() }
     private val queueDao by lazy { container.database.queue() }
     private val historyDao by lazy { container.database.history() }
 
@@ -471,21 +473,19 @@ class PlaybackService : MediaLibraryService(), CastHost {
             pageSize: Int,
             params: LibraryParams?,
         ): ListenableFuture<LibraryResult<ImmutableList<MediaItem>>> = scope.future {
+            // Songs and albums come a page at a time from the database; an album's songs whole.
             val children: List<MediaItem> = when {
                 parentId == ROOT -> listOf(
                     browsableItem(SONGS, "Songs", type = MediaMetadata.MEDIA_TYPE_FOLDER_MIXED),
                     browsableItem(ALBUMS, "Albums", type = MediaMetadata.MEDIA_TYPE_FOLDER_ALBUMS),
                 )
-                parentId == SONGS -> dao.getAll().map { it.toMediaItem() }
-                parentId == ALBUMS -> dao.getAll().groupBy { it.albumKey }.values
-                    .map { tracks -> tracks.first() }
-                    .sortedBy { (it.album ?: "").lowercase() }
-                    .map { t ->
-                        browsableItem(
-                            ALBUM_PREFIX + t.albumKey, t.album ?: "Unknown album", t.albumArtist ?: t.artist,
-                            t.artworkUri, MediaMetadata.MEDIA_TYPE_ALBUM,
-                        )
-                    }
+                parentId == SONGS -> return@future pageResult(browse.songsFrom(page * pageSize, pageSize).map { it.toMediaItem() }, params)
+                parentId == ALBUMS -> return@future pageResult(
+                    browse.albumsFrom(page * pageSize, pageSize).map { a ->
+                        browsableItem(ALBUM_PREFIX + a.key, a.title, a.artist, a.artworkUri, MediaMetadata.MEDIA_TYPE_ALBUM)
+                    },
+                    params,
+                )
                 parentId.startsWith(ALBUM_PREFIX) -> {
                     val key = parentId.removePrefix(ALBUM_PREFIX)
                     albumTracks(key).map { it.toMediaItem(ALBUM_TRACK_PREFIX + key + SEP + it.id) }
@@ -494,7 +494,7 @@ class PlaybackService : MediaLibraryService(), CastHost {
             }
             val from = (page * pageSize).coerceAtMost(children.size)
             val to = (from + pageSize).coerceAtMost(children.size)
-            LibraryResult.ofItemList(ImmutableList.copyOf(children.subList(from, to)), params)
+            pageResult(children.subList(from, to), params)
         }
 
         override fun onGetItem(
@@ -551,7 +551,8 @@ class PlaybackService : MediaLibraryService(), CastHost {
                 val context = if (id.startsWith(ALBUM_TRACK_PREFIX)) {
                     albumTracks(id.removePrefix(ALBUM_TRACK_PREFIX).substringBeforeLast(SEP))
                 } else if (controller.packageName != packageName) {
-                    dao.getAll()
+                    // The library A–Z from the tapped song on, like the Songs tab.
+                    dao.get(trackId)?.let { browse.songsFromTitle(it.indexTitle, it.id, CONTEXT_LIMIT) }
                 } else null
                 val index = context?.indexOfFirst { it.id == trackId } ?: -1
                 if (context != null && index >= 0) {
@@ -576,16 +577,13 @@ class PlaybackService : MediaLibraryService(), CastHost {
         return items.mapNotNull { item -> byId[trackIdOf(item.mediaId)]?.toMediaItem() ?: item.takeIf { it.localConfiguration != null } }
     }
 
-    private suspend fun albumTracks(albumKey: String): List<Track> =
-        dao.getAll().filter { it.albumKey == albumKey }.sortedWith(albumTrackOrder)
+    private fun pageResult(items: List<MediaItem>, params: LibraryParams?) =
+        LibraryResult.ofItemList(ImmutableList.copyOf(items), params)
 
-    private suspend fun search(query: String): List<Track> {
-        val q = query.trim().lowercase()
-        if (q.isEmpty()) return emptyList()
-        return dao.getAll().filter { t ->
-            listOfNotNull(t.title, t.artist, t.album).any { it.lowercase().contains(q) }
-        }
-    }
+    private suspend fun albumTracks(albumKey: String): List<Track> =
+        browse.tracksOfAlbums(listOf(albumKey)).sortedWith(albumTrackOrder)
+
+    private suspend fun search(query: String): List<Track> = SongSearch.find(browse, query, SEARCH_LIMIT)
 
     private object Futures {
         fun <T> immediate(value: T): ListenableFuture<T> = com.google.common.util.concurrent.Futures.immediateFuture(value)
@@ -593,6 +591,9 @@ class PlaybackService : MediaLibraryService(), CastHost {
 
     companion object {
         private const val TAG = "PlaybackService"
+        /** Songs queued when another app (e.g. Android Auto) plays one from the Songs list. */
+        private const val CONTEXT_LIMIT = 1000
+        private const val SEARCH_LIMIT = 200
         private const val TRACKER_TICK_MS = 5_000L
         private const val UNKNOWN_LENGTH_THRESHOLD_MS = 30_000L
         private const val ROOT = "root"

@@ -37,7 +37,6 @@ class LibraryRepository(
     private val downloader: Downloader,
     private val scope: CoroutineScope,
 ) {
-    val tracks: Flow<List<Track>> = dao.observeAll()
     val pendingMetadata: Flow<Int> = dao.observePendingCount()
     val unplayableCount: Flow<Int> = dao.observeUnplayableCount()
     val metadataProgress = enricher.progress

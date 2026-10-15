@@ -1,5 +1,9 @@
 package com.kike.musicplayer.ui
 
+import androidx.paging.compose.itemKey
+import androidx.paging.compose.collectAsLazyPagingItems
+import kotlinx.coroutines.delay
+import androidx.compose.runtime.produceState
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -60,6 +64,7 @@ import com.kike.musicplayer.data.db.Track
 private const val BY_SONG = "Songs"
 private const val BY_ARTIST = "Artists"
 private const val BY_ALBUM = "Albums"
+private const val SEARCH_DELAY_MS = 150L
 
 /**
  * Making a playlist, or adding to [existing]: every song, narrowed by a search on song title, artist
@@ -76,22 +81,19 @@ fun NewPlaylistScreen(
     onBack: () -> Unit,
     contentPadding: PaddingValues,
 ) {
-    val library by libraryVm.library.collectAsState()
     var query by rememberSaveable { mutableStateOf("") }
     var fields by rememberSaveable { mutableStateOf(setOf<String>()) }
     // Selected track ids, in the order they were ticked.
     val selected = remember { mutableStateListOf<String>() }
     var naming by remember { mutableStateOf(false) }
 
-    val shown = remember(library.tracks, query, fields) {
-        val needle = query.trim().lowercase()
-        if (needle.isEmpty()) library.tracks
-        else library.tracks.filter { t ->
-            fun by(field: String) = fields.isEmpty() || field in fields
-            (by(BY_SONG) && needle in t.title.lowercase()) ||
-                (by(BY_ARTIST) && listOfNotNull(t.artist, t.albumArtist).any { needle in it.lowercase() }) ||
-                (by(BY_ALBUM) && t.album?.lowercase()?.contains(needle) == true)
-        }
+    // Every song page by page; with a search, the matches from the database.
+    val allSongs = libraryVm.songPages.collectAsLazyPagingItems()
+    val found by produceState<List<Track>?>(null, query, fields) {
+        if (query.isBlank()) { value = null; return@produceState }
+        delay(SEARCH_DELAY_MS)
+        fun by(field: String) = fields.isEmpty() || field in fields
+        value = libraryVm.searchSongsBy(query, by(BY_SONG), by(BY_ARTIST), by(BY_ALBUM))
     }
 
     Box(Modifier.fillMaxSize().padding(contentPadding)) {
@@ -131,10 +133,20 @@ fun NewPlaylistScreen(
             }
             LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 96.dp)) {
                 val inPlaylist = existing?.tracks.orEmpty().mapTo(HashSet()) { it.id }
-                items(shown, key = { it.id }) { track ->
+                @Composable
+                fun row(track: Track) {
                     val already = track.id in inPlaylist
                     SelectableTrackRow(track, already || track.id in selected, enabled = !already) {
                         if (track.id in selected) selected.remove(track.id) else selected.add(track.id)
+                    }
+                }
+                val results = found
+                if (results != null) {
+                    items(results, key = { it.id }) { row(it) }
+                } else {
+                    items(allSongs.itemCount, key = allSongs.itemKey { it.id }) { index ->
+                        val track = allSongs[index]
+                        if (track == null) RowPlaceholder() else row(track)
                     }
                 }
             }

@@ -2,6 +2,8 @@ package com.kike.musicplayer.data.db
 
 import androidx.room.ColumnInfo
 import androidx.room.Entity
+import androidx.room.Fts4
+import androidx.room.FtsOptions
 import androidx.room.Index
 import androidx.room.PrimaryKey
 
@@ -9,7 +11,13 @@ import androidx.room.PrimaryKey
  * One playable audio file, from any source. Scanners create rows with whatever the source knows;
  * the metadata pipeline fills in tags and artwork later and records its progress in [metadataState].
  */
-@Entity(tableName = "tracks", indices = [Index("source"), Index("metadataState")])
+@Entity(
+    tableName = "tracks",
+    indices = [
+        Index("source"), Index("metadataState"), Index("indexAlbum"), Index("indexArtist"), Index("indexGenre"),
+        Index("indexTitle"),
+    ],
+)
 data class Track(
     /** "saf:<document uri>" or "drive:<file id>". */
     @PrimaryKey val id: String,
@@ -44,6 +52,16 @@ data class Track(
     @ColumnInfo(defaultValue = "0") val downloadState: Int = NOT_DOWNLOADED,
     /** Drive's MD5 of the file: a different one on a later sync means the file changed. */
     val checksum: String? = null,
+    /**
+     * Copies of [albumKey], the artist the song is listed under and its genre key, kept up to date
+     * by LibraryIndexer (empty until it has seen the song), so the database can group and page
+     * albums, artists and genres. Code that needs these values computes them, never reads these.
+     */
+    @ColumnInfo(defaultValue = "") val indexAlbum: String = "",
+    @ColumnInfo(defaultValue = "") val indexArtist: String = "",
+    @ColumnInfo(defaultValue = "") val indexGenre: String = "",
+    /** The title for sorting the Songs tab (lower case, no accents); empty while not indexed or unplayable. */
+    @ColumnInfo(defaultValue = "") val indexTitle: String = "",
 ) {
     val displayArtist: String get() = artist ?: albumArtist ?: "Unknown artist"
     val albumKey: String get() = albumKeyOf(album, albumArtist ?: artist)
@@ -256,3 +274,72 @@ data class DiscoverItem(
         const val NEWS = 2
     }
 }
+
+/** An album for the Albums tab, kept by LibraryIndexer from the songs with this [key]. */
+@Entity(tableName = "album_index", indices = [Index("sortKey"), Index("artist")])
+data class AlbumIndex(
+    @PrimaryKey val key: String,
+    val title: String,
+    val artist: String,
+    val year: Int?,
+    val artworkUri: String?,
+    val trackCount: Int,
+    val durationMs: Long,
+    /** Order of the Albums tab: albums without a name last, then by title (lower case, no accents). */
+    val sortKey: String,
+)
+
+/** An artist for the Artists tab: the songs whose album artist (else artist) is [name]. */
+@Entity(tableName = "artist_index", indices = [Index("sortKey")])
+data class ArtistIndex(
+    @PrimaryKey val name: String,
+    val trackCount: Int,
+    val albumCount: Int,
+    val sortKey: String,
+)
+
+/** A genre for the Genres tab; [key] is lower-cased, [name] the most common spelling. */
+@Entity(tableName = "genre_index", indices = [Index("sortKey")])
+data class GenreIndex(
+    @PrimaryKey val key: String,
+    val name: String,
+    val songCount: Int,
+    val artistCount: Int,
+    val albumCount: Int,
+    val sortKey: String,
+    /** A cover from one of the genre's albums, for the Genres tab. */
+    val artworkUri: String?,
+)
+
+/**
+ * Songs added, changed or removed since LibraryIndexer last ran, written by database triggers so
+ * that every way of changing a song is seen. The old index values tell which album, artist and
+ * genre a changed or removed song was listed under before.
+ */
+@Entity(tableName = "index_dirty")
+data class IndexDirty(
+    @PrimaryKey(autoGenerate = true) val seq: Long = 0,
+    val trackId: String?,
+    val oldAlbum: String?,
+    val oldArtist: String?,
+    val oldGenre: String?,
+)
+
+/**
+ * Full-text search over song titles, album titles and artist names (search box), keyed by the
+ * row id of the song, album or artist (docid). Database triggers keep them in step, only when a
+ * title or name changes. The Unicode tokenizer ignores case and accents and matches word starts,
+ * so a search stays an index lookup however large the library is.
+ */
+@Fts4(tokenizer = FtsOptions.TOKENIZER_UNICODE61)
+@Entity(tableName = "tracks_fts")
+data class TrackFts(val title: String)
+
+@Fts4(tokenizer = FtsOptions.TOKENIZER_UNICODE61)
+@Entity(tableName = "album_fts")
+data class AlbumFts(val title: String)
+
+@Fts4(tokenizer = FtsOptions.TOKENIZER_UNICODE61)
+@Entity(tableName = "artist_fts")
+data class ArtistFts(val name: String)
+

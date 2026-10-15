@@ -1,5 +1,8 @@
 package com.kike.musicplayer.ui
 
+import com.kike.musicplayer.playback.PlaybackService
+import kotlinx.coroutines.launch
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -85,7 +88,7 @@ fun DiscoverTab(
     val items by vm.discoverItems.collectAsState()
     val refreshing by vm.discoverRefreshing.collectAsState()
     val country by vm.concertCountry.collectAsState()
-    val library by vm.library.collectAsState()
+    val scope = rememberCoroutineScope()
     val photos by vm.artistImageUrls.collectAsState()
     val uriHandler = LocalUriHandler.current
     var pickCountry by remember { mutableStateOf(false) }
@@ -122,10 +125,10 @@ fun DiscoverTab(
                     LazyRow(contentPadding = PaddingValues(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                         items(releases, key = { it.id }) { release ->
                             ReleaseCard(release, photos[release.artist.lowercase()], today) {
-                                val inLibrary = library.albums.firstOrNull {
-                                    it.artist == release.artist && Names.comparable(it.title) == Names.comparable(release.title)
+                                scope.launch {
+                                    val inLibrary = vm.albumInLibrary(release.artist, release.title)
+                                    if (inLibrary != null) onOpenAlbum(inLibrary) else open(release.url)
                                 }
-                                if (inLibrary != null) onOpenAlbum(inLibrary.key) else open(release.url)
                             }
                         }
                     }

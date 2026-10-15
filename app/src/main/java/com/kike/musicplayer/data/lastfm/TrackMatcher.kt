@@ -1,6 +1,9 @@
 package com.kike.musicplayer.data.lastfm
 
 import com.kike.musicplayer.data.db.Track
+import com.kike.musicplayer.data.db.TrackDao
+import com.kike.musicplayer.data.db.byArtistNames
+import com.kike.musicplayer.data.db.byRecordingIds
 import java.text.Normalizer
 
 /**
@@ -60,6 +63,19 @@ class TrackMatcher(tracks: List<Track>) {
     }
 
     companion object {
+        /**
+         * A matcher over just the library songs that can match these scrobbles: those by one of
+         * their artists (however spelled) or with one of their MusicBrainz recording IDs, so a
+         * large library is never loaded whole.
+         */
+        suspend fun forScrobbles(dao: TrackDao, artists: Collection<String>, recordingIds: Collection<String>): TrackMatcher {
+            val wanted = artists.mapTo(HashSet()) { looseArtist(it) }
+            val names = dao.artistPairs().flatMap { listOfNotNull(it.artist, it.albumArtist) }.distinct()
+                .filter { looseArtist(it) in wanted }
+            val tracks = dao.byArtistNames(names) + dao.byRecordingIds(recordingIds)
+            return TrackMatcher(tracks.distinctBy { it.id })
+        }
+
         private fun key(artist: String, title: String) = "$artist\u0001$title"
 
         /** Lower case, no accents, "&" as "and", punctuation as single spaces, no leading "the". */

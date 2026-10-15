@@ -28,8 +28,8 @@ data class LastFmState(
  * so the user signs in on Last.fm's own page and the app never sees the password. The session key
  * it gets doesn't expire unless the user revokes access on Last.fm.
  */
-class LastFm(context: Context, val client: LastFmClient) {
-    private val prefs = context.getSharedPreferences("lastfm", Context.MODE_PRIVATE)
+class LastFm(context: Context, val client: LastFmClient, prefsName: String = "lastfm") {
+    private val prefs = context.getSharedPreferences(prefsName, Context.MODE_PRIVATE)
     private val mutex = Mutex()
 
     private val _state = MutableStateFlow(

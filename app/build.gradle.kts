@@ -33,8 +33,8 @@ android {
         applicationId = "com.kike.musicplayer"
         minSdk = 30
         targetSdk = 36
-        versionCode = 47
-        versionName = "1.27"
+        versionCode = 48
+        versionName = "1.28"
         buildConfigField("String", "LASTFM_API_KEY", "\"${lastFmProps.getProperty("apiKey", "")}\"")
         buildConfigField("String", "LASTFM_SECRET", "\"${lastFmProps.getProperty("sharedSecret", "")}\"")
         buildConfigField("String", "TICKETMASTER_KEY", "\"${ticketmasterProps.getProperty("apiKey", "")}\"")
@@ -119,6 +119,9 @@ dependencies {
     implementation("androidx.room:room-runtime:$room")
     implementation("androidx.room:room-ktx:$room")
     ksp("androidx.room:room-compiler:$room")
+    implementation("androidx.room:room-paging:$room")
+    // Large libraries: lists load page by page
+    implementation("androidx.paging:paging-compose:3.3.6")
 
     // Drag-to-reorder for the queue
     implementation("sh.calvin.reorderable:reorderable:3.1.0")
