@@ -62,8 +62,8 @@ data class Track(
     @ColumnInfo(defaultValue = "") val indexGenre: String = "",
     /** The title for sorting the Songs tab (lower case, no accents); empty while not indexed or unplayable. */
     @ColumnInfo(defaultValue = "") val indexTitle: String = "",
-    /** [SCOPE_OWN] or [SCOPE_SERVER] ([scopeOf] the source), for listing each on its own. */
-    @ColumnInfo(defaultValue = "0") val scope: Int = SCOPE_OWN,
+    /** [scopeOf] the source, for listing each source on its own (kept right by LibraryIndexer). */
+    @ColumnInfo(defaultValue = "0") val scope: Int = SCOPE_LOCAL,
 ) {
     val displayArtist: String get() = artist ?: albumArtist ?: "Unknown artist"
     val albumKey: String get() = albumKeyOf(album, albumArtist ?: artist)
@@ -76,11 +76,22 @@ data class Track(
         /** A Subsonic / Navidrome server: id "subsonic:<song id>", uri "subsonic:<song id>". */
         const val SOURCE_SUBSONIC = "subsonic"
 
-        /** The user's own music (device folders, Drive) and the server's are listed apart by default. */
-        const val SCOPE_OWN = 0
+        /**
+         * Where a song comes from, for switching each source on or off in the library: folders on
+         * the phone, Google Drive, the Subsonic server. Set by LibraryIndexer from [source].
+         */
+        const val SCOPE_LOCAL = 0
         const val SCOPE_SERVER = 1
+        const val SCOPE_DRIVE = 2
+        val SCOPES = listOf(SCOPE_LOCAL, SCOPE_DRIVE, SCOPE_SERVER)
+        /** The user's own files (the server's songs can't play yet). */
+        val OWN_SCOPES = listOf(SCOPE_LOCAL, SCOPE_DRIVE)
 
-        fun scopeOf(source: String) = if (source == SOURCE_SUBSONIC) SCOPE_SERVER else SCOPE_OWN
+        fun scopeOf(source: String) = when (source) {
+            SOURCE_SUBSONIC -> SCOPE_SERVER
+            SOURCE_DRIVE -> SCOPE_DRIVE
+            else -> SCOPE_LOCAL
+        }
 
         const val NOT_DOWNLOADED = 0
         const val DOWNLOAD_QUEUED = 1
@@ -292,7 +303,7 @@ data class DiscoverItem(
 @Entity(tableName = "album_index", primaryKeys = ["key", "scope"], indices = [Index("sortKey"), Index("artist")])
 data class AlbumIndex(
     val key: String,
-    @ColumnInfo(defaultValue = "0") val scope: Int = Track.SCOPE_OWN,
+    @ColumnInfo(defaultValue = "0") val scope: Int = Track.SCOPE_LOCAL,
     val title: String,
     val artist: String,
     val year: Int?,
@@ -307,7 +318,7 @@ data class AlbumIndex(
 @Entity(tableName = "artist_index", primaryKeys = ["name", "scope"], indices = [Index("sortKey")])
 data class ArtistIndex(
     val name: String,
-    @ColumnInfo(defaultValue = "0") val scope: Int = Track.SCOPE_OWN,
+    @ColumnInfo(defaultValue = "0") val scope: Int = Track.SCOPE_LOCAL,
     val trackCount: Int,
     val albumCount: Int,
     val sortKey: String,
@@ -317,7 +328,7 @@ data class ArtistIndex(
 @Entity(tableName = "genre_index", primaryKeys = ["key", "scope"], indices = [Index("sortKey")])
 data class GenreIndex(
     val key: String,
-    @ColumnInfo(defaultValue = "0") val scope: Int = Track.SCOPE_OWN,
+    @ColumnInfo(defaultValue = "0") val scope: Int = Track.SCOPE_LOCAL,
     val name: String,
     val songCount: Int,
     val artistCount: Int,

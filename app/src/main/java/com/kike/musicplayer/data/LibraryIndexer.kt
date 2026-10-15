@@ -92,8 +92,9 @@ class LibraryIndexer(private val db: AppDatabase, private val scope: CoroutineSc
                                 for (t in dao.tracks(ids)) {
                                     val (album, artist, genre) = keysOf(t, tags)
                                     val title = if (album.isEmpty()) "" else sortText(t.title)
-                                    if (album != t.indexAlbum || artist != t.indexArtist || genre != t.indexGenre || title != t.indexTitle) {
-                                        dao.setIndex(t.id, album, artist, genre, title)
+                                    val scope = Track.scopeOf(t.source)
+                                    if (album != t.indexAlbum || artist != t.indexArtist || genre != t.indexGenre || title != t.indexTitle || scope != t.scope) {
+                                        dao.setIndex(t.id, album, artist, genre, title, scope)
                                     }
                                     albums += album
                                     artists += artist
@@ -165,7 +166,7 @@ class LibraryIndexer(private val db: AppDatabase, private val scope: CoroutineSc
         /** Below SQLite's limit of bound variables per statement. */
         private const val CHUNK = 500
         private const val DEBOUNCE_MS = 500L
-        private val SCOPES = listOf(Track.SCOPE_OWN, Track.SCOPE_SERVER)
+        private val SCOPES = Track.SCOPES
         const val UNKNOWN_ALBUM = "Unknown album"
         const val UNKNOWN_ARTIST = "Unknown artist"
 
@@ -212,7 +213,7 @@ class LibraryIndexer(private val db: AppDatabase, private val scope: CoroutineSc
         }
 
         /** Raised when [sortText] or the keys change, so everything is indexed again once. */
-        const val VERSION = 2
+        const val VERSION = 3
 
         fun genreName(key: String, spelling: String?): String = when {
             key == UNKNOWN_GENRE -> "Unknown genre"

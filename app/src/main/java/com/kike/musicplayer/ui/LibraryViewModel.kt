@@ -9,7 +9,6 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.kike.musicplayer.container
 import com.kike.musicplayer.data.DriveSyncMode
-import com.kike.musicplayer.data.LibraryView
 import com.kike.musicplayer.Bench
 import com.kike.musicplayer.data.db.getByIds
 import com.kike.musicplayer.data.db.Favourite
@@ -134,21 +133,29 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
     private val settings = container.settings
     private val driveAuth = container.driveAuth
 
-    /** Whether some of the library's songs come from a Subsonic server (then the view can be picked). */
-    val hasServerSongs: StateFlow<Boolean> = container.database.browse().observeSourceCounts()
-        .map { counts -> counts.any { it.source == Track.SOURCE_SUBSONIC && it.count > 0 } }
+    /** The sources (Track scopes) that have songs in the library, in menu order. */
+    val availableScopes: StateFlow<List<Int>> = container.database.browse().observeSourceCounts()
+        .map { counts ->
+            val present = counts.filter { it.count > 0 }.mapTo(HashSet()) { Track.scopeOf(it.source) }
+            Track.SCOPES.filter { it in present }
+        }
         .distinctUntilChanged()
-        .stateIn(viewModelScope, SharingStarted.Eagerly, settings.libraryView.value != LibraryView.OWN)
+        .stateIn(viewModelScope, SharingStarted.Eagerly, Track.SCOPES)
 
-    /** Whose music the library lists: always the user's own while there are no server songs. */
-    val libraryView: StateFlow<LibraryView> = combine(settings.libraryView, hasServerSongs) { view, server ->
-        if (server) view else LibraryView.OWN
-    }.stateIn(viewModelScope, SharingStarted.Eagerly, settings.libraryView.value)
+    /** Sources switched off in the library menu. */
+    val hiddenScopes: StateFlow<Set<Int>> = settings.hiddenScopes
 
-    fun setLibraryView(view: LibraryView) = settings.setLibraryView(view)
+    /** Switches a source on or off; the last one shown stays on. */
+    fun toggleScope(scope: Int) {
+        val hidden = settings.hiddenScopes.value
+        val next = if (scope in hidden) hidden - scope else hidden + scope
+        if (availableScopes.value.any { it !in next }) settings.setHiddenScopes(next)
+    }
 
-    private val viewScopes: StateFlow<List<Int>> = libraryView.map { it.scopes }
-        .stateIn(viewModelScope, SharingStarted.Eagerly, settings.libraryView.value.scopes)
+    /** The sources the library lists: those with songs, minus the switched-off ones (never none). */
+    private val viewScopes: StateFlow<List<Int>> = combine(availableScopes, settings.hiddenScopes) { available, hidden ->
+        available.filter { it !in hidden }.ifEmpty { available }.ifEmpty { Track.SCOPES }
+    }.distinctUntilChanged().stateIn(viewModelScope, SharingStarted.Eagerly, Track.SCOPES)
 
     private val _query = MutableStateFlow("")
     val query: StateFlow<String> = _query.asStateFlow()
@@ -219,7 +226,7 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
         if (keys.isEmpty()) return emptyList()
         val albumKeys = keys.map { it.second }.distinct()
         val summaries = browse.albumsByKeys(albumKeys).associateBy { it.key }
-        val songs = browse.tracksOfAlbums(albumKeys, LibraryView.ALL.scopes).groupBy { it.scope to it.indexAlbum }
+        val songs = browse.tracksOfAlbums(albumKeys, Track.SCOPES).groupBy { it.scope to it.indexAlbum }
         return keys.mapNotNull { key ->
             val a = summaries[key.second] ?: return@mapNotNull null
             Album(a.key, a.title, a.artist, a.year, a.artworkUri, songs[key].orEmpty().sortedWith(albumTrackOrder))
@@ -273,7 +280,7 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
 
     /** The library album by this artist with this title (ignoring case, accents and punctuation), if any. */
     suspend fun albumInLibrary(artist: String, title: String): String? =
-        browse.observeArtistAlbums(artist, LibraryView.ALL.scopes).first()
+        browse.observeArtistAlbums(artist, Track.SCOPES).first()
             .firstOrNull { com.kike.musicplayer.data.discover.Names.comparable(it.title) == com.kike.musicplayer.data.discover.Names.comparable(title) }?.key
 
     /**
@@ -605,7 +612,6 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
     fun disconnectSubsonic() = viewModelScope.launch {
         container.serverLibrary.removeAll()
         subsonic.disconnect()
-        settings.setLibraryView(LibraryView.OWN)
     }
 
     private val serverLibrary = container.serverLibrary

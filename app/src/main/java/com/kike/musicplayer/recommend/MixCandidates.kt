@@ -19,7 +19,7 @@ object MixCandidates {
     private const val TOP_ARTIST_SONGS = 6_000
     private const val SAMPLE = 8_000
     /** Server songs join the mixes once they can be played. */
-    private val OWN = listOf(com.kike.musicplayer.data.db.Track.SCOPE_OWN)
+    private val OWN = com.kike.musicplayer.data.db.Track.OWN_SCOPES
 
     suspend fun load(db: AppDatabase, history: List<PlayHistory>, favourites: Set<String>): List<Track> = withContext(Dispatchers.IO) {
         val tracks = db.tracks()

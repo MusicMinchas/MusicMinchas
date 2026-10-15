@@ -2,7 +2,6 @@ package com.kike.musicplayer.data
 
 import android.content.Context
 import androidx.core.content.edit
-import com.kike.musicplayer.data.db.Track
 import com.kike.musicplayer.data.drive.DriveFolder
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -12,13 +11,6 @@ enum class DriveSyncMode(val label: String) {
     OFF("No automatic sync"),
     DAILY("Every 24 h"),
     APP_START("At app start"),
-}
-
-/** Whose music the library lists: the user's own (device folders, Drive), the server's, or both. */
-enum class LibraryView(val label: String, val scopes: List<Int>) {
-    OWN("My music", listOf(Track.SCOPE_OWN)),
-    SERVER("Server", listOf(Track.SCOPE_SERVER)),
-    ALL("Both", listOf(Track.SCOPE_OWN, Track.SCOPE_SERVER)),
 }
 
 class Settings(context: Context, name: String = "settings") {
@@ -86,15 +78,15 @@ class Settings(context: Context, name: String = "settings") {
         _driveFolders.value = folders.sortedBy { it.name.lowercase() }
     }
 
-    private val _libraryView = MutableStateFlow(
-        runCatching { LibraryView.valueOf(prefs.getString(KEY_LIBRARY_VIEW, null) ?: "") }.getOrDefault(LibraryView.OWN)
+    private val _hiddenScopes = MutableStateFlow(
+        prefs.getStringSet(KEY_HIDDEN_SCOPES, emptySet())!!.mapNotNull { it.toIntOrNull() }.toSet()
     )
-    /** Whose music the library tabs list (only offered once a server has songs). */
-    val libraryView: StateFlow<LibraryView> = _libraryView.asStateFlow()
+    /** Sources (Track scopes) switched off in the library; a source added later starts switched on. */
+    val hiddenScopes: StateFlow<Set<Int>> = _hiddenScopes.asStateFlow()
 
-    fun setLibraryView(view: LibraryView) {
-        prefs.edit { putString(KEY_LIBRARY_VIEW, view.name) }
-        _libraryView.value = view
+    fun setHiddenScopes(scopes: Set<Int>) {
+        prefs.edit { putStringSet(KEY_HIDDEN_SCOPES, scopes.mapTo(HashSet()) { it.toString() }) }
+        _hiddenScopes.value = scopes
     }
 
     private val _serverSyncMode = MutableStateFlow(
@@ -148,7 +140,7 @@ class Settings(context: Context, name: String = "settings") {
 
     private companion object {
         const val KEY_SAF = "saf_folders"
-        const val KEY_LIBRARY_VIEW = "library_view"
+        const val KEY_HIDDEN_SCOPES = "hidden_scopes"
         const val KEY_INDEX_VERSION = "index_version"
         const val KEY_SERVER_SYNC_MODE = "server_sync_mode"
         const val KEY_LAST_SERVER_SYNC = "server_last_sync"

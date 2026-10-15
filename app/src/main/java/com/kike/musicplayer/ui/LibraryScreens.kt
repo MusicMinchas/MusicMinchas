@@ -52,11 +52,12 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.PrimaryScrollableTabRow
 import androidx.compose.material3.AssistChip
 import androidx.compose.material.icons.filled.ArrowDropDown
-import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.Cloud
+import androidx.compose.material3.Checkbox
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.material.icons.filled.Dns
 import androidx.compose.material.icons.filled.LibraryMusic
 import androidx.compose.material.icons.filled.PhoneAndroid
-import com.kike.musicplayer.data.LibraryView
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.material3.OutlinedTextFieldDefaults
@@ -137,8 +138,14 @@ fun LibraryScreen(
             windowInsets = NoTopInsets,
             title = { Text(stringResource(R.string.app_name)) },
             actions = {
-                if (libraryVm.hasServerSongs.collectAsState().value) {
-                    LibraryViewMenu(libraryVm.libraryView.collectAsState().value, libraryVm::setLibraryView)
+                val available by libraryVm.availableScopes.collectAsState()
+                if (available.size > 1) {
+                    val server = libraryVm.subsonicState.collectAsState().value.server
+                    SourcesMenu(
+                        available, libraryVm.hiddenScopes.collectAsState().value,
+                        serverName = server?.substringBefore(' ')?.takeIf { it.isNotBlank() } ?: "Server",
+                        onToggle = libraryVm::toggleScope,
+                    )
                 }
                 IconButton(onClick = onOpenSources) { Icon(Icons.Default.Tune, "Sources & settings") }
             },
@@ -194,32 +201,50 @@ fun LibraryScreen(
     }
 }
 
-/** Whose music the library shows: own, the server's, or both together. */
+/** Which sources the library lists: each one switched on or off (at least one stays on). */
 @Composable
-private fun LibraryViewMenu(view: LibraryView, onChange: (LibraryView) -> Unit) {
+private fun SourcesMenu(available: List<Int>, hidden: Set<Int>, serverName: String, onToggle: (Int) -> Unit) {
     var open by remember { mutableStateOf(false) }
+    val shown = available.filter { it !in hidden }.ifEmpty { available }
+    fun label(scope: Int) = when (scope) {
+        Track.SCOPE_DRIVE -> "GDrive"
+        Track.SCOPE_SERVER -> serverName
+        else -> "Local"
+    }
+    fun icon(scope: Int) = when (scope) {
+        Track.SCOPE_DRIVE -> Icons.Default.Cloud
+        Track.SCOPE_SERVER -> Icons.Default.Dns
+        else -> Icons.Default.PhoneAndroid
+    }
     Box {
         AssistChip(
             onClick = { open = true },
-            label = { Text(view.label) },
-            leadingIcon = {
-                Icon(
-                    when (view) {
-                        LibraryView.OWN -> Icons.Default.PhoneAndroid
-                        LibraryView.SERVER -> Icons.Default.Dns
-                        LibraryView.ALL -> Icons.Default.LibraryMusic
+            label = {
+                Text(
+                    when {
+                        shown.size == available.size -> "All sources"
+                        shown.size == 1 -> label(shown.single())
+                        else -> shown.joinToString(" + ") { label(it) }
                     },
-                    null, Modifier.size(18.dp),
+                    maxLines = 1,
                 )
             },
+            leadingIcon = {
+                Icon(if (shown.size == 1) icon(shown.single()) else Icons.Default.LibraryMusic, null, Modifier.size(18.dp))
+            },
             trailingIcon = { Icon(Icons.Default.ArrowDropDown, null, Modifier.size(18.dp)) },
+            modifier = Modifier.widthIn(max = 200.dp),
         )
         DropdownMenu(expanded = open, onDismissRequest = { open = false }) {
-            LibraryView.entries.forEach { option ->
+            available.forEach { scope ->
+                val on = scope in shown
                 DropdownMenuItem(
-                    text = { Text(option.label) },
-                    onClick = { open = false; onChange(option) },
-                    trailingIcon = { if (option == view) Icon(Icons.Default.Check, null) },
+                    text = { Text(label(scope)) },
+                    // Stays open, so several sources can be switched in one go.
+                    onClick = { onToggle(scope) },
+                    leadingIcon = { Icon(icon(scope), null) },
+                    trailingIcon = { Checkbox(checked = on, onCheckedChange = null) },
+                    enabled = !(on && shown.size == 1),
                 )
             }
         }

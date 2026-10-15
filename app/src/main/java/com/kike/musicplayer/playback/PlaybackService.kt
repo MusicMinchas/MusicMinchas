@@ -597,7 +597,7 @@ class PlaybackService : MediaLibraryService(), CastHost {
         private const val TRACKER_TICK_MS = 5_000L
         private const val UNKNOWN_LENGTH_THRESHOLD_MS = 30_000L
         /** Android Auto and other media browsers list the user's own music. */
-        private val CAR_SCOPES = listOf(Track.SCOPE_OWN)
+        private val CAR_SCOPES = Track.OWN_SCOPES
         private const val ROOT = "root"
         private const val SONGS = "songs"
         private const val ALBUMS = "albums"

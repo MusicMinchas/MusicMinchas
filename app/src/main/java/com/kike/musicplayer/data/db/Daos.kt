@@ -18,7 +18,7 @@ interface TrackDao {
     // @Transaction: a large library spans several CursorWindows; without a read transaction a
     // concurrent write between window refills makes rows vanish ("Couldn't read row N").
     @Transaction
-    @Query("SELECT * FROM tracks WHERE durationMs >= 0 AND scope = ${Track.SCOPE_OWN} ORDER BY title COLLATE NOCASE")
+    @Query("SELECT * FROM tracks WHERE durationMs >= 0 AND scope <> ${Track.SCOPE_SERVER} ORDER BY title COLLATE NOCASE")
     suspend fun getAll(): List<Track>
 
     @Transaction
@@ -71,22 +71,22 @@ interface TrackDao {
     suspend fun getByIdsChunk(ids: List<String>): List<Track>
 
     /** Every artist / album artist spelling in the library (for matching scrobbles by artist). */
-    @Query("SELECT DISTINCT artist, albumArtist FROM tracks WHERE scope = ${Track.SCOPE_OWN}")
+    @Query("SELECT DISTINCT artist, albumArtist FROM tracks WHERE scope <> ${Track.SCOPE_SERVER}")
     suspend fun artistPairs(): List<ArtistPair>
 
-    @Query("SELECT * FROM tracks WHERE (artist IN (:names) OR albumArtist IN (:names)) AND scope = ${Track.SCOPE_OWN}")
+    @Query("SELECT * FROM tracks WHERE (artist IN (:names) OR albumArtist IN (:names)) AND scope <> ${Track.SCOPE_SERVER}")
     suspend fun byArtistNamesChunk(names: List<String>): List<Track>
 
-    @Query("SELECT * FROM tracks WHERE mbRecordingId IN (:ids) AND scope = ${Track.SCOPE_OWN}")
+    @Query("SELECT * FROM tracks WHERE mbRecordingId IN (:ids) AND scope <> ${Track.SCOPE_SERVER}")
     suspend fun byRecordingIdsChunk(ids: List<String>): List<Track>
 
-    @Query("SELECT COUNT(*) FROM tracks WHERE durationMs >= 0 AND scope = ${Track.SCOPE_OWN}")
+    @Query("SELECT COUNT(*) FROM tracks WHERE durationMs >= 0 AND scope <> ${Track.SCOPE_SERVER}")
     suspend fun countPlayable(): Int
 
     /** Every artist and album artist in the library (for the genre lookup). */
     @Query(
-        "SELECT DISTINCT artist FROM tracks WHERE artist IS NOT NULL AND durationMs >= 0 AND scope = ${Track.SCOPE_OWN} " +
-            "UNION SELECT DISTINCT albumArtist FROM tracks WHERE albumArtist IS NOT NULL AND durationMs >= 0 AND scope = ${Track.SCOPE_OWN}"
+        "SELECT DISTINCT artist FROM tracks WHERE artist IS NOT NULL AND durationMs >= 0 AND scope <> ${Track.SCOPE_SERVER} " +
+            "UNION SELECT DISTINCT albumArtist FROM tracks WHERE albumArtist IS NOT NULL AND durationMs >= 0 AND scope <> ${Track.SCOPE_SERVER}"
     )
     suspend fun artistNames(): List<String>
 
@@ -114,7 +114,7 @@ interface TrackDao {
 
     @Query(
         "UPDATE tracks SET metadataState = ${Track.META_LOCAL_DONE} WHERE metadataState = ${Track.META_DONE} " +
-            "AND (artist IS NULL OR album IS NULL OR artworkUri IS NULL) AND scope = ${Track.SCOPE_OWN}"
+            "AND (artist IS NULL OR album IS NULL OR artworkUri IS NULL) AND scope <> ${Track.SCOPE_SERVER}"
     )
     suspend fun requeueIncomplete(): Int
 
@@ -122,7 +122,7 @@ interface TrackDao {
      * Tracks without a duration were never read successfully (or are MP3s read before durations were
      * estimated); queue them for another tag read.
      */
-    @Query("UPDATE tracks SET metadataState = ${Track.META_NEW} WHERE durationMs = 0 AND metadataState != ${Track.META_NEW} AND scope = ${Track.SCOPE_OWN}")
+    @Query("UPDATE tracks SET metadataState = ${Track.META_NEW} WHERE durationMs = 0 AND metadataState != ${Track.META_NEW} AND scope <> ${Track.SCOPE_SERVER}")
     suspend fun requeueUnread(): Int
 
     @Upsert
@@ -260,7 +260,7 @@ interface ReplacementDao {
     suspend fun delete(ids: List<String>)
 
     /** Songs added since [since] (by a sync), with their tags read. */
-    @Query("SELECT * FROM tracks WHERE dateAdded >= :since AND metadataState != ${Track.META_NEW} AND durationMs >= 0 AND scope = ${Track.SCOPE_OWN}")
+    @Query("SELECT * FROM tracks WHERE dateAdded >= :since AND metadataState != ${Track.META_NEW} AND durationMs >= 0 AND scope <> ${Track.SCOPE_SERVER}")
     suspend fun addedSince(since: Long): List<Track>
 
     @Query("SELECT COUNT(*) FROM tracks WHERE dateAdded >= :since AND metadataState = ${Track.META_NEW}")
@@ -502,8 +502,8 @@ interface LibraryIndexDao {
     @Query("SELECT * FROM tracks WHERE id IN (:ids)")
     suspend fun tracks(ids: List<String>): List<Track>
 
-    @Query("UPDATE tracks SET indexAlbum = :album, indexArtist = :artist, indexGenre = :genre, indexTitle = :title WHERE id = :id")
-    suspend fun setIndex(id: String, album: String, artist: String, genre: String, title: String)
+    @Query("UPDATE tracks SET indexAlbum = :album, indexArtist = :artist, indexGenre = :genre, indexTitle = :title, scope = :scope WHERE id = :id")
+    suspend fun setIndex(id: String, album: String, artist: String, genre: String, title: String, scope: Int)
 
     @Query("SELECT * FROM tracks WHERE indexAlbum IN (:keys)")
     suspend fun tracksOfAlbums(keys: List<String>): List<Track>
@@ -573,8 +573,8 @@ data class TrackPlays(@Embedded val track: Track, val plays: Int)
  * The library screens' data, straight from the database: songs, albums and artists page by page,
  * the rest as small lists (an album's songs, an artist's albums, the genres).
  *
- * [scopes] picks whose music is listed (Track.SCOPE_OWN, Track.SCOPE_SERVER or both). Albums,
- * artists and genres are summarised per scope; with both, the rows of a key are added together.
+ * [scopes] picks whose music is listed (Track.SCOPES: local folders, Drive, server; any combination). Albums,
+ * artists and genres are summarised per scope; with several, the rows of a key are added together.
  */
 @Dao
 interface BrowseDao {
