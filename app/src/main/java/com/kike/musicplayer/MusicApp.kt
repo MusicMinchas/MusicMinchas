@@ -122,7 +122,9 @@ class AppContainer(app: Application) {
     )
 
     /** Album, artist and genre summaries for paging large libraries. */
-    val indexer = LibraryIndexer(database, appScope).also { it.start() }
+    val indexer = LibraryIndexer(database, appScope).also { indexer ->
+        indexer.start(settings.indexVersion) { settings.indexVersion = it }
+    }
 
     val enricher = MetadataEnricher(app, database.tracks(), settings, driveAuth, driveScanHttp, database.artistInfo(), musicBrainz, coverArt)
 

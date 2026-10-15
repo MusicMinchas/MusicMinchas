@@ -140,9 +140,10 @@ class SubsonicLibrary(
         if (!complete) Log.w(TAG, "Listing incomplete: ${seen.size} of $total songs; nothing removed")
         Bench.log("server sync: ${seen.size} listed, $added added, $changed changed, $removed removed")
         buildString {
-            append("${seen.size} songs on the server")
+            val n = java.text.NumberFormat.getIntegerInstance()
+            append("${n.format(seen.size)} songs on the server")
             val parts = listOfNotNull(
-                "$added new".takeIf { added > 0 }, "$changed updated".takeIf { changed > 0 }, "$removed removed".takeIf { removed > 0 },
+                "${n.format(added)} new".takeIf { added > 0 }, "${n.format(changed)} updated".takeIf { changed > 0 }, "${n.format(removed)} removed".takeIf { removed > 0 },
             )
             append(if (parts.isEmpty()) ", no changes" else ": " + parts.joinToString(", "))
         }

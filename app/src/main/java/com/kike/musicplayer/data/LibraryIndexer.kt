@@ -49,7 +49,13 @@ class LibraryIndexer(private val db: AppDatabase, private val scope: CoroutineSc
     val busy: StateFlow<Boolean> = _busy.asStateFlow()
 
     @OptIn(FlowPreview::class)
-    fun start() {
+    fun start(indexedVersion: Int, onReindexQueued: (Int) -> Unit) {
+        scope.launch {
+            if (indexedVersion < VERSION) {
+                dao.markAllDirty()
+                onReindexQueued(VERSION)
+            }
+        }
         scope.launch {
             dao.observeDirtyCount().filter { it > 0 }.debounce(DEBOUNCE_MS).collect {
                 runCatching { runQueue() }.onFailure { Log.w(TAG, "Indexing failed", it) }
@@ -193,9 +199,20 @@ class LibraryIndexer(private val db: AppDatabase, private val scope: CoroutineSc
         fun sortKey(name: String, unknown: String) = (if (name == unknown) "1" else "0") + sortText(name)
 
         private val MARKS = Regex("""\p{Mn}+""")
+        /** Leading spaces, invisible characters and punctuation: ' WATA!' and '"Heroes"' sort by their first word. */
+        private val LEADING = Regex("""^[\p{Z}\p{Cc}\p{Cf}\p{P}\s]+""")
 
-        /** For sorting and the A–Z bar: lower case without accents, so "Ángel" sorts with A. */
-        fun sortText(s: String): String = Normalizer.normalize(s.lowercase(), Normalizer.Form.NFD).replace(MARKS, "")
+        /**
+         * For sorting and the A–Z bar: lower case without accents, so "Ángel" sorts with A, and
+         * without leading spaces or punctuation (unless that's all there is).
+         */
+        fun sortText(s: String): String {
+            val plain = Normalizer.normalize(s.lowercase(), Normalizer.Form.NFD).replace(MARKS, "")
+            return plain.replace(LEADING, "").ifEmpty { plain }
+        }
+
+        /** Raised when [sortText] or the keys change, so everything is indexed again once. */
+        const val VERSION = 2
 
         fun genreName(key: String, spelling: String?): String = when {
             key == UNKNOWN_GENRE -> "Unknown genre"

@@ -495,6 +495,10 @@ interface LibraryIndexDao {
     @Query("INSERT INTO index_dirty(trackId) SELECT id FROM tracks WHERE genre IS NULL")
     suspend fun markUntaggedDirty()
 
+    /** Everything again (the indexing rules changed); the summaries are rewritten as songs are seen. */
+    @Query("INSERT INTO index_dirty(trackId) SELECT id FROM tracks")
+    suspend fun markAllDirty()
+
     @Query("SELECT * FROM tracks WHERE id IN (:ids)")
     suspend fun tracks(ids: List<String>): List<Track>
 

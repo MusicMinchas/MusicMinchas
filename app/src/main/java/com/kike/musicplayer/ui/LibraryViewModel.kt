@@ -17,6 +17,7 @@ import com.kike.musicplayer.data.db.PlayHistory
 import com.kike.musicplayer.recommend.MixCandidates
 import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.filter
 import com.kike.musicplayer.data.SearchText
 import com.kike.musicplayer.data.SongSearch
 import androidx.paging.Pager
@@ -93,15 +94,20 @@ data class SearchResults(
 data class Jump(val label: String, val position: Int)
 
 /**
- * A–Z bar entries from the first characters of a sorted list (lower case, no accents): letters
- * by themselves, digits and symbols together as "#"; each label at its first position.
+ * A–Z bar entries from the first characters of a sorted list (lower case, no accents): A to Z
+ * by themselves, digits and symbols before them as "#", everything after Z (other alphabets,
+ * which sort there) as "…"; each label at its first position.
  */
 fun jumps(firsts: List<FirstChar>): List<Jump> {
     val out = ArrayList<Jump>()
     var position = 0
     for (f in firsts) {
         val c = f.ch.firstOrNull()
-        val label = if (c != null && c.isLetter()) c.uppercase() else "#"
+        val label = when {
+            c == null || c < 'a' -> "#"
+            c <= 'z' -> c.uppercase()
+            else -> "…"
+        }
         if (out.none { it.label == label }) out += Jump(label, position)
         position += f.count
     }
@@ -178,7 +184,12 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
      * doesn't rebuild everything per song): the lists below are rebuilt from the database then.
      */
     @OptIn(kotlinx.coroutines.FlowPreview::class)
-    private val tracksChanged: Flow<Unit> = database.invalidationTracker.createFlow("tracks", "album_index")
+    private val tracksChanged: Flow<Unit> = combine(
+        database.invalidationTracker.createFlow("tracks", "album_index"),
+        // A server sync writes pages for minutes: rebuild once it's done instead.
+        container.serverLibrary.status.map { it.running }.distinctUntilChanged(),
+    ) { _, syncing -> syncing }
+        .filter { syncing -> !syncing }
         .debounce(TRACKS_CHANGED_DEBOUNCE_MS)
         .map { }
 

@@ -117,6 +117,11 @@ class Settings(context: Context, name: String = "settings") {
         _lastServerSync.value = time
     }
 
+    /** LibraryIndexer.VERSION the library was last indexed with (1 = database version 17/18's). */
+    var indexVersion: Int
+        get() = prefs.getInt(KEY_INDEX_VERSION, 1)
+        set(value) = prefs.edit { putInt(KEY_INDEX_VERSION, value) }
+
     /** The server's last library scan when it was last synced: unchanged means nothing to sync. */
     var serverScanSynced: String?
         get() = prefs.getString(KEY_SERVER_SCAN, null)
@@ -144,6 +149,7 @@ class Settings(context: Context, name: String = "settings") {
     private companion object {
         const val KEY_SAF = "saf_folders"
         const val KEY_LIBRARY_VIEW = "library_view"
+        const val KEY_INDEX_VERSION = "index_version"
         const val KEY_SERVER_SYNC_MODE = "server_sync_mode"
         const val KEY_LAST_SERVER_SYNC = "server_last_sync"
         const val KEY_SERVER_SCAN = "server_scan_synced"
