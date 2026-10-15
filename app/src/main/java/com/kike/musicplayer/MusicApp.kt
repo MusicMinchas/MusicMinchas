@@ -20,6 +20,8 @@ import com.kike.musicplayer.data.drive.DriveAuth
 import com.kike.musicplayer.data.drive.DriveAuthInterceptor
 import com.kike.musicplayer.data.drive.DriveLibrary
 import com.kike.musicplayer.data.local.LocalLibrary
+import com.kike.musicplayer.data.subsonic.SubsonicAccount
+import com.kike.musicplayer.data.subsonic.SubsonicClient
 import com.kike.musicplayer.data.metadata.CoverArtApi
 import com.kike.musicplayer.data.metadata.MetadataEnricher
 import com.kike.musicplayer.data.lyrics.LyricsRepository
@@ -130,6 +132,9 @@ class AppContainer(app: Application) {
     val downloader = Downloader(app, database.tracks(), driveHttp, appScope).also { it.verify() }
 
     val lastFm = LastFm(app, LastFmClient(baseHttp, moshi, BuildConfig.LASTFM_API_KEY, BuildConfig.LASTFM_SECRET), "lastfm$suffix")
+    /** Subsonic / Navidrome server sign-in. */
+    val subsonic = SubsonicAccount(app, SubsonicClient(baseHttp, moshi), "subsonic$suffix")
+
     val scrobbler = Scrobbler(lastFm, database.lastFmOutbox(), database.tracks(), appScope).also { scrobbler ->
         lastFm.onConnected = scrobbler::flush
         scrobbler.flush() // whatever was left unsent last time

@@ -536,6 +536,17 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
     ) { counts, followed -> counts.map { it.name }.filter { it !in followed }.take(SUGGESTED_ARTISTS) }
         .stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
 
+    // ---- Subsonic / Navidrome server ----
+
+    private val subsonic = container.subsonic
+    val subsonicState = subsonic.state
+
+    fun connectSubsonic(address: String, username: String, password: String) =
+        viewModelScope.launch { subsonic.connect(address, username, password) }
+
+    fun checkSubsonic() = viewModelScope.launch { subsonic.check() }
+    fun disconnectSubsonic() = subsonic.disconnect()
+
     // ---- Last.fm ----
 
     private val lastFm = container.lastFm

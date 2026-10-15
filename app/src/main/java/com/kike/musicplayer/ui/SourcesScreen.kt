@@ -196,6 +196,8 @@ fun SourcesScreen(
                 )
             }
 
+            ServerCard(vm)
+
             SourceCard(
                 "Downloaded songs",
                 "Google Drive songs kept on the phone (Music/MusicMinchas), so they play without internet",
@@ -396,7 +398,7 @@ private fun FolderRow(icon: androidx.compose.ui.graphics.vector.ImageVector, lab
 }
 
 @Composable
-private fun SourceCard(title: String, subtitle: String, content: @Composable () -> Unit) {
+internal fun SourceCard(title: String, subtitle: String, content: @Composable () -> Unit) {
     Card(Modifier.fillMaxWidth()) {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Text(title, style = MaterialTheme.typography.titleMedium)
