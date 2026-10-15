@@ -109,6 +109,7 @@ fun LibraryScreen(
     onOpenAlbum: (String) -> Unit,
     onOpenArtist: (String) -> Unit,
     onOpenSources: () -> Unit,
+    onOpenMusicSources: () -> Unit,
     onOpenRecentTracks: () -> Unit,
     onOpenRecentAlbums: () -> Unit,
     onOpenReplay: () -> Unit,
@@ -147,7 +148,7 @@ fun LibraryScreen(
                         onToggle = libraryVm::toggleScope,
                     )
                 }
-                IconButton(onClick = onOpenSources) { Icon(Icons.Default.Tune, "Sources & settings") }
+                IconButton(onClick = onOpenSources) { Icon(Icons.Default.Tune, "Settings") }
             },
         )
         SearchField(query, libraryVm::setQuery, Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp))
@@ -182,7 +183,7 @@ fun LibraryScreen(
         val songCount by libraryVm.songCount.collectAsState()
         val indexing by libraryVm.indexing.collectAsState()
         if (songCount == 0 && scanStatus == null && !indexing) {
-            EmptyLibrary(onOpenSources)
+            EmptyLibrary(onOpenMusicSources)
             return@Column
         }
         when (LIBRARY_TABS[tab]) {

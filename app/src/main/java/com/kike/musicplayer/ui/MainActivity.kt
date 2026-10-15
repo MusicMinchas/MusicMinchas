@@ -54,6 +54,7 @@ private sealed interface Screen {
     data object NowPlaying : Screen
     data object Queue : Screen
     data object Sources : Screen
+    data object MusicSources : Screen
     data object DriveFolders : Screen
     data object RecentTracks : Screen
     data object RecentAlbums : Screen
@@ -179,6 +180,7 @@ class MainActivity : ComponentActivity() {
                             onOpenAlbum = { push(Screen.AlbumDetail(it)) },
                             onOpenArtist = { push(Screen.ArtistDetail(it)) },
                             onOpenSources = { push(Screen.Sources) },
+                            onOpenMusicSources = { push(Screen.MusicSources) },
                             onOpenRecentTracks = { push(Screen.RecentTracks) },
                             onOpenRecentAlbums = { push(Screen.RecentAlbums) },
                             onOpenReplay = { push(Screen.Replay) },
@@ -230,6 +232,12 @@ class MainActivity : ComponentActivity() {
                         )
                         Screen.Following -> FollowingScreen(libraryVm, onOpenArtist = { push(Screen.ArtistDetail(it)) }, onBack = ::pop, contentPadding = padding)
                         Screen.Sources -> SourcesScreen(
+                            libraryVm,
+                            onBack = ::pop,
+                            onOpenMusicSources = { push(Screen.MusicSources) },
+                            contentPadding = padding,
+                        )
+                        Screen.MusicSources -> MusicSourcesScreen(
                             libraryVm,
                             onBack = ::pop,
                             onAddFolder = { folderPicker.launch(null) },
