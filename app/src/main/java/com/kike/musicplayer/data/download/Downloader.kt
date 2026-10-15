@@ -8,6 +8,8 @@ import android.provider.MediaStore
 import android.util.Log
 import com.kike.musicplayer.data.db.Track
 import com.kike.musicplayer.data.db.TrackDao
+import com.kike.musicplayer.data.db.isRemote
+import com.kike.musicplayer.data.subsonic.SubsonicUrls
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -25,7 +27,7 @@ import java.io.IOException
 data class DownloadProgress(val trackId: String, val done: Long, val total: Long, val queued: Int)
 
 /**
- * Downloads Google Drive songs to the phone, into Music/MusicMinchas/Artist/Album/, through
+ * Downloads Google Drive and server songs to the phone, into Music/MusicMinchas/Artist/Album/, through
  * MediaStore (no storage permission; other apps see them too). A downloaded track keeps its
  * identity (plays, favourites) and gains [Track.localUri], which playback and Sonos prefer.
  * The queue lives in the database ([Track.downloadState]), so it survives the app being killed;
@@ -35,6 +37,7 @@ class Downloader(
     private val context: Context,
     private val dao: TrackDao,
     private val driveHttp: OkHttpClient,
+    private val serverUrls: SubsonicUrls,
     private val scope: CoroutineScope,
 ) {
     private val mutex = Mutex()
@@ -42,9 +45,9 @@ class Downloader(
     private val _progress = MutableStateFlow<DownloadProgress?>(null)
     val progress: StateFlow<DownloadProgress?> = _progress.asStateFlow()
 
-    /** Queues the Drive songs among [tracks] that aren't on the phone yet, and starts downloading. */
+    /** Queues the Drive and server songs among [tracks] that aren't on the phone yet, and starts downloading. */
     fun download(tracks: List<Track>) {
-        val ids = tracks.filter { it.source == Track.SOURCE_DRIVE && it.downloadState != Track.DOWNLOADED && it.downloadState != Track.DOWNLOAD_QUEUED }
+        val ids = tracks.filter { it.isRemote && it.downloadState != Track.DOWNLOADED && it.downloadState != Track.DOWNLOAD_QUEUED }
             .map { it.id }
         if (ids.isEmpty()) return
         scope.launch {
@@ -74,10 +77,10 @@ class Downloader(
         scope.launch { deleteAll() }
     }
 
-    /** [removeAll], finishing before it returns. */
-    suspend fun deleteAll() = withContext(Dispatchers.IO) {
-        dao.cancelQueuedDownloads()
-        for (t in dao.downloaded()) {
+    /** [removeAll] (only the songs of [source] when given), finishing before it returns. */
+    suspend fun deleteAll(source: String? = null) = withContext(Dispatchers.IO) {
+        if (source == null) dao.cancelQueuedDownloads()
+        for (t in dao.downloaded().filter { source == null || it.source == source }) {
             t.localUri?.let(::deleteFile)
             dao.setLocal(t.id, null, Track.NOT_DOWNLOADED)
         }
@@ -190,8 +193,9 @@ class Downloader(
             },
         ) ?: throw IOException("MediaStore refused $folder$name")
         try {
-            driveHttp.newCall(Request.Builder().url(track.uri).build()).execute().use { response ->
-                if (!response.isSuccessful) throw IOException("Drive HTTP ${response.code}")
+            val url = if (track.source == Track.SOURCE_SUBSONIC) serverUrls.download(track.uri) ?: throw IOException("Not signed in to the server") else track.uri
+            driveHttp.newCall(Request.Builder().url(url).build()).execute().use { response ->
+                if (!response.isSuccessful) throw IOException("HTTP ${response.code}")
                 val total = response.body.contentLength().takeIf { it > 0 } ?: track.sizeBytes ?: 0
                 resolver.openOutputStream(uri, "w")!!.use { out ->
                     response.body.byteStream().use { input ->

@@ -6,6 +6,7 @@ import android.net.Uri
 import android.util.Base64
 import android.util.Log
 import com.kike.musicplayer.data.db.Track
+import com.kike.musicplayer.data.subsonic.SubsonicUrls
 import com.kike.musicplayer.data.db.TrackDao
 import kotlinx.coroutines.runBlocking
 import okhttp3.OkHttpClient
@@ -34,6 +35,7 @@ class TrackServer(
     private val context: Context,
     private val dao: TrackDao,
     private val driveHttp: OkHttpClient,
+    private val serverUrls: SubsonicUrls,
 ) {
     private val token = ByteArray(12).also { SecureRandom().nextBytes(it) }.joinToString("") { "%02x".format(it) }
     private var server: ServerSocket? = null
@@ -120,8 +122,15 @@ class TrackServer(
     private fun serveTrack(out: OutputStream, method: String, trackId: String?, range: String?) {
         val track = trackId?.let { runBlocking { dao.get(it) } } ?: return respondStatus(out, 404)
         val mime = mimeOf(track)
-        if (track.source == Track.SOURCE_DRIVE && track.localUri == null) {
-            val builder = Request.Builder().url(track.uri)
+        // Drive and server songs not on the phone are relayed from where they live.
+        val remote = when {
+            track.localUri != null -> null
+            track.source == Track.SOURCE_DRIVE -> track.uri
+            track.source == Track.SOURCE_SUBSONIC -> serverUrls.resolve(track.uri) ?: return respondStatus(out, 503)
+            else -> null
+        }
+        if (remote != null) {
+            val builder = Request.Builder().url(remote)
             // HEAD: ask Drive for one byte, which still reports the total size in Content-Range.
             if (method == "HEAD") builder.header("Range", "bytes=0-0") else range?.let { builder.header("Range", it) }
             driveHttp.newCall(builder.build()).execute().use { response ->
@@ -155,7 +164,7 @@ class TrackServer(
         val bytes = if (art.startsWith("file:")) {
             File(Uri.parse(art).path ?: return respondStatus(out, 404)).takeIf { it.exists() }?.readBytes()
         } else {
-            driveHttp.newCall(Request.Builder().url(art).build()).execute().use { if (it.isSuccessful) it.body.bytes() else null }
+            driveHttp.newCall(Request.Builder().url(serverUrls.resolve(art) ?: art).build()).execute().use { if (it.isSuccessful) it.body.bytes() else null }
         } ?: return respondStatus(out, 404)
         val isPng = bytes.size > 4 && bytes[0] == 0x89.toByte() && bytes[1] == 'P'.code.toByte()
         writeHead(out, 200, if (isPng) "image/png" else "image/jpeg", bytes.size.toLong(), null)

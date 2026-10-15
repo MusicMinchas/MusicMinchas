@@ -88,7 +88,7 @@ class LibraryRepository(
      * downloads are linked again then ([Downloader.relink]).
      */
     suspend fun removeDrive(deleteDownloads: Boolean) {
-        if (deleteDownloads) downloader.deleteAll()
+        if (deleteDownloads) downloader.deleteAll(Track.SOURCE_DRIVE)
         driveAuth.disconnect()
         settings.clearDriveFolders()
         dao.deleteSource(Track.SOURCE_DRIVE)

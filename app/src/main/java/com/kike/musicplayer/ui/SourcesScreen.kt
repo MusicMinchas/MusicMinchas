@@ -200,7 +200,7 @@ fun SourcesScreen(
 
             SourceCard(
                 "Downloaded songs",
-                "Google Drive songs kept on the phone (Music/MusicMinchas), so they play without internet",
+                "Google Drive and server songs kept on the phone (Music/MusicMinchas), so they play without internet",
             ) {
                 val songs = downloads?.songs ?: 0
                 Text(

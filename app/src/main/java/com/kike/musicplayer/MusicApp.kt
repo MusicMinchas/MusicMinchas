@@ -24,6 +24,7 @@ import com.kike.musicplayer.data.subsonic.SubsonicAccount
 import com.kike.musicplayer.data.subsonic.SubsonicClient
 import com.kike.musicplayer.data.subsonic.SubsonicCoverMapper
 import com.kike.musicplayer.data.subsonic.SubsonicLibrary
+import com.kike.musicplayer.data.subsonic.SubsonicUrls
 import com.kike.musicplayer.data.metadata.CoverArtApi
 import com.kike.musicplayer.data.metadata.MetadataEnricher
 import com.kike.musicplayer.data.lyrics.LyricsRepository
@@ -128,20 +129,24 @@ class AppContainer(app: Application) {
 
     val enricher = MetadataEnricher(app, database.tracks(), settings, driveAuth, driveScanHttp, database.artistInfo(), musicBrainz, coverArt)
 
+    /** Subsonic / Navidrome server sign-in. */
+    val subsonic = SubsonicAccount(app, SubsonicClient(baseHttp, moshi), "subsonic$suffix")
+    val serverLibrary = SubsonicLibrary(subsonic, database, settings, appScope)
+    /** Signed URLs for server songs and covers, made when they're opened. */
+    val subsonicUrls = SubsonicUrls(subsonic)
+
     /** Lets Sonos fetch tracks from the phone while casting. */
     val trackServer = TrackServer(
         app, database.tracks(),
         // Sonos reads ahead in bursts and then pauses for minutes; a normal read timeout would drop the relay.
         driveHttp.newBuilder().readTimeout(10, TimeUnit.MINUTES).build(),
+        subsonicUrls,
     )
     val castManager = CastManager(app, appScope)
 
-    val downloader = Downloader(app, database.tracks(), driveHttp, appScope).also { it.verify() }
+    val downloader = Downloader(app, database.tracks(), driveHttp, subsonicUrls, appScope).also { it.verify() }
 
     val lastFm = LastFm(app, LastFmClient(baseHttp, moshi, BuildConfig.LASTFM_API_KEY, BuildConfig.LASTFM_SECRET), "lastfm$suffix")
-    /** Subsonic / Navidrome server sign-in. */
-    val subsonic = SubsonicAccount(app, SubsonicClient(baseHttp, moshi), "subsonic$suffix")
-    val serverLibrary = SubsonicLibrary(subsonic, database, settings, appScope)
 
     val scrobbler = Scrobbler(lastFm, database.lastFmOutbox(), database.tracks(), appScope).also { scrobbler ->
         lastFm.onConnected = scrobbler::flush

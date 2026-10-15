@@ -113,6 +113,9 @@ data class Track(
     }
 }
 
+/** Streamed from Google Drive or the server unless downloaded; can be downloaded to the phone. */
+val Track.isRemote: Boolean get() = source == Track.SOURCE_DRIVE || source == Track.SOURCE_SUBSONIC
+
 @Entity(tableName = "queue_items")
 data class QueueItem(
     @PrimaryKey val position: Int,

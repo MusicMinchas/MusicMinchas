@@ -208,7 +208,8 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
     /** Recently played, recent albums, most played and favourites: only their songs are read. */
     private suspend fun buildPlaylists(history: List<PlayHistory>, favourites: List<Favourite>): Playlists {
         val stats = ListeningStats(history, System.currentTimeMillis())
-        val recentIds = history.asSequence().map { it.trackId }.distinct().take(RECENT_LOOKUP).toList()
+        // Like everywhere else, a play counts once half the song was listened to (the playing one joins then).
+        val recentIds = history.asSequence().filter { it.counted }.map { it.trackId }.distinct().take(RECENT_LOOKUP).toList()
         val topIds = stats.plays.entries.sortedByDescending { it.value }.take(MOST_PLAYED_LOOKUP).map { it.key }
         val byId = database.tracks().getByIds((recentIds + topIds + favourites.map { it.trackId }).toSet())
             .filter { it.durationMs >= 0 }.associateBy { it.id }

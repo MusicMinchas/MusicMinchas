@@ -65,6 +65,7 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import coil3.compose.SubcomposeAsyncImage
 import com.kike.musicplayer.data.db.Track
+import com.kike.musicplayer.data.db.isRemote
 
 @Composable
 fun Artwork(uri: Any?, modifier: Modifier = Modifier, size: Dp? = null, shape: Shape = RoundedCornerShape(6.dp)) {
@@ -217,12 +218,12 @@ class Downloads(val progress: DownloadProgress?, val download: (List<Track>) -> 
 val LocalDownloads = compositionLocalOf { Downloads(null, {}, {}) }
 
 /**
- * Downloads the Drive songs of an album, playlist or mix: a down arrow, a progress ring while they
- * download, a check once all are on the phone. Nothing when none of them is on Drive.
+ * Downloads the Drive and server songs of an album, playlist or mix: a down arrow, a progress ring while they
+ * download, a check once all are on the phone. Nothing when all of them are local files.
  */
 @Composable
 fun DownloadButton(tracks: List<Track>, modifier: Modifier = Modifier) {
-    val drive = tracks.filter { it.source == Track.SOURCE_DRIVE }
+    val drive = tracks.filter { it.isRemote }
     if (drive.isEmpty()) return
     val downloads = LocalDownloads.current
     val done = drive.count { it.downloadState == Track.DOWNLOADED }
@@ -326,7 +327,7 @@ fun TrackRow(
         if (showStatus && track.id in favourites.ids) {
             Icon(Icons.Default.Favorite, "Favourite", Modifier.padding(end = 6.dp).size(16.dp), tint = FAVOURITE_RED)
         }
-        if (showStatus && track.source == Track.SOURCE_DRIVE) DownloadStatus(track, downloads.progress)
+        if (showStatus && track.isRemote) DownloadStatus(track, downloads.progress)
         Box {
             IconButton(onClick = { menu = true }) { Icon(Icons.Default.MoreVert, "More") }
             DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
@@ -347,7 +348,7 @@ fun TrackRow(
                 if (track.album != null) {
                     DropdownMenuItem(text = { Text("Go to Album") }, onClick = { menu = false; navigation.openAlbum(track.albumKey) })
                 }
-                if (track.source == Track.SOURCE_DRIVE) when (track.downloadState) {
+                if (track.isRemote) when (track.downloadState) {
                     Track.DOWNLOADED -> DropdownMenuItem(text = { Text("Remove download") }, onClick = { menu = false; downloads.remove(track) })
                     Track.DOWNLOAD_QUEUED -> Unit
                     else -> DropdownMenuItem(text = { Text("Download") }, onClick = { menu = false; downloads.download(listOf(track)) })
