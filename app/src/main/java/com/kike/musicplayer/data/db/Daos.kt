@@ -742,11 +742,11 @@ interface BrowseDao {
     fun observeGenreScopes(key: String): Flow<List<Int>>
 
     companion object {
-        /** One album row from its rows in the chosen scopes: counts added up. */
-        const val ALBUM_SUM = "`key`, MIN(scope) AS scope, title, artist, MAX(year) AS year, MAX(artworkUri) AS artworkUri, " +
+        /** One album row from its rows in the chosen scopes: counts added up; the own cover (file:, https:) before the server's (subsonic:). */
+        const val ALBUM_SUM = "`key`, MIN(scope) AS scope, title, artist, MAX(year) AS year, MIN(artworkUri) AS artworkUri, " +
             "SUM(trackCount) AS trackCount, SUM(durationMs) AS durationMs, MIN(sortKey) AS sortKey"
         const val ARTIST_SUM = "name, MIN(scope) AS scope, SUM(trackCount) AS trackCount, SUM(albumCount) AS albumCount, MIN(sortKey) AS sortKey"
         const val GENRE_SUM = "`key`, MIN(scope) AS scope, name, SUM(songCount) AS songCount, SUM(artistCount) AS artistCount, " +
-            "SUM(albumCount) AS albumCount, MIN(sortKey) AS sortKey, MAX(artworkUri) AS artworkUri"
+            "SUM(albumCount) AS albumCount, MIN(sortKey) AS sortKey, MIN(artworkUri) AS artworkUri"
     }
 }

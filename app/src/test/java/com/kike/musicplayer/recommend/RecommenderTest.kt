@@ -79,6 +79,11 @@ class RecommenderTest {
         assertTrue(mixes.all { mix -> mix.tracks.all { it.source == Track.SOURCE_SUBSONIC } })
         // Metal leads, from the Drive plays, although no server song was played.
         assertEquals("genre:heavy metal", mixes.first { it.id.startsWith("genre:") }.id)
+
+        // Both sources: songs the user has on Drive come from Drive, the server adds only what's new.
+        val extra = track("x1", "Metal 1", "Server Only Album").copy(id = "s-x1", title = "Server Only", source = Track.SOURCE_SUBSONIC, scope = Track.SCOPE_SERVER)
+        val both = Recommender(tracks + server + extra, history, tags, now).mixes().flatMap { it.tracks }
+        assertTrue(both.none { it.id.startsWith("s-") && it.id != "s-x1" })
     }
 
     @Test

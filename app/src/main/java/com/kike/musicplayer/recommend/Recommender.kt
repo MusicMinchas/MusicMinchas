@@ -3,6 +3,7 @@ package com.kike.musicplayer.recommend
 import com.kike.musicplayer.data.db.ArtistInfo
 import com.kike.musicplayer.data.db.PlayHistory
 import com.kike.musicplayer.data.db.Track
+import com.kike.musicplayer.data.lastfm.TrackMatcher
 import java.util.Locale
 import java.util.Random
 
@@ -59,8 +60,18 @@ class Recommender(
 
     /** Every known song not disliked: played and favourite songs of any source tell the taste. */
     private val all = tracks.filter { it.durationMs >= 0 && (it.id in favourites || !stats.isDisliked(it.id)) }
-    /** What mixes are made of. */
-    private val usable = all.filter(pickable)
+    /**
+     * What mixes are made of. A server song the user also has (same artist and title on the phone
+     * or Drive, among the picked sources) is left out: their own copy plays offline and has its cover.
+     */
+    private val usable = all.filter(pickable).let { picked ->
+        val own = picked.filter { it.source != Track.SOURCE_SUBSONIC }.mapTo(HashSet(), ::songKey)
+        if (own.isEmpty()) picked else picked.filter { it.source != Track.SOURCE_SUBSONIC || songKey(it) !in own }
+    }
+
+    /** The same song in any copy: artist and title, ignoring case, accents and punctuation. */
+    private fun songKey(t: Track) =
+        TrackMatcher.basic(t.albumArtist ?: t.artist ?: "") + "\u0001" + TrackMatcher.basic(t.title)
 
     /** How much a song counts towards its artist, genre and decade: recent plays, all plays, favourite. */
     private fun weight(t: Track) =
