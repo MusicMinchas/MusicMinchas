@@ -109,35 +109,45 @@ class LibraryIndexer(private val db: AppDatabase, private val scope: CoroutineSc
         }
     }
 
+    // Each summary is kept per scope (own music, server); a key's rows in a scope it has no songs in go.
+
     private suspend fun refreshAlbums(keys: Set<String>) {
         for (chunk in keys.chunked(CHUNK)) {
-            val byAlbum = dao.tracksOfAlbums(chunk).groupBy { it.indexAlbum }
-            val gone = chunk.filter { it !in byAlbum }
-            if (gone.isNotEmpty()) dao.deleteAlbums(gone)
-            dao.upsertAlbums(byAlbum.map { (key, tracks) -> albumOf(key, tracks) })
+            val byAlbum = dao.tracksOfAlbums(chunk).groupBy { it.scope to it.indexAlbum }
+            for (scope in SCOPES) {
+                val gone = chunk.filter { (scope to it) !in byAlbum }
+                if (gone.isNotEmpty()) dao.deleteAlbums(gone, scope)
+            }
+            dao.upsertAlbums(byAlbum.map { (key, tracks) -> albumOf(key.second, tracks) })
         }
     }
 
     private suspend fun refreshArtists(names: Set<String>) {
         for (chunk in names.chunked(CHUNK)) {
-            val counts = dao.artistCounts(chunk).associateBy { it.name }
-            val gone = chunk.filter { it !in counts }
-            if (gone.isNotEmpty()) dao.deleteArtists(gone)
-            dao.upsertArtists(counts.values.map { ArtistIndex(it.name, it.trackCount, it.albumCount, sortKey(it.name, UNKNOWN_ARTIST)) })
+            val counts = dao.artistCounts(chunk)
+            for (scope in SCOPES) {
+                val present = counts.filter { it.scope == scope }.mapTo(HashSet()) { it.name }
+                val gone = chunk.filter { it !in present }
+                if (gone.isNotEmpty()) dao.deleteArtists(gone, scope)
+            }
+            dao.upsertArtists(counts.map { ArtistIndex(it.name, it.scope, it.trackCount, it.albumCount, sortKey(it.name, UNKNOWN_ARTIST)) })
         }
     }
 
     private suspend fun refreshGenres(keys: Set<String>) {
         for (chunk in keys.chunked(CHUNK)) {
-            val counts = dao.genreCounts(chunk).associateBy { it.key }
-            val gone = chunk.filter { it !in counts }
-            if (gone.isNotEmpty()) dao.deleteGenres(gone)
-            dao.upsertGenres(counts.values.map { c ->
+            val counts = dao.genreCounts(chunk)
+            for (scope in SCOPES) {
+                val present = counts.filter { it.scope == scope }.mapTo(HashSet()) { it.key }
+                val gone = chunk.filter { it !in present }
+                if (gone.isNotEmpty()) dao.deleteGenres(gone, scope)
+            }
+            dao.upsertGenres(counts.map { c ->
                 val name = genreName(c.key, dao.genreSpelling(c.key))
                 GenreIndex(
-                    c.key, name, c.songCount, c.artistCount, c.albumCount,
+                    c.key, c.scope, name, c.songCount, c.artistCount, c.albumCount,
                     sortKey = (if (c.key == UNKNOWN_GENRE) "1" else "0") + sortText(name),
-                    artworkUri = dao.genreCover(c.key),
+                    artworkUri = dao.genreCover(c.key, c.scope),
                 )
             })
         }
@@ -149,6 +159,7 @@ class LibraryIndexer(private val db: AppDatabase, private val scope: CoroutineSc
         /** Below SQLite's limit of bound variables per statement. */
         private const val CHUNK = 500
         private const val DEBOUNCE_MS = 500L
+        private val SCOPES = listOf(Track.SCOPE_OWN, Track.SCOPE_SERVER)
         const val UNKNOWN_ALBUM = "Unknown album"
         const val UNKNOWN_ARTIST = "Unknown artist"
 
@@ -167,6 +178,7 @@ class LibraryIndexer(private val db: AppDatabase, private val scope: CoroutineSc
             val title = first.album ?: UNKNOWN_ALBUM
             return AlbumIndex(
                 key = key,
+                scope = first.scope,
                 title = title,
                 artist = first.albumArtist ?: first.artist ?: UNKNOWN_ARTIST,
                 year = sorted.firstNotNullOfOrNull { it.year },

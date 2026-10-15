@@ -9,6 +9,7 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.kike.musicplayer.container
 import com.kike.musicplayer.data.DriveSyncMode
+import com.kike.musicplayer.data.LibraryView
 import com.kike.musicplayer.Bench
 import com.kike.musicplayer.data.db.getByIds
 import com.kike.musicplayer.data.db.Favourite
@@ -127,6 +128,22 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
     private val settings = container.settings
     private val driveAuth = container.driveAuth
 
+    /** Whether some of the library's songs come from a Subsonic server (then the view can be picked). */
+    val hasServerSongs: StateFlow<Boolean> = container.database.browse().observeSourceCounts()
+        .map { counts -> counts.any { it.source == Track.SOURCE_SUBSONIC && it.count > 0 } }
+        .distinctUntilChanged()
+        .stateIn(viewModelScope, SharingStarted.Eagerly, settings.libraryView.value != LibraryView.OWN)
+
+    /** Whose music the library lists: always the user's own while there are no server songs. */
+    val libraryView: StateFlow<LibraryView> = combine(settings.libraryView, hasServerSongs) { view, server ->
+        if (server) view else LibraryView.OWN
+    }.stateIn(viewModelScope, SharingStarted.Eagerly, settings.libraryView.value)
+
+    fun setLibraryView(view: LibraryView) = settings.setLibraryView(view)
+
+    private val viewScopes: StateFlow<List<Int>> = libraryView.map { it.scopes }
+        .stateIn(viewModelScope, SharingStarted.Eagerly, settings.libraryView.value.scopes)
+
     private val _query = MutableStateFlow("")
     val query: StateFlow<String> = _query.asStateFlow()
 
@@ -134,14 +151,15 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
     @OptIn(kotlinx.coroutines.FlowPreview::class, kotlinx.coroutines.ExperimentalCoroutinesApi::class)
     val searchResults: StateFlow<SearchResults> = _query
         .debounce { if (it.isBlank()) 0L else SEARCH_DEBOUNCE_MS }
-        .mapLatest { q ->
+        .combine(viewScopes) { q, scopes -> q to scopes }
+        .mapLatest { (q, scopes) ->
             val match = SearchText.match(q) ?: return@mapLatest SearchResults()
             val browse = container.database.browse()
             Bench.time("search '$q'") {
                 SearchResults(
-                    artists = browse.searchArtists(match, SEARCH_ARTISTS),
-                    albums = browse.searchAlbums(match, SEARCH_ALBUMS),
-                    songs = browse.searchSongs(match, SEARCH_SONGS),
+                    artists = browse.searchArtists(match, SEARCH_ARTISTS, scopes),
+                    albums = browse.searchAlbums(match, SEARCH_ALBUMS, scopes),
+                    songs = browse.searchSongs(match, SEARCH_SONGS, scopes),
                 )
             }
         }
@@ -176,7 +194,7 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
         val topIds = stats.plays.entries.sortedByDescending { it.value }.take(MOST_PLAYED_LOOKUP).map { it.key }
         val byId = database.tracks().getByIds((recentIds + topIds + favourites.map { it.trackId }).toSet())
             .filter { it.durationMs >= 0 }.associateBy { it.id }
-        val albumKeys = recentIds.mapNotNull { byId[it]?.albumKey }.distinct().take(RECENT_ALBUMS)
+        val albumKeys = recentIds.mapNotNull { id -> byId[id]?.let { it.scope to it.albumKey } }.distinct().take(RECENT_ALBUMS)
         return Playlists(
             recentTracks = recentIds.mapNotNull { byId[it] }.take(RECENT_TRACKS),
             recentAlbums = albumsWithTracks(albumKeys),
@@ -185,13 +203,14 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
         )
     }
 
-    /** These albums (in this order) with their songs. */
-    private suspend fun albumsWithTracks(keys: List<String>): List<Album> {
+    /** These albums (scope and key, in this order) with their songs from that scope. */
+    private suspend fun albumsWithTracks(keys: List<Pair<Int, String>>): List<Album> {
         if (keys.isEmpty()) return emptyList()
-        val summaries = browse.albumsByKeys(keys).associateBy { it.key }
-        val songs = browse.tracksOfAlbums(keys).groupBy { it.indexAlbum }
+        val albumKeys = keys.map { it.second }.distinct()
+        val summaries = browse.albumsByKeys(albumKeys).associateBy { it.key }
+        val songs = browse.tracksOfAlbums(albumKeys, LibraryView.ALL.scopes).groupBy { it.scope to it.indexAlbum }
         return keys.mapNotNull { key ->
-            val a = summaries[key] ?: return@mapNotNull null
+            val a = summaries[key.second] ?: return@mapNotNull null
             Album(a.key, a.title, a.artist, a.year, a.artworkUri, songs[key].orEmpty().sortedWith(albumTrackOrder))
         }
     }
@@ -243,7 +262,7 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
 
     /** The library album by this artist with this title (ignoring case, accents and punctuation), if any. */
     suspend fun albumInLibrary(artist: String, title: String): String? =
-        browse.observeArtistAlbums(artist).first()
+        browse.observeArtistAlbums(artist, LibraryView.ALL.scopes).first()
             .firstOrNull { com.kike.musicplayer.data.discover.Names.comparable(it.title) == com.kike.musicplayer.data.discover.Names.comparable(title) }?.key
 
     /**
@@ -251,7 +270,7 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
      * starting with the ones typed, A–Z, at most [PICKER_LIMIT].
      */
     suspend fun searchSongsBy(text: String, bySong: Boolean, byArtist: Boolean, byAlbum: Boolean): List<Track> =
-        SongSearch.find(database.browse(), text, PICKER_LIMIT, bySong, byArtist, byAlbum)
+        SongSearch.find(database.browse(), text, PICKER_LIMIT, viewScopes.value, bySong, byArtist, byAlbum)
 
     /** Listed songs per source, for the Sources screen. */
     val sourceCounts: StateFlow<Map<String, Int>> = database.browse().observeSourceCounts().map { list -> list.associate { it.source to it.count } }
@@ -291,6 +310,7 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
         if (started) return
         started = true
         repo.refreshAll()
+        container.serverLibrary.syncIfDue()
     }
 
     fun setQuery(q: String) {
@@ -478,40 +498,64 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
     /** Pages of 60; placeholders give lists their full length, so the A–Z bar can jump anywhere. */
     private val paging = PagingConfig(pageSize = 60, initialLoadSize = 120, enablePlaceholders = true, jumpThreshold = 240)
 
-    val songPages: Flow<PagingData<Track>> = Pager(paging) { browse.songs() }.flow.cachedIn(viewModelScope)
-    val albumPages: Flow<PagingData<AlbumIndex>> = Pager(paging) { browse.albums() }.flow.cachedIn(viewModelScope)
-    val artistPages: Flow<PagingData<ArtistIndex>> = Pager(paging) { browse.artists() }.flow.cachedIn(viewModelScope)
+    @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
+    val songPages: Flow<PagingData<Track>> = viewScopes.flatMapLatest { s -> Pager(paging) { browse.songs(s) }.flow }.cachedIn(viewModelScope)
+    @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
+    val albumPages: Flow<PagingData<AlbumIndex>> = viewScopes.flatMapLatest { s -> Pager(paging) { browse.albums(s) }.flow }.cachedIn(viewModelScope)
+    @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
+    val artistPages: Flow<PagingData<ArtistIndex>> = viewScopes.flatMapLatest { s -> Pager(paging) { browse.artists(s) }.flow }.cachedIn(viewModelScope)
 
-    val songJumps: StateFlow<List<Jump>> = browse.songFirstChars().map(::jumps).stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
-    val albumJumps: StateFlow<List<Jump>> = browse.albumFirstChars().map(::jumps).stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
-    val artistJumps: StateFlow<List<Jump>> = browse.artistFirstChars().map(::jumps).stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
+    @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
+    private fun <T> inView(block: (List<Int>) -> Flow<T>): Flow<T> = viewScopes.flatMapLatest(block)
+
+    val songJumps: StateFlow<List<Jump>> = inView { browse.songFirstChars(it) }.map(::jumps).stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
+    val albumJumps: StateFlow<List<Jump>> = inView { browse.albumFirstChars(it) }.map(::jumps).stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
+    val artistJumps: StateFlow<List<Jump>> = inView { browse.artistFirstChars(it) }.map(::jumps).stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
 
     /** True while the album, artist and genre summaries are being brought up to date. */
     val indexing: StateFlow<Boolean> = container.indexer.busy
 
-    val songCount: StateFlow<Int> = browse.observeSongCount().stateIn(viewModelScope, SharingStarted.Eagerly, 0)
-    val genreList: StateFlow<List<GenreIndex>> = browse.observeGenres().stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
+    val songCount: StateFlow<Int> = inView { browse.observeSongCount(it) }.stateIn(viewModelScope, SharingStarted.Eagerly, 0)
+    val genreList: StateFlow<List<GenreIndex>> = inView { browse.observeGenres(it) }.stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
 
-    fun genre(key: String): Flow<GenreIndex?> = browse.observeGenre(key)
-    fun genreAlbumPages(key: String): Flow<PagingData<AlbumIndex>> = Pager(paging) { browse.genreAlbums(key) }.flow
+    /**
+     * The scopes a detail page shows: the library view's, or, when the album, artist or genre has
+     * no songs there (e.g. opened from a song of the other source), all those it has.
+     */
+    @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
+    private fun <T> detail(present: Flow<List<Int>>, block: (List<Int>) -> Flow<T>): Flow<T> =
+        combine(viewScopes, present) { view, has -> view.filter { it in has }.ifEmpty { has.distinct().sorted().ifEmpty { view } } }
+            .distinctUntilChanged().flatMapLatest(block)
 
-    fun album(key: String): Flow<AlbumIndex?> = browse.observeAlbum(key)
+    fun genre(key: String): Flow<GenreIndex?> = detail(browse.observeGenreScopes(key)) { browse.observeGenre(key, it) }
+    @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
+    fun genreAlbumPages(key: String): Flow<PagingData<AlbumIndex>> =
+        detail(browse.observeGenreScopes(key)) { s -> Pager(paging) { browse.genreAlbums(key, s) }.flow }
+
+    fun album(key: String): Flow<AlbumIndex?> = detail(browse.observeAlbumScopes(key)) { browse.observeAlbum(key, it) }
 
     /** The album's songs in album order; only those of [genreKey] when given. */
     fun albumTracks(key: String, genreKey: String? = null): Flow<List<Track>> =
-        (if (genreKey == null) browse.observeAlbumTracks(key) else browse.observeAlbumTracksInGenre(key, genreKey))
-            .map { it.sortedWith(albumTrackOrder) }
+        detail(browse.observeAlbumScopes(key)) { s ->
+            if (genreKey == null) browse.observeAlbumTracks(key, s) else browse.observeAlbumTracksInGenre(key, genreKey, s)
+        }.map { it.sortedWith(albumTrackOrder) }
 
-    fun artist(name: String): Flow<ArtistIndex?> = browse.observeArtist(name)
-    fun artistAlbums(name: String): Flow<List<AlbumIndex>> = browse.observeArtistAlbums(name)
-    fun artistTracks(name: String): Flow<List<Track>> = browse.observeArtistTracks(name)
-    fun artistTop(name: String): Flow<List<TrackPlays>> = browse.observeArtistTop(name, ARTIST_TOP_SONGS)
+    fun artist(name: String): Flow<ArtistIndex?> = detail(browse.observeArtistScopes(name)) { browse.observeArtist(name, it) }
+    fun artistAlbums(name: String): Flow<List<AlbumIndex>> = detail(browse.observeArtistScopes(name)) { browse.observeArtistAlbums(name, it) }
+    fun artistTracks(name: String): Flow<List<Track>> = detail(browse.observeArtistScopes(name)) { browse.observeArtistTracks(name, it) }
+    fun artistTop(name: String): Flow<List<TrackPlays>> =
+        detail(browse.observeArtistScopes(name)) { browse.observeArtistTop(name, ARTIST_TOP_SONGS, it) }
 
     /** A queue for the Songs tab: [QUEUE_LIMIT] songs from position [index] on. */
-    suspend fun songsFrom(index: Int): List<Track> = browse.songsFrom(index, QUEUE_LIMIT)
-    suspend fun randomSongs(): List<Track> = browse.randomSongs(QUEUE_LIMIT)
-    suspend fun genreTracks(key: String, shuffle: Boolean): List<Track> =
-        if (shuffle) browse.randomGenreTracks(key, QUEUE_LIMIT) else browse.genreTracks(key, QUEUE_LIMIT)
+    suspend fun songsFrom(index: Int): List<Track> = browse.songsFrom(index, QUEUE_LIMIT, viewScopes.value)
+    suspend fun randomSongs(): List<Track> = browse.randomSongs(QUEUE_LIMIT, viewScopes.value)
+    suspend fun genreTracks(key: String, shuffle: Boolean): List<Track> {
+        val scopes = genreScopes(key)
+        return if (shuffle) browse.randomGenreTracks(key, QUEUE_LIMIT, scopes) else browse.genreTracks(key, QUEUE_LIMIT, scopes)
+    }
+
+    private suspend fun genreScopes(key: String): List<Int> =
+        detail(browse.observeGenreScopes(key)) { flowOf(it) }.first()
 
     // ---- Discover ----
 
@@ -545,7 +589,20 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
         viewModelScope.launch { subsonic.connect(address, username, password) }
 
     fun checkSubsonic() = viewModelScope.launch { subsonic.check() }
-    fun disconnectSubsonic() = subsonic.disconnect()
+
+    /** Signs out and removes the server's songs from the library (plays and favourites stay). */
+    fun disconnectSubsonic() = viewModelScope.launch {
+        container.serverLibrary.removeAll()
+        subsonic.disconnect()
+        settings.setLibraryView(LibraryView.OWN)
+    }
+
+    private val serverLibrary = container.serverLibrary
+    val serverSync = serverLibrary.status
+    fun syncServer() = serverLibrary.sync(force = true)
+    val serverSyncMode = settings.serverSyncMode
+    fun setServerSyncMode(mode: DriveSyncMode) = settings.setServerSyncMode(mode)
+    val lastServerSync = settings.lastServerSync
 
     // ---- Last.fm ----
 

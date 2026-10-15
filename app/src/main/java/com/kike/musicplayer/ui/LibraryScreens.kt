@@ -50,6 +50,13 @@ import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.PrimaryScrollableTabRow
+import androidx.compose.material3.AssistChip
+import androidx.compose.material.icons.filled.ArrowDropDown
+import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.Dns
+import androidx.compose.material.icons.filled.LibraryMusic
+import androidx.compose.material.icons.filled.PhoneAndroid
+import com.kike.musicplayer.data.LibraryView
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.material3.OutlinedTextFieldDefaults
@@ -129,7 +136,12 @@ fun LibraryScreen(
         TopAppBar(
             windowInsets = NoTopInsets,
             title = { Text(stringResource(R.string.app_name)) },
-            actions = { IconButton(onClick = onOpenSources) { Icon(Icons.Default.Tune, "Sources & settings") } },
+            actions = {
+                if (libraryVm.hasServerSongs.collectAsState().value) {
+                    LibraryViewMenu(libraryVm.libraryView.collectAsState().value, libraryVm::setLibraryView)
+                }
+                IconButton(onClick = onOpenSources) { Icon(Icons.Default.Tune, "Sources & settings") }
+            },
         )
         SearchField(query, libraryVm::setQuery, Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp))
         if (query.isNotEmpty()) {
@@ -182,7 +194,39 @@ fun LibraryScreen(
     }
 }
 
-private fun count(n: Int, noun: String) = if (n == 1) "1 $noun" else "$n ${noun}s"
+/** Whose music the library shows: own, the server's, or both together. */
+@Composable
+private fun LibraryViewMenu(view: LibraryView, onChange: (LibraryView) -> Unit) {
+    var open by remember { mutableStateOf(false) }
+    Box {
+        AssistChip(
+            onClick = { open = true },
+            label = { Text(view.label) },
+            leadingIcon = {
+                Icon(
+                    when (view) {
+                        LibraryView.OWN -> Icons.Default.PhoneAndroid
+                        LibraryView.SERVER -> Icons.Default.Dns
+                        LibraryView.ALL -> Icons.Default.LibraryMusic
+                    },
+                    null, Modifier.size(18.dp),
+                )
+            },
+            trailingIcon = { Icon(Icons.Default.ArrowDropDown, null, Modifier.size(18.dp)) },
+        )
+        DropdownMenu(expanded = open, onDismissRequest = { open = false }) {
+            LibraryView.entries.forEach { option ->
+                DropdownMenuItem(
+                    text = { Text(option.label) },
+                    onClick = { open = false; onChange(option) },
+                    trailingIcon = { if (option == view) Icon(Icons.Default.Check, null) },
+                )
+            }
+        }
+    }
+}
+
+private fun count(n: Int, noun: String) =if (n == 1) "1 $noun" else "$n ${noun}s"
 
 /** The library search box: an outlined pill like OutlinedTextField, but 44 dp tall instead of 56. */
 @OptIn(ExperimentalMaterial3Api::class)

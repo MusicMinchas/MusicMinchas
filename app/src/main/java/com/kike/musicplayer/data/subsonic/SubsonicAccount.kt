@@ -53,7 +53,12 @@ class SubsonicAccount(context: Context, val client: SubsonicClient, prefsName: S
     val state: StateFlow<SubsonicState> = _state.asStateFlow()
 
     /** How to sign in to the server, or null when none is set up (or the password can't be read). */
-    fun login(): SubsonicLogin? {
+    fun login(): SubsonicLogin? = cachedLogin ?: readLogin()?.also { cachedLogin = it }
+
+    /** Decrypting takes a Keystore call; covers ask for the login all the time. */
+    @Volatile private var cachedLogin: SubsonicLogin? = null
+
+    private fun readLogin(): SubsonicLogin? {
         val address = prefs.getString(KEY_ADDRESS, null) ?: return null
         val user = prefs.getString(KEY_USER, null) ?: return null
         val password = prefs.getString(KEY_PASSWORD, null)?.let(Secrets::decrypt) ?: return null
@@ -87,6 +92,7 @@ class SubsonicAccount(context: Context, val client: SubsonicClient, prefsName: S
             putBoolean(KEY_PLAIN_AUTH, login.plainAuth)
             putString(KEY_SERVER, serverName(ping))
         }
+        cachedLogin = login
         _state.value = stored()
         refreshInfo(login)
         true
@@ -131,6 +137,7 @@ class SubsonicAccount(context: Context, val client: SubsonicClient, prefsName: S
     }
 
     fun disconnect() {
+        cachedLogin = null
         prefs.edit { clear() }
         _state.value = SubsonicState()
     }

@@ -479,9 +479,9 @@ class PlaybackService : MediaLibraryService(), CastHost {
                     browsableItem(SONGS, "Songs", type = MediaMetadata.MEDIA_TYPE_FOLDER_MIXED),
                     browsableItem(ALBUMS, "Albums", type = MediaMetadata.MEDIA_TYPE_FOLDER_ALBUMS),
                 )
-                parentId == SONGS -> return@future pageResult(browse.songsFrom(page * pageSize, pageSize).map { it.toMediaItem() }, params)
+                parentId == SONGS -> return@future pageResult(browse.songsFrom(page * pageSize, pageSize, CAR_SCOPES).map { it.toMediaItem() }, params)
                 parentId == ALBUMS -> return@future pageResult(
-                    browse.albumsFrom(page * pageSize, pageSize).map { a ->
+                    browse.albumsFrom(page * pageSize, pageSize, CAR_SCOPES).map { a ->
                         browsableItem(ALBUM_PREFIX + a.key, a.title, a.artist, a.artworkUri, MediaMetadata.MEDIA_TYPE_ALBUM)
                     },
                     params,
@@ -552,7 +552,7 @@ class PlaybackService : MediaLibraryService(), CastHost {
                     albumTracks(id.removePrefix(ALBUM_TRACK_PREFIX).substringBeforeLast(SEP))
                 } else if (controller.packageName != packageName) {
                     // The library A–Z from the tapped song on, like the Songs tab.
-                    dao.get(trackId)?.let { browse.songsFromTitle(it.indexTitle, it.id, CONTEXT_LIMIT) }
+                    dao.get(trackId)?.let { browse.songsFromTitle(it.indexTitle, it.id, CONTEXT_LIMIT, listOf(it.scope)) }
                 } else null
                 val index = context?.indexOfFirst { it.id == trackId } ?: -1
                 if (context != null && index >= 0) {
@@ -581,9 +581,9 @@ class PlaybackService : MediaLibraryService(), CastHost {
         LibraryResult.ofItemList(ImmutableList.copyOf(items), params)
 
     private suspend fun albumTracks(albumKey: String): List<Track> =
-        browse.tracksOfAlbums(listOf(albumKey)).sortedWith(albumTrackOrder)
+        browse.tracksOfAlbums(listOf(albumKey), CAR_SCOPES).sortedWith(albumTrackOrder)
 
-    private suspend fun search(query: String): List<Track> = SongSearch.find(browse, query, SEARCH_LIMIT)
+    private suspend fun search(query: String): List<Track> = SongSearch.find(browse, query, SEARCH_LIMIT, CAR_SCOPES)
 
     private object Futures {
         fun <T> immediate(value: T): ListenableFuture<T> = com.google.common.util.concurrent.Futures.immediateFuture(value)
@@ -596,6 +596,8 @@ class PlaybackService : MediaLibraryService(), CastHost {
         private const val SEARCH_LIMIT = 200
         private const val TRACKER_TICK_MS = 5_000L
         private const val UNKNOWN_LENGTH_THRESHOLD_MS = 30_000L
+        /** Android Auto and other media browsers list the user's own music. */
+        private val CAR_SCOPES = listOf(Track.SCOPE_OWN)
         private const val ROOT = "root"
         private const val SONGS = "songs"
         private const val ALBUMS = "albums"

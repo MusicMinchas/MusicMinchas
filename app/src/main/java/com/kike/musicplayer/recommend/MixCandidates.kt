@@ -18,6 +18,8 @@ object MixCandidates {
     private const val TOP_ARTISTS = 40
     private const val TOP_ARTIST_SONGS = 6_000
     private const val SAMPLE = 8_000
+    /** Server songs join the mixes once they can be played. */
+    private val OWN = listOf(com.kike.musicplayer.data.db.Track.SCOPE_OWN)
 
     suspend fun load(db: AppDatabase, history: List<PlayHistory>, favourites: Set<String>): List<Track> = withContext(Dispatchers.IO) {
         val tracks = db.tracks()
@@ -26,7 +28,7 @@ object MixCandidates {
         val known = tracks.getByIds(history.mapTo(HashSet()) { it.trackId } + favourites)
         val topArtists = known.filter { it.indexArtist.isNotEmpty() }.groupingBy { it.indexArtist }.eachCount()
             .entries.sortedByDescending { it.value }.take(TOP_ARTISTS).map { it.key }
-        val ofTopArtists = if (topArtists.isEmpty()) emptyList() else browse.songsOfArtists(topArtists, TOP_ARTIST_SONGS)
-        (known + ofTopArtists + browse.randomSongs(SAMPLE)).distinctBy { it.id }
+        val ofTopArtists = if (topArtists.isEmpty()) emptyList() else browse.songsOfArtists(topArtists, TOP_ARTIST_SONGS, OWN)
+        (known + ofTopArtists + browse.randomSongs(SAMPLE, OWN)).distinctBy { it.id }
     }
 }

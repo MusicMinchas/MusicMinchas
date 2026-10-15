@@ -9,6 +9,15 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.filled.VisibilityOff
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.selection.selectable
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.LinearProgressIndicator
+import androidx.compose.material3.RadioButton
+import androidx.compose.material3.TextButton
+import com.kike.musicplayer.data.DriveSyncMode
+import com.kike.musicplayer.data.db.Track
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
@@ -40,6 +49,7 @@ import java.text.NumberFormat
 internal fun ServerCard(vm: LibraryViewModel) {
     val state by vm.subsonicState.collectAsState()
     val connected = state.address != null
+    var confirmDisconnect by remember { mutableStateOf(false) }
     // Fresh song count and folders each time the settings open.
     LaunchedEffect(connected) { if (connected) vm.checkSubsonic() }
 
@@ -63,11 +73,6 @@ internal fun ServerCard(vm: LibraryViewModel) {
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
-            Text(
-                "Your server's songs aren't added to the library yet: that comes with the next update.",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.primary,
-            )
             if (state.checkedAt > 0) {
                 Text(
                     "Server last answered ${relativeTime(state.checkedAt)}",
@@ -75,14 +80,89 @@ internal fun ServerCard(vm: LibraryViewModel) {
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
+            ServerSyncControls(vm)
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
                 OutlinedButton(onClick = { vm.checkSubsonic() }, enabled = !state.busy) { Text("Check connection") }
-                OutlinedButton(onClick = vm::disconnectSubsonic, enabled = !state.busy) { Text("Disconnect") }
+                OutlinedButton(onClick = { confirmDisconnect = true }, enabled = !state.busy) { Text("Disconnect") }
                 if (state.busy) CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp)
             }
         }
     }
+    if (confirmDisconnect) {
+        val songs = vm.sourceCounts.collectAsState().value[Track.SOURCE_SUBSONIC] ?: 0
+        AlertDialog(
+            onDismissRequest = { confirmDisconnect = false },
+            title = { Text("Disconnect the server?") },
+            text = {
+                Text(
+                    "The ${count(songs)} from the server will be removed from the library. Plays, favourites and " +
+                        "playlists are kept and come back if you connect the same server again."
+                )
+            },
+            confirmButton = { TextButton(onClick = { confirmDisconnect = false; vm.disconnectSubsonic() }) { Text("Disconnect") } },
+            dismissButton = { TextButton(onClick = { confirmDisconnect = false }) { Text("Cancel") } },
+        )
+    }
 }
+
+/** Listing the server's songs into the library: now, or automatically. */
+@Composable
+private fun ServerSyncControls(vm: LibraryViewModel) {
+    val sync by vm.serverSync.collectAsState()
+    val mode by vm.serverSyncMode.collectAsState()
+    val lastSync by vm.lastServerSync.collectAsState()
+    val inLibrary = vm.sourceCounts.collectAsState().value[Track.SOURCE_SUBSONIC] ?: 0
+    val number = NumberFormat.getIntegerInstance()
+
+    HorizontalDivider(Modifier.padding(vertical = 4.dp))
+    Text("Library", style = MaterialTheme.typography.labelLarge)
+    Text(
+        if (inLibrary == 0) "Sync to add the server's songs to the library. They're listed apart from your own " +
+            "music; the switch above the library shows either or both."
+        else "${count(inLibrary)} in the library",
+        style = MaterialTheme.typography.bodySmall,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+    )
+    if (sync.running) {
+        val total = sync.total
+        if (total != null && total > 0) {
+            LinearProgressIndicator(progress = { (sync.listed.toFloat() / total).coerceIn(0f, 1f) }, Modifier.fillMaxWidth())
+        } else {
+            LinearProgressIndicator(Modifier.fillMaxWidth())
+        }
+        Text(
+            "Listing songs: ${number.format(sync.listed)}" + (total?.let { " of ${number.format(it)}" } ?: ""),
+            style = MaterialTheme.typography.bodySmall,
+        )
+    } else {
+        sync.message?.let {
+            Text(
+                it, style = MaterialTheme.typography.bodySmall,
+                color = if (sync.failed) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary,
+            )
+        }
+    }
+    Button(onClick = vm::syncServer, enabled = !sync.running) { Text("Sync now") }
+    Text("Automatic sync", style = MaterialTheme.typography.labelLarge, modifier = Modifier.padding(top = 8.dp))
+    DriveSyncMode.entries.forEach { option ->
+        Row(
+            Modifier.fillMaxWidth().selectable(selected = mode == option, onClick = { vm.setServerSyncMode(option) }),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            RadioButton(selected = mode == option, onClick = null)
+            Text(option.label, Modifier.padding(start = 8.dp))
+        }
+    }
+    Text(
+        (if (lastSync == 0L) "Not synced yet" else "Last synced ${relativeTime(lastSync)}") +
+            ". An automatic sync only lists the songs again if the server has scanned its library since.",
+        style = MaterialTheme.typography.bodySmall,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+    )
+    HorizontalDivider(Modifier.padding(vertical = 4.dp))
+}
+
+private fun count(songs: Int) = if (songs == 1) "1 song" else "${NumberFormat.getIntegerInstance().format(songs)} songs"
 
 @Composable
 private fun SignInFields(busy: Boolean, onConnect: (address: String, user: String, password: String) -> Unit) {

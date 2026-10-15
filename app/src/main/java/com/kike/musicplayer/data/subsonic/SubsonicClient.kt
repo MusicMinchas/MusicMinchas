@@ -69,17 +69,20 @@ class SubsonicClient(private val http: OkHttpClient, private val moshi: Moshi) {
         mapOf("query" to "", "songCount" to "$count", "songOffset" to "$offset", "artistCount" to "0", "albumCount" to "0"),
     ).searchResult3?.song.orEmpty()
 
-    /** The signed URL of [endpoint], also usable for streaming and cover art. */
-    fun url(login: SubsonicLogin, endpoint: String, params: Map<String, String> = emptyMap()): HttpUrl {
+    /**
+     * The signed URL of [endpoint], also usable for streaming and cover art. A [salt] of its own
+     * gives the same URL every time (for images, so they can be cached); else each one is new.
+     */
+    fun url(login: SubsonicLogin, endpoint: String, params: Map<String, String> = emptyMap(), salt: String? = null): HttpUrl {
         val base = login.baseUrl.toHttpUrlOrNull() ?: throw IOException("Not a valid server address")
         return base.newBuilder().addPathSegment("rest").addPathSegment("$endpoint.view").apply {
             addQueryParameter("u", login.username)
             if (login.plainAuth) {
                 addQueryParameter("p", "enc:" + login.password.toByteArray(Charsets.UTF_8).toHex())
             } else {
-                val salt = ByteArray(8).also(random::nextBytes).toHex()
-                addQueryParameter("t", md5(login.password + salt))
-                addQueryParameter("s", salt)
+                val s = salt ?: ByteArray(8).also(random::nextBytes).toHex()
+                addQueryParameter("t", md5(login.password + s))
+                addQueryParameter("s", s)
             }
             addQueryParameter("v", API_VERSION)
             addQueryParameter("c", CLIENT)

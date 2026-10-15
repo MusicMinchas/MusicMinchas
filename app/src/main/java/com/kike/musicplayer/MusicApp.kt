@@ -22,6 +22,8 @@ import com.kike.musicplayer.data.drive.DriveLibrary
 import com.kike.musicplayer.data.local.LocalLibrary
 import com.kike.musicplayer.data.subsonic.SubsonicAccount
 import com.kike.musicplayer.data.subsonic.SubsonicClient
+import com.kike.musicplayer.data.subsonic.SubsonicCoverMapper
+import com.kike.musicplayer.data.subsonic.SubsonicLibrary
 import com.kike.musicplayer.data.metadata.CoverArtApi
 import com.kike.musicplayer.data.metadata.MetadataEnricher
 import com.kike.musicplayer.data.lyrics.LyricsRepository
@@ -52,7 +54,10 @@ class MusicApp : Application(), SingletonImageLoader.Factory {
 
     override fun newImageLoader(context: PlatformContext): ImageLoader =
         ImageLoader.Builder(context)
-            .components { add(OkHttpNetworkFetcherFactory(callFactory = { container.baseHttp })) }
+            .components {
+                add(SubsonicCoverMapper(container.subsonic))
+                add(OkHttpNetworkFetcherFactory(callFactory = { container.baseHttp }))
+            }
             .build()
 }
 
@@ -134,6 +139,7 @@ class AppContainer(app: Application) {
     val lastFm = LastFm(app, LastFmClient(baseHttp, moshi, BuildConfig.LASTFM_API_KEY, BuildConfig.LASTFM_SECRET), "lastfm$suffix")
     /** Subsonic / Navidrome server sign-in. */
     val subsonic = SubsonicAccount(app, SubsonicClient(baseHttp, moshi), "subsonic$suffix")
+    val serverLibrary = SubsonicLibrary(subsonic, database, settings, appScope)
 
     val scrobbler = Scrobbler(lastFm, database.lastFmOutbox(), database.tracks(), appScope).also { scrobbler ->
         lastFm.onConnected = scrobbler::flush

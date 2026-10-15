@@ -2,6 +2,7 @@ package com.kike.musicplayer.data
 
 import android.content.Context
 import androidx.core.content.edit
+import com.kike.musicplayer.data.db.Track
 import com.kike.musicplayer.data.drive.DriveFolder
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -11,6 +12,13 @@ enum class DriveSyncMode(val label: String) {
     OFF("No automatic sync"),
     DAILY("Every 24 h"),
     APP_START("At app start"),
+}
+
+/** Whose music the library lists: the user's own (device folders, Drive), the server's, or both. */
+enum class LibraryView(val label: String, val scopes: List<Int>) {
+    OWN("My music", listOf(Track.SCOPE_OWN)),
+    SERVER("Server", listOf(Track.SCOPE_SERVER)),
+    ALL("Both", listOf(Track.SCOPE_OWN, Track.SCOPE_SERVER)),
 }
 
 class Settings(context: Context, name: String = "settings") {
@@ -78,7 +86,43 @@ class Settings(context: Context, name: String = "settings") {
         _driveFolders.value = folders.sortedBy { it.name.lowercase() }
     }
 
-    private val _concertCountry = MutableStateFlow(prefs.getString(KEY_CONCERT_COUNTRY, null) ?: "BE")
+    private val _libraryView = MutableStateFlow(
+        runCatching { LibraryView.valueOf(prefs.getString(KEY_LIBRARY_VIEW, null) ?: "") }.getOrDefault(LibraryView.OWN)
+    )
+    /** Whose music the library tabs list (only offered once a server has songs). */
+    val libraryView: StateFlow<LibraryView> = _libraryView.asStateFlow()
+
+    fun setLibraryView(view: LibraryView) {
+        prefs.edit { putString(KEY_LIBRARY_VIEW, view.name) }
+        _libraryView.value = view
+    }
+
+    private val _serverSyncMode = MutableStateFlow(
+        runCatching { DriveSyncMode.valueOf(prefs.getString(KEY_SERVER_SYNC_MODE, null) ?: "") }.getOrDefault(DriveSyncMode.DAILY)
+    )
+    /** When the app lists the server's songs again by itself. */
+    val serverSyncMode: StateFlow<DriveSyncMode> = _serverSyncMode.asStateFlow()
+
+    fun setServerSyncMode(mode: DriveSyncMode) {
+        prefs.edit { putString(KEY_SERVER_SYNC_MODE, mode.name) }
+        _serverSyncMode.value = mode
+    }
+
+    private val _lastServerSync = MutableStateFlow(prefs.getLong(KEY_LAST_SERVER_SYNC, 0L))
+    /** Time of the last complete server sync (0 = never). */
+    val lastServerSync: StateFlow<Long> = _lastServerSync.asStateFlow()
+
+    fun setLastServerSync(time: Long) {
+        prefs.edit { putLong(KEY_LAST_SERVER_SYNC, time) }
+        _lastServerSync.value = time
+    }
+
+    /** The server's last library scan when it was last synced: unchanged means nothing to sync. */
+    var serverScanSynced: String?
+        get() = prefs.getString(KEY_SERVER_SCAN, null)
+        set(value) = prefs.edit { putString(KEY_SERVER_SCAN, value) }
+
+    private val _concertCountry =MutableStateFlow(prefs.getString(KEY_CONCERT_COUNTRY, null) ?: "BE")
     /** ISO country code whose concerts the Discover tab lists. */
     val concertCountry: StateFlow<String> = _concertCountry.asStateFlow()
 
@@ -99,6 +143,10 @@ class Settings(context: Context, name: String = "settings") {
 
     private companion object {
         const val KEY_SAF = "saf_folders"
+        const val KEY_LIBRARY_VIEW = "library_view"
+        const val KEY_SERVER_SYNC_MODE = "server_sync_mode"
+        const val KEY_LAST_SERVER_SYNC = "server_last_sync"
+        const val KEY_SERVER_SCAN = "server_scan_synced"
         const val KEY_CONCERT_COUNTRY = "concert_country"
         const val KEY_DISCOVER_REFRESHED = "discover_refreshed_at"
         const val KEY_ONLINE = "online_metadata"

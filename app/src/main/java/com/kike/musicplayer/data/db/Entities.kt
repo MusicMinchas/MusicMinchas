@@ -15,11 +15,11 @@ import androidx.room.PrimaryKey
     tableName = "tracks",
     indices = [
         Index("source"), Index("metadataState"), Index("indexAlbum"), Index("indexArtist"), Index("indexGenre"),
-        Index("indexTitle"),
+        Index("indexTitle"), Index("scope", "indexTitle"),
     ],
 )
 data class Track(
-    /** "saf:<document uri>" or "drive:<file id>". */
+    /** "saf:<document uri>", "drive:<file id>" or "subsonic:<song id>". */
     @PrimaryKey val id: String,
     val source: String,
     /** What ExoPlayer opens: a content:// URI or the Drive download URL. */
@@ -62,6 +62,8 @@ data class Track(
     @ColumnInfo(defaultValue = "") val indexGenre: String = "",
     /** The title for sorting the Songs tab (lower case, no accents); empty while not indexed or unplayable. */
     @ColumnInfo(defaultValue = "") val indexTitle: String = "",
+    /** [SCOPE_OWN] or [SCOPE_SERVER] ([scopeOf] the source), for listing each on its own. */
+    @ColumnInfo(defaultValue = "0") val scope: Int = SCOPE_OWN,
 ) {
     val displayArtist: String get() = artist ?: albumArtist ?: "Unknown artist"
     val albumKey: String get() = albumKeyOf(album, albumArtist ?: artist)
@@ -71,6 +73,14 @@ data class Track(
         const val SOURCE_MEDIASTORE = "mediastore"
         const val SOURCE_SAF = "saf"
         const val SOURCE_DRIVE = "drive"
+        /** A Subsonic / Navidrome server: id "subsonic:<song id>", uri "subsonic:<song id>". */
+        const val SOURCE_SUBSONIC = "subsonic"
+
+        /** The user's own music (device folders, Drive) and the server's are listed apart by default. */
+        const val SCOPE_OWN = 0
+        const val SCOPE_SERVER = 1
+
+        fun scopeOf(source: String) = if (source == SOURCE_SUBSONIC) SCOPE_SERVER else SCOPE_OWN
 
         const val NOT_DOWNLOADED = 0
         const val DOWNLOAD_QUEUED = 1
@@ -275,10 +285,14 @@ data class DiscoverItem(
     }
 }
 
-/** An album for the Albums tab, kept by LibraryIndexer from the songs with this [key]. */
-@Entity(tableName = "album_index", indices = [Index("sortKey"), Index("artist")])
+/**
+ * An album for the Albums tab, kept by LibraryIndexer from the songs with this [key] in one
+ * [scope] (the user's own music or the server's), so each can be listed alone or both together.
+ */
+@Entity(tableName = "album_index", primaryKeys = ["key", "scope"], indices = [Index("sortKey"), Index("artist")])
 data class AlbumIndex(
-    @PrimaryKey val key: String,
+    val key: String,
+    @ColumnInfo(defaultValue = "0") val scope: Int = Track.SCOPE_OWN,
     val title: String,
     val artist: String,
     val year: Int?,
@@ -290,18 +304,20 @@ data class AlbumIndex(
 )
 
 /** An artist for the Artists tab: the songs whose album artist (else artist) is [name]. */
-@Entity(tableName = "artist_index", indices = [Index("sortKey")])
+@Entity(tableName = "artist_index", primaryKeys = ["name", "scope"], indices = [Index("sortKey")])
 data class ArtistIndex(
-    @PrimaryKey val name: String,
+    val name: String,
+    @ColumnInfo(defaultValue = "0") val scope: Int = Track.SCOPE_OWN,
     val trackCount: Int,
     val albumCount: Int,
     val sortKey: String,
 )
 
 /** A genre for the Genres tab; [key] is lower-cased, [name] the most common spelling. */
-@Entity(tableName = "genre_index", indices = [Index("sortKey")])
+@Entity(tableName = "genre_index", primaryKeys = ["key", "scope"], indices = [Index("sortKey")])
 data class GenreIndex(
-    @PrimaryKey val key: String,
+    val key: String,
+    @ColumnInfo(defaultValue = "0") val scope: Int = Track.SCOPE_OWN,
     val name: String,
     val songCount: Int,
     val artistCount: Int,
