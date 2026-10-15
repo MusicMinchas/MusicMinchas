@@ -2,6 +2,8 @@ package com.kike.musicplayer.data.db
 
 import androidx.room.ColumnInfo
 import androidx.room.Entity
+import androidx.room.Fts4
+import androidx.room.FtsOptions
 import androidx.room.Index
 import androidx.room.PrimaryKey
 
@@ -322,3 +324,22 @@ data class IndexDirty(
     val oldArtist: String?,
     val oldGenre: String?,
 )
+
+/**
+ * Full-text search over song titles, album titles and artist names (search box), keyed by the
+ * row id of the song, album or artist (docid). Database triggers keep them in step, only when a
+ * title or name changes. The Unicode tokenizer ignores case and accents and matches word starts,
+ * so a search stays an index lookup however large the library is.
+ */
+@Fts4(tokenizer = FtsOptions.TOKENIZER_UNICODE61)
+@Entity(tableName = "tracks_fts")
+data class TrackFts(val title: String)
+
+@Fts4(tokenizer = FtsOptions.TOKENIZER_UNICODE61)
+@Entity(tableName = "album_fts")
+data class AlbumFts(val title: String)
+
+@Fts4(tokenizer = FtsOptions.TOKENIZER_UNICODE61)
+@Entity(tableName = "artist_fts")
+data class ArtistFts(val name: String)
+

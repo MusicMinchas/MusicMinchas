@@ -622,5 +622,24 @@ interface BrowseDao {
 
     @Query("SELECT * FROM tracks WHERE indexGenre = :genre ORDER BY RANDOM() LIMIT :limit")
     suspend fun randomGenreTracks(genre: String, limit: Int): List<Track>
+
+    // Search box: [match] is a full-text query from SearchText.match.
+    @Query(
+        "SELECT tracks.* FROM tracks JOIN tracks_fts ON tracks.rowid = tracks_fts.docid " +
+            "WHERE tracks_fts MATCH :match AND tracks.indexTitle <> '' ORDER BY tracks.indexTitle LIMIT :limit"
+    )
+    suspend fun searchSongs(match: String, limit: Int): List<Track>
+
+    @Query(
+        "SELECT album_index.* FROM album_index JOIN album_fts ON album_index.rowid = album_fts.docid " +
+            "WHERE album_fts MATCH :match ORDER BY album_index.sortKey LIMIT :limit"
+    )
+    suspend fun searchAlbums(match: String, limit: Int): List<AlbumIndex>
+
+    @Query(
+        "SELECT artist_index.* FROM artist_index JOIN artist_fts ON artist_index.rowid = artist_fts.docid " +
+            "WHERE artist_fts MATCH :match ORDER BY artist_index.sortKey LIMIT :limit"
+    )
+    suspend fun searchArtists(match: String, limit: Int): List<ArtistIndex>
 }
 

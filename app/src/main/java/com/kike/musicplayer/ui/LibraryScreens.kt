@@ -286,7 +286,7 @@ private fun SearchResultsList(
         if (artists.isNotEmpty()) {
             item { ResultsHeader("Artists") }
             items(artists, key = { "ar:" + it.name }) { artist ->
-                ArtistRow(artist.name, artist.albumCount, artist.tracks.size, photos[artist.name.lowercase()]) { onOpenArtist(artist.name) }
+                ArtistRow(artist.name, artist.albumCount, artist.trackCount, photos[artist.name.lowercase()]) { onOpenArtist(artist.name) }
             }
         }
         if (albums.isNotEmpty()) {

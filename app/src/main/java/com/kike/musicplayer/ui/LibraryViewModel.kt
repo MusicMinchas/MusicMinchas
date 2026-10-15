@@ -11,6 +11,7 @@ import com.kike.musicplayer.container
 import com.kike.musicplayer.data.DriveSyncMode
 import com.kike.musicplayer.Bench
 import com.kike.musicplayer.IndexCheck
+import com.kike.musicplayer.data.SearchText
 import androidx.paging.Pager
 import androidx.paging.PagingConfig
 import androidx.paging.PagingData
@@ -44,6 +45,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.mapLatest
 import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.flatMapLatest
@@ -77,8 +79,8 @@ data class DriveBrowserState(
 }
 
 data class SearchResults(
-    val artists: List<Artist> = emptyList(),
-    val albums: List<Album> = emptyList(),
+    val artists: List<ArtistIndex> = emptyList(),
+    val albums: List<AlbumIndex> = emptyList(),
     val songs: List<Track> = emptyList(),
 )
 
@@ -144,18 +146,23 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
         .flowOn(Dispatchers.Default)
         .stateIn(viewModelScope, SharingStarted.Eagerly, Library())
 
-    /** Library search, by artist name, album title and song title. */
-    val searchResults: StateFlow<SearchResults> = combine(library, _query) { lib, q ->
-        val needle = q.trim().lowercase()
-        if (needle.isEmpty()) SearchResults()
-        else Bench.time("search '$needle'") {
-            SearchResults(
-                artists = lib.artists.filter { needle in it.name.lowercase() },
-                albums = lib.albums.filter { needle in it.title.lowercase() },
-                songs = lib.tracks.filter { needle in it.title.lowercase() },
-            )
+    /** Library search by artist name, album title and song title, in the database's search tables. */
+    @OptIn(kotlinx.coroutines.FlowPreview::class, kotlinx.coroutines.ExperimentalCoroutinesApi::class)
+    val searchResults: StateFlow<SearchResults> = _query
+        .debounce { if (it.isBlank()) 0L else SEARCH_DEBOUNCE_MS }
+        .mapLatest { q ->
+            val match = SearchText.match(q) ?: return@mapLatest SearchResults()
+            val browse = container.database.browse()
+            Bench.time("search '$q'") {
+                SearchResults(
+                    artists = browse.searchArtists(match, SEARCH_ARTISTS),
+                    albums = browse.searchAlbums(match, SEARCH_ALBUMS),
+                    songs = browse.searchSongs(match, SEARCH_SONGS),
+                )
+            }
         }
-    }.flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.Eagerly, SearchResults())
+        .flowOn(Dispatchers.IO)
+        .stateIn(viewModelScope, SharingStarted.Eagerly, SearchResults())
 
     private val history = container.database.history().observeAll()
 
@@ -586,5 +593,10 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
         /** Songs queued at most by Play / Shuffle of a whole tab or genre. */
         const val QUEUE_LIMIT = 1000
         const val ARTIST_TOP_SONGS = 10
+        const val SEARCH_DEBOUNCE_MS = 150L
+        /** Search results shown at most per kind. */
+        const val SEARCH_ARTISTS = 30
+        const val SEARCH_ALBUMS = 50
+        const val SEARCH_SONGS = 100
     }
 }

@@ -9,7 +9,8 @@ import androidx.sqlite.db.SupportSQLiteDatabase
 
 @Database(
     entities = [Track::class, QueueItem::class, SessionState::class, PlayHistory::class, ArtistInfo::class, Favourite::class, LastFmOutboxItem::class, LastFmScrobble::class, ReplacedTrack::class, ArtistImage::class, StoredLyrics::class, UserPlaylist::class, PlaylistTrack::class, FollowedArtist::class, DiscoverItem::class,
-        AlbumIndex::class, ArtistIndex::class, GenreIndex::class, IndexDirty::class],
+        AlbumIndex::class, ArtistIndex::class, GenreIndex::class, IndexDirty::class,
+        TrackFts::class, AlbumFts::class, ArtistFts::class],
     version = 17,
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -204,8 +205,12 @@ abstract class AppDatabase : RoomDatabase() {
                     "CREATE TABLE IF NOT EXISTS `index_dirty` (`seq` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `trackId` TEXT, " +
                         "`oldAlbum` TEXT, `oldArtist` TEXT, `oldGenre` TEXT)"
                 )
+                for ((table, column) in listOf("tracks_fts" to "title", "album_fts" to "title", "artist_fts" to "name")) {
+                    db.execSQL("CREATE VIRTUAL TABLE IF NOT EXISTS `$table` USING FTS4(`$column` TEXT NOT NULL, tokenize=unicode61)")
+                }
                 createIndexTriggers(db)
                 db.execSQL("INSERT INTO index_dirty(trackId) SELECT id FROM tracks")
+                db.execSQL("INSERT INTO tracks_fts(docid, title) SELECT rowid, title FROM tracks")
             }
         }
 
@@ -229,6 +234,20 @@ abstract class AppDatabase : RoomDatabase() {
                     "INSERT INTO index_dirty(oldAlbum, oldArtist, oldGenre) " +
                     "VALUES (OLD.indexAlbum, OLD.indexArtist, OLD.indexGenre); END"
             )
+            // The search tables follow song titles, album titles and artist names.
+            for ((table, fts, column) in listOf(
+                Triple("tracks", "tracks_fts", "title"), Triple("album_index", "album_fts", "title"), Triple("artist_index", "artist_fts", "name"),
+            )) {
+                db.execSQL(
+                    "CREATE TRIGGER IF NOT EXISTS ${fts}_insert AFTER INSERT ON $table BEGIN " +
+                        "INSERT INTO $fts(docid, $column) VALUES (NEW.rowid, NEW.$column); END"
+                )
+                db.execSQL(
+                    "CREATE TRIGGER IF NOT EXISTS ${fts}_update AFTER UPDATE OF $column ON $table BEGIN " +
+                        "DELETE FROM $fts WHERE docid = OLD.rowid; INSERT INTO $fts(docid, $column) VALUES (NEW.rowid, NEW.$column); END"
+                )
+                db.execSQL("CREATE TRIGGER IF NOT EXISTS ${fts}_delete AFTER DELETE ON $table BEGIN DELETE FROM $fts WHERE docid = OLD.rowid; END")
+            }
         }
 
         fun create(context: Context, name: String = "music.db"): AppDatabase =
