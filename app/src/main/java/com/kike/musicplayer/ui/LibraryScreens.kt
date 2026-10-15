@@ -113,9 +113,7 @@ fun LibraryScreen(
     onOpenFollowing: () -> Unit,
     contentPadding: PaddingValues,
 ) {
-    val library by libraryVm.library.collectAsState()
     val playlists by libraryVm.playlists.collectAsState()
-    val genres by libraryVm.genres.collectAsState()
     val results by libraryVm.searchResults.collectAsState()
     val query by libraryVm.query.collectAsState()
     val scanStatus by libraryVm.scanStatus.collectAsState()
@@ -164,7 +162,7 @@ fun LibraryScreen(
         }
         val songCount by libraryVm.songCount.collectAsState()
         val indexing by libraryVm.indexing.collectAsState()
-        if (library.tracks.isEmpty() && songCount == 0 && scanStatus == null && !indexing) {
+        if (songCount == 0 && scanStatus == null && !indexing) {
             EmptyLibrary(onOpenSources)
             return@Column
         }

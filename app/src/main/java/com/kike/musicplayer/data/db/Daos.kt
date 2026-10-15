@@ -19,10 +19,6 @@ interface TrackDao {
     // concurrent write between window refills makes rows vanish ("Couldn't read row N").
     @Transaction
     @Query("SELECT * FROM tracks WHERE durationMs >= 0 ORDER BY title COLLATE NOCASE")
-    fun observeAll(): Flow<List<Track>>
-
-    @Transaction
-    @Query("SELECT * FROM tracks WHERE durationMs >= 0 ORDER BY title COLLATE NOCASE")
     suspend fun getAll(): List<Track>
 
     @Transaction
@@ -66,6 +62,19 @@ interface TrackDao {
 
     @Query("SELECT * FROM tracks WHERE id IN (:ids)")
     suspend fun getByIdsChunk(ids: List<String>): List<Track>
+
+    /** Every artist / album artist spelling in the library (for matching scrobbles by artist). */
+    @Query("SELECT DISTINCT artist, albumArtist FROM tracks")
+    suspend fun artistPairs(): List<ArtistPair>
+
+    @Query("SELECT * FROM tracks WHERE artist IN (:names) OR albumArtist IN (:names)")
+    suspend fun byArtistNamesChunk(names: List<String>): List<Track>
+
+    @Query("SELECT * FROM tracks WHERE mbRecordingId IN (:ids)")
+    suspend fun byRecordingIdsChunk(ids: List<String>): List<Track>
+
+    @Query("SELECT COUNT(*) FROM tracks WHERE durationMs >= 0")
+    suspend fun countPlayable(): Int
 
     /** Every artist and album artist in the library (for the genre lookup). */
     @Query(
@@ -125,6 +134,18 @@ interface TrackDao {
 /** SQLite caps bound variables, so large IN (...) lists go in chunks. */
 suspend fun TrackDao.getByIds(ids: Collection<String>): List<Track> =
     ids.chunked(500).flatMap { getByIdsChunk(it) }
+
+suspend fun TrackDao.byArtistNames(names: Collection<String>): List<Track> =
+    names.chunked(250).flatMap { byArtistNamesChunk(it) }.distinctBy { it.id }
+
+suspend fun TrackDao.byRecordingIds(ids: Collection<String>): List<Track> =
+    ids.chunked(500).flatMap { byRecordingIdsChunk(it) }
+
+data class ArtistPair(val artist: String?, val albumArtist: String?)
+
+data class SourceCount(val source: String, val count: Int)
+
+data class NameCount(val name: String, val count: Int)
 
 suspend fun TrackDao.delete(ids: Collection<String>) =
     ids.chunked(500).forEach { deleteChunk(it) }
@@ -622,6 +643,42 @@ interface BrowseDao {
 
     @Query("SELECT * FROM tracks WHERE indexGenre = :genre ORDER BY RANDOM() LIMIT :limit")
     suspend fun randomGenreTracks(genre: String, limit: Int): List<Track>
+
+    @Query("SELECT name FROM artist_index WHERE name IN (:names)")
+    suspend fun existingArtists(names: List<String>): List<String>
+
+    /** Listed songs per source ("drive", "saf"…). */
+    @Query("SELECT source, COUNT(*) AS count FROM tracks WHERE durationMs >= 0 GROUP BY source")
+    fun observeSourceCounts(): Flow<List<SourceCount>>
+
+    @Query("SELECT * FROM album_index WHERE `key` IN (:keys)")
+    suspend fun albumsByKeys(keys: List<String>): List<AlbumIndex>
+
+    @Query("SELECT * FROM tracks WHERE indexAlbum IN (:keys)")
+    suspend fun tracksOfAlbums(keys: List<String>): List<Track>
+
+    @Query("SELECT * FROM album_index ORDER BY sortKey, `key` LIMIT :limit OFFSET :offset")
+    suspend fun albumsFrom(offset: Int, limit: Int): List<AlbumIndex>
+
+    /** Songs A–Z from the given one on (inclusive). */
+    @Query(
+        "SELECT * FROM tracks WHERE indexTitle <> '' AND (indexTitle > :title OR (indexTitle = :title AND id >= :id)) " +
+            "ORDER BY indexTitle, id LIMIT :limit"
+    )
+    suspend fun songsFromTitle(title: String, id: String, limit: Int): List<Track>
+
+    @Query("SELECT * FROM tracks WHERE indexArtist IN (:names) ORDER BY indexTitle LIMIT :limit")
+    suspend fun songsOfArtists(names: List<String>, limit: Int): List<Track>
+
+    @Query("SELECT * FROM tracks WHERE indexAlbum IN (:keys) ORDER BY indexTitle LIMIT :limit")
+    suspend fun songsOfAlbums(keys: List<String>, limit: Int): List<Track>
+
+    /** Counted plays per listed artist, most played first. */
+    @Query(
+        "SELECT tracks.indexArtist AS name, COUNT(*) AS count FROM play_history JOIN tracks ON tracks.id = play_history.trackId " +
+            "WHERE play_history.counted = 1 AND tracks.indexArtist <> '' GROUP BY tracks.indexArtist ORDER BY count DESC LIMIT :limit"
+    )
+    fun observeArtistPlayCounts(limit: Int): Flow<List<NameCount>>
 
     // Search box: [match] is a full-text query from SearchText.match.
     @Query(

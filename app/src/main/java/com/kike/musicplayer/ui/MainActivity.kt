@@ -1,5 +1,8 @@
 package com.kike.musicplayer.ui
 
+import com.kike.musicplayer.playback.PlaybackService
+import kotlinx.coroutines.launch
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.material.icons.Icons
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Text
@@ -137,25 +140,30 @@ class MainActivity : ComponentActivity() {
             }
         }
 
-        val library by libraryVm.library.collectAsState()
         val playlists by libraryVm.playlists.collectAsState()
         val mixes by libraryVm.mixes.collectAsState()
-        val genres by libraryVm.genres.collectAsState()
         val userPlaylists by libraryVm.userPlaylists.collectAsState()
         val showMini = screen !is Screen.NowPlaying && screen !is Screen.Queue && screen !is Screen.DriveFolders
 
         val favouriteIds by playerVm.favourites.collectAsState()
         val downloadProgress by libraryVm.downloadProgress.collectAsState()
-        val artistNames = remember(library) { library.artists.mapTo(HashSet()) { it.name } }
-        val tracksById = remember(library) { library.tracks.associateBy { it.id } }
+        // The playing song and the queue, looked up in the library for Now Playing and the queue.
+        val player by playerVm.state.collectAsState()
+        val trackCache by libraryVm.trackCache.collectAsState()
+        LaunchedEffect(player.current?.mediaId, player.upNext) {
+            libraryVm.cacheTracks(listOfNotNull(player.current?.mediaId).plus(player.upNext.map { it.item.mediaId }).map(PlaybackService::trackIdOf))
+        }
+        val scope = rememberCoroutineScope()
         val navigation = Navigation(
             openArtist = { names ->
-                names.firstOrNull { it != null && it in artistNames }?.let { name ->
-                    if ((screen as? Screen.ArtistDetail)?.name != name) push(Screen.ArtistDetail(name))
+                scope.launch {
+                    libraryVm.firstArtist(names)?.let { name ->
+                        if ((screen as? Screen.ArtistDetail)?.name != name) push(Screen.ArtistDetail(name))
+                    }
                 }
             },
             openAlbum = { key -> if ((screen as? Screen.AlbumDetail)?.key != key) push(Screen.AlbumDetail(key)) },
-            track = { tracksById[it] },
+            track = { trackCache[it] },
         )
         CompositionLocalProvider(
             LocalPlaylists provides PlaylistActions(userPlaylists, libraryVm::addToPlaylist, libraryVm::createPlaylist, libraryVm::nextPlaylistName),

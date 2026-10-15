@@ -28,12 +28,6 @@ object Bench {
         return file.readText().trim().substringBefore(' ').toIntOrNull() ?: 200_000
     }
 
-    /**
-     * "200000 indexonly" in the bench file: the screens get no songs, to measure the indexer
-     * alone while the screens still group the whole library in memory.
-     */
-    fun indexOnly(context: Context): Boolean =
-        size(context) != null && "indexonly" in File(context.filesDir, "bench").readText()
 
     /** Runs [block] and logs how long it took (debug builds only; release builds just run it). */
     inline fun <T> time(label: String, block: () -> T): T {
@@ -91,49 +85,5 @@ object Bench {
                 db.favourites().insertAll(List(500) { Favourite("bench:${played[it]}", now) })
             }
         }
-    }
-}
-
-/**
- * Debug check while the screens still group the library in memory: compares the indexer's
- * album, artist and genre summaries with the in-memory ones and logs every difference.
- */
-object IndexCheck {
-    suspend fun compare(
-        db: AppDatabase,
-        albums: List<com.kike.musicplayer.ui.Album>,
-        artists: List<com.kike.musicplayer.ui.Artist>,
-        genres: List<com.kike.musicplayer.ui.Genre>,
-    ) {
-        if (!BuildConfig.DEBUG) return
-        val dao = db.libraryIndex()
-        val problems = mutableListOf<String>()
-        val ia = dao.allAlbums().associateBy { it.key }
-        for (a in albums) {
-            val i = ia[a.key]
-            if (i == null) problems += "album missing: ${a.title}"
-            else if (i.title != a.title || i.artist != a.artist || i.year != a.year || i.artworkUri != a.artworkUri || i.trackCount != a.tracks.size) {
-                problems += "album differs: ${a.title} / ${i.title} ${i.artist}/${a.artist} ${i.year}/${a.year} ${i.trackCount}/${a.tracks.size}"
-            }
-        }
-        if (ia.size != albums.size) problems += "albums: ${ia.size} indexed, ${albums.size} in memory"
-        val ir = dao.allArtists().associateBy { it.name }
-        for (a in artists) {
-            val i = ir[a.name]
-            if (i == null) problems += "artist missing: ${a.name}"
-            else if (i.trackCount != a.tracks.size || i.albumCount != a.albumCount) problems += "artist differs: ${a.name} ${i.trackCount}/${a.tracks.size} ${i.albumCount}/${a.albumCount}"
-        }
-        if (ir.size != artists.size) problems += "artists: ${ir.size} indexed, ${artists.size} in memory"
-        val ig = dao.allGenres().associateBy { it.key }
-        for (g in genres) {
-            val i = ig[g.key]
-            if (i == null) problems += "genre missing: ${g.name}"
-            else if (i.songCount != g.songCount || i.artistCount != g.artistCount || i.name != g.name) {
-                problems += "genre differs: ${g.name}/${i.name} ${i.songCount}/${g.songCount} ${i.artistCount}/${g.artistCount}"
-            }
-        }
-        if (ig.size != genres.size) problems += "genres: ${ig.size} indexed, ${genres.size} in memory"
-        Bench.log("index check: ${albums.size} albums, ${artists.size} artists, ${genres.size} genres, ${problems.size} differences")
-        problems.take(30).forEach { Bench.log("  $it") }
     }
 }

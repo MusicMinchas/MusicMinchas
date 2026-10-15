@@ -148,7 +148,6 @@ class AppContainer(app: Application) {
         replacements = database.replacements(),
         downloader = downloader,
         scope = appScope,
-        indexOnly = Bench.indexOnly(app),
     )
 
     private companion object {

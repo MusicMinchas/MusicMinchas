@@ -107,7 +107,7 @@ class ScrobbleImporter(
                 val result = runCatching {
                     scrobbler.send()
                     val loved = downloadLoved(user)
-                    val matcher = TrackMatcher(tracks.getAll())
+                    val matcher = TrackMatcher.forScrobbles(tracks, loved.map { it.artist }, loved.mapNotNull { it.mbid })
                     val matches = loved.mapNotNull { l -> matcher.match(l.artist, l.track, null, l.mbid)?.let { Favourite(it.id, l.uts * 1000) } }
                     // Two loves can be the same library song (e.g. loved under two spellings): one favourite.
                     val added = favourites.insertAll(matches.distinctBy { it.trackId }).count { it != -1L }
@@ -218,10 +218,11 @@ class ScrobbleImporter(
     private suspend fun addPlays(): Set<Long> = withContext(Dispatchers.Default) {
         val waiting = scrobbles.unmatched()
         if (waiting.isEmpty()) return@withContext emptySet()
-        val library = tracks.getAll()
-        val matcher = TrackMatcher(library)
-        val durations = library.associate { it.id to it.durationMs }
-        val matched = waiting.mapNotNull { s -> matcher.match(s.artist, s.track, s.album, s.mbid)?.let { s to it.id } }
+        val matcher = TrackMatcher.forScrobbles(tracks, waiting.mapTo(HashSet()) { it.artist }, waiting.mapNotNullTo(HashSet()) { it.mbid })
+        val durations = HashMap<String, Long>()
+        val matched = waiting.mapNotNull { s ->
+            matcher.match(s.artist, s.track, s.album, s.mbid)?.let { durations[it.id] = it.durationMs; s to it.id }
+        }
         if (matched.isEmpty()) return@withContext emptySet()
         scrobbles.setTrackIds(matched.map { (s, id) -> s.copy(trackId = id) })
         // One play per second: a play already there (e.g. this app's own, scrobbled from here) wins.
