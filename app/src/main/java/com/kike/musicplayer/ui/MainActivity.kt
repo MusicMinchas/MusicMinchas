@@ -222,7 +222,7 @@ class MainActivity : ComponentActivity() {
                         )
                         is Screen.MixDetail -> {
                             val mix = mixes.firstOrNull { it.id == screen.id }
-                            TrackListScreen(mix?.title ?: "", mix?.tracks, playerVm, ::pop, padding)
+                            TrackListScreen(mix?.title ?: "", mix?.tracks, playerVm, ::pop, padding, subtitle = mix?.subtitle)
                         }
                         Screen.RecentAlbums -> AlbumListScreen(
                             "Recently Played Albums", playlists.recentAlbums, playerVm, downloadable = true,

@@ -245,6 +245,7 @@ fun PlaylistScreen(
             )
             if (playlist == null) return@Column
             LazyColumn(Modifier.fillMaxSize(), state = listState, contentPadding = PaddingValues(bottom = 96.dp)) {
+                item(key = "header") { CollectionHeader(playlist.name, order) }
                 item(key = "actions") {
                     PlayShuffleRow(
                         onPlay = { playerVm.playTracks(order, 0) },

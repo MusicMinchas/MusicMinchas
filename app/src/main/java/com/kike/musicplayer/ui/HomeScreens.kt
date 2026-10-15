@@ -187,6 +187,30 @@ internal fun CollectionCard(
     }
 }
 
+/**
+ * The top of a mix or playlist page, laid out like an album's: the card's cover mosaic, the name,
+ * an optional line about it (e.g. a mix's artists), then [extra] (e.g. "12 albums"), the number of
+ * songs and the total time.
+ */
+@Composable
+internal fun CollectionHeader(title: String, tracks: List<Track>, subtitle: String? = null, extra: String? = null) {
+    Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
+        CoverMosaic(tracks, Modifier.size(140.dp))
+        Column(Modifier.padding(start = 16.dp)) {
+            Text(title, style = MaterialTheme.typography.titleLarge)
+            subtitle?.takeIf { it.isNotBlank() }?.let {
+                Text(it, style = MaterialTheme.typography.bodyMedium, maxLines = 3, overflow = TextOverflow.Ellipsis)
+            }
+            Text(
+                listOfNotNull(extra, count(tracks.size, "song"), formatTime(tracks.sumOf { it.durationMs.coerceAtLeast(0) }))
+                    .joinToString(" · "),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+    }
+}
+
 /** 2×2 covers of [tracks] (one cover when fewer than four), rounded. */
 @Composable
 internal fun CoverMosaic(tracks: List<Track>, modifier: Modifier = Modifier) {

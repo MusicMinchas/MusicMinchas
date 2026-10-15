@@ -528,6 +528,8 @@ fun TrackListScreen(
     playerVm: PlayerViewModel,
     onBack: () -> Unit,
     contentPadding: PaddingValues,
+    /** A line under the title, e.g. a mix's artists. */
+    subtitle: String? = null,
     badge: (Track) -> String? = { null },
 ) {
     val player by playerVm.state.collectAsState()
@@ -539,6 +541,7 @@ fun TrackListScreen(
         )
         if (tracks == null) return@Column
         LazyColumn(Modifier.fillMaxSize()) {
+            item { CollectionHeader(title, tracks, subtitle) }
             item {
                 PlayShuffleRow(
                     onPlay = { playerVm.playTracks(tracks, 0) },
@@ -581,6 +584,7 @@ fun AlbumListScreen(
             navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back") } },
         )
         val all = albums.flatMap { it.tracks }
+        CollectionHeader(title, all, extra = count(albums.size, "album"))
         PlayShuffleRow(
             onPlay = { playerVm.playTracks(all, 0) },
             onShuffle = { playerVm.playTracks(all, 0, shuffle = true) },
