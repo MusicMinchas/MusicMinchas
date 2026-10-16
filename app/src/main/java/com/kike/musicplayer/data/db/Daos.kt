@@ -51,6 +51,10 @@ interface TrackDao {
     @Query("SELECT COUNT(*) FROM tracks WHERE source = :source AND downloadState = ${Track.DOWNLOADED}")
     fun observeDownloadedCount(source: String): Flow<Int>
 
+    /** Covers extracted from the files (file:// URIs), to tidy the folder they're kept in. */
+    @Query("SELECT DISTINCT artworkUri FROM tracks WHERE artworkUri LIKE 'file:%'")
+    suspend fun localArtworkUris(): List<String>
+
     /** Id and checksum of a source's songs, to see what a sync changed without loading whole rows. */
     @Query("SELECT id, checksum FROM tracks WHERE source = :source")
     suspend fun checksums(source: String): List<IdChecksum>
@@ -128,6 +132,13 @@ interface TrackDao {
      */
     @Query("UPDATE tracks SET metadataState = ${Track.META_NEW} WHERE durationMs = 0 AND metadataState != ${Track.META_NEW} AND scope <> ${Track.SCOPE_SERVER}")
     suspend fun requeueUnread(): Int
+
+    /**
+     * Songs MusicBrainz identified (it named them when the file had no Artist tag, title included):
+     * read their tags again, so the files' own titles come back.
+     */
+    @Query("UPDATE tracks SET metadataState = ${Track.META_NEW} WHERE mbRecordingId IS NOT NULL AND scope <> ${Track.SCOPE_SERVER}")
+    suspend fun requeueMusicBrainzMatched(): Int
 
     @Upsert
     suspend fun upsertAll(tracks: List<Track>)

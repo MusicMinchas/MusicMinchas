@@ -97,7 +97,13 @@ class MetadataEnricher(
             try {
                 // Files whose read failed in earlier versions were marked done with no tags (length 0).
                 dao.requeueUnread()
+                if (!settings.musicBrainzTitlesReread) {
+                    val n = dao.requeueMusicBrainzMatched()
+                    settings.musicBrainzTitlesReread = true
+                    Log.i(TAG, "Reading again the tags of $n songs named by MusicBrainz")
+                }
                 localPass()
+                removeUnusedArtwork()
                 genrePass()
                 if (settings.onlineMetadata.value) {
                     onlinePass()
@@ -107,6 +113,15 @@ class MetadataEnricher(
                 _progress.value = null
             }
         }
+    }
+
+    /** Cover files no song points to any more (replaced covers), once they're a day old. */
+    private suspend fun removeUnusedArtwork() {
+        val used = dao.localArtworkUris().mapNotNullTo(HashSet()) { Uri.parse(it).path }
+        val dayAgo = System.currentTimeMillis() - 24 * 60 * 60 * 1000L
+        val unused = artworkDir.listFiles().orEmpty().filter { it.path !in used && it.lastModified() < dayAgo }
+        unused.forEach { it.delete() }
+        if (unused.isNotEmpty()) Log.i(TAG, "Removed ${unused.size} unused cover files")
     }
 
     private suspend fun localPass() = coroutineScope {
@@ -387,24 +402,28 @@ class MetadataEnricher(
     }
 
     private fun mergeTags(track: Track, tags: Tags): Track {
-        val artist = tags.artist ?: track.artist
+        // Files tagged with only an Album Artist (common for single-artist albums) are by that artist.
+        val artist = tags.artist ?: tags.albumArtist ?: track.artist
         val album = tags.album ?: track.album
         val albumArtist = tags.albumArtist ?: track.albumArtist
         var artwork = track.artworkUri
         if (artwork == null) {
-            // One file per album when we know the album, so a 20-track album stores one image.
-            val key = if (album != null) Track.albumKeyOf(album, albumArtist ?: artist) else track.id
-            val file = File(artworkDir, sha1(key) + ".img")
-            if (file.exists()) {
-                artwork = Uri.fromFile(file).toString()
-            } else {
-                tags.picture()?.let { bytes ->
-                    // Parallel workers may extract the same album; write atomically.
+            val bytes = tags.picture()
+            if (bytes != null) {
+                // Named by the picture itself: an album's tracks share one file, and a file whose
+                // cover was replaced gets a new one (an album-named file kept the old cover for good).
+                val file = File(artworkDir, sha1(bytes) + ".img")
+                if (!file.exists()) {
+                    // Parallel workers may extract the same picture; write atomically.
                     val tmp = File.createTempFile("art", ".tmp", artworkDir)
                     tmp.writeBytes(bytes)
                     if (!tmp.renameTo(file)) tmp.delete()
-                    artwork = Uri.fromFile(file).toString()
                 }
+                artwork = Uri.fromFile(file).toString()
+            } else {
+                // No picture in this file: the album's, if one of its tracks had one (older, album-named files).
+                val key = if (album != null) Track.albumKeyOf(album, albumArtist ?: artist) else track.id
+                File(artworkDir, sha1(key.toByteArray()) + ".img").takeIf { it.exists() }?.let { artwork = Uri.fromFile(it).toString() }
             }
         }
         return track.copy(
@@ -483,8 +502,11 @@ class MetadataEnricher(
         val release = pickRelease(recording, track.album)
 
         val artwork = track.artworkUri ?: release?.let { findCover(it) }
+        // A title from the tags always stays: MusicBrainz may have matched another edition, e.g. a
+        // deluxe release's "(Hollola Tapes)" versions. Only a file-name title is replaced.
+        val untitled = track.title == track.fileName.substringBeforeLast('.')
         return track.copy(
-            title = if (track.artist == null) recording.title else track.title,
+            title = if (untitled) recording.title else track.title,
             artist = track.artist ?: recording.artistName,
             album = track.album ?: release?.title,
             albumArtist = track.albumArtist ?: release?.artistCredit?.joinToString("") { it.name + (it.joinphrase ?: "") },
@@ -639,7 +661,7 @@ class MetadataEnricher(
 
         private fun String.leadingInt() = Regex("^\\d+").find(this)?.value?.toIntOrNull()
 
-        private fun sha1(s: String) =
-            MessageDigest.getInstance("SHA-1").digest(s.toByteArray()).joinToString("") { "%02x".format(it) }
+        private fun sha1(bytes: ByteArray) =
+            MessageDigest.getInstance("SHA-1").digest(bytes).joinToString("") { "%02x".format(it) }
     }
 }

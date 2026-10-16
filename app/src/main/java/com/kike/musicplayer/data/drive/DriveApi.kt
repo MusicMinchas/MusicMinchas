@@ -2,6 +2,8 @@ package com.kike.musicplayer.data.drive
 
 import com.kike.musicplayer.data.db.Track
 import com.kike.musicplayer.data.local.LocalLibrary
+import android.util.Log
+import kotlinx.coroutines.delay
 import okhttp3.Interceptor
 import okhttp3.Response
 import retrofit2.http.GET
@@ -109,15 +111,30 @@ class DriveLibrary(private val api: DriveApi) {
         val result = mutableListOf<DriveFile>()
         var pageToken: String? = null
         do {
-            val page = api.listFiles(query = query, fields = fields, pageToken = pageToken, orderBy = orderBy)
+            val token = pageToken
+            val page = retrying { api.listFiles(query = query, fields = fields, pageToken = token, orderBy = orderBy) }
             result += page.files
             pageToken = page.nextPageToken
         } while (pageToken != null)
         return result
     }
 
+    /** A page that times out (Drive sometimes answers slowly) is asked for again, not the whole sync failed. */
+    private suspend fun <T> retrying(block: suspend () -> T): T {
+        repeat(LIST_ATTEMPTS - 1) { attempt ->
+            try {
+                return block()
+            } catch (e: java.io.InterruptedIOException) {
+                Log.w("DriveLibrary", "Drive listing timed out (attempt ${attempt + 1}), trying again", e)
+                delay(2_000L * (attempt + 1))
+            }
+        }
+        return block()
+    }
+
     private companion object {
         const val MAX_DEPTH = 64
+        const val LIST_ATTEMPTS = 3
 
         fun escape(s: String) = s.replace("\\", "\\\\").replace("'", "\\'")
     }

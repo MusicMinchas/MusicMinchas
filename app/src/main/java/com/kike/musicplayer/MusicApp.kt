@@ -117,7 +117,9 @@ class AppContainer(app: Application) {
         .addConverterFactory(MoshiConverterFactory.create(moshi))
         .build()
 
-    val driveApi: DriveApi = retrofit(DriveApi.BASE_URL, driveHttp).create(DriveApi::class.java)
+    // Listing every audio file in Drive can keep Google busy for a while before it answers.
+    val driveApi: DriveApi = retrofit(DriveApi.BASE_URL, driveHttp.newBuilder().readTimeout(90, TimeUnit.SECONDS).build())
+        .create(DriveApi::class.java)
     private val musicBrainz = retrofit(MusicBrainzApi.BASE_URL, metadataHttp).create(MusicBrainzApi::class.java)
     private val coverArt = retrofit(CoverArtApi.BASE_URL, metadataHttp).create(CoverArtApi::class.java)
 

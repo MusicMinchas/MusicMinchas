@@ -161,7 +161,11 @@ class LibraryRepository(
                             val onPhone = old.downloadState == Track.DOWNLOADED || old.downloadState == Track.DOWNLOAD_QUEUED
                             if (onPhone) redownload = true
                             // The old copy keeps playing until the new one is down; the downloader replaces it.
-                            return@map fresh.copy(localUri = old.localUri, downloadState = if (onPhone) Track.DOWNLOAD_QUEUED else old.downloadState)
+                            // Same song, new content: it keeps its place among recently added albums.
+                            return@map fresh.copy(
+                                localUri = old.localUri, downloadState = if (onPhone) Track.DOWNLOAD_QUEUED else old.downloadState,
+                                dateAdded = old.dateAdded,
+                            )
                         }
                         old.copy(uri = fresh.uri, fileName = fresh.fileName, mimeType = fresh.mimeType, sizeBytes = fresh.sizeBytes, checksum = fresh.checksum)
                     }
