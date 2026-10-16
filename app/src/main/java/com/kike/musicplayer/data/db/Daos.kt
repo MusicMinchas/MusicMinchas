@@ -156,8 +156,8 @@ data class ArtistPair(val artist: String?, val albumArtist: String?)
 
 data class SourceCount(val source: String, val count: Int)
 
-/** An album of one source and when its newest song was added. */
-data class AddedAlbum(val key: String, val scope: Int, val added: Long)
+/** A song's album and source, for recently added albums. */
+data class AddedAlbum(val key: String, val scope: Int)
 
 data class NameCount(val name: String, val count: Int)
 
@@ -727,20 +727,21 @@ interface BrowseDao {
     fun observeSourceCounts(): Flow<List<SourceCount>>
 
     /**
-     * Albums by when their newest song was added (to the app; for Navidrome, to the server),
-     * newest first. One row per source an album is in.
+     * The albums of the newest songs (added to the app; for Navidrome, to the server), newest
+     * first, one row per song: the first row of an album is when its newest song came. The index
+     * is named because SQLite would otherwise pick the scope one and sort the whole table.
      */
     @Query(
-        "SELECT indexAlbum AS `key`, scope, MAX(dateAdded) AS added FROM tracks " +
-            "WHERE indexAlbum <> '' AND durationMs >= 0 AND scope IN (:scopes) " +
-            "GROUP BY scope, indexAlbum ORDER BY added DESC LIMIT :limit"
+        "SELECT indexAlbum AS `key`, scope FROM tracks INDEXED BY index_tracks_dateAdded " +
+            "WHERE indexAlbum <> '' AND durationMs >= 0 AND scope IN (:scopes) ORDER BY dateAdded DESC LIMIT :limit"
     )
-    suspend fun recentlyAddedAlbums(scopes: List<Int>, limit: Int): List<AddedAlbum>
+    suspend fun newestSongAlbums(scopes: List<Int>, limit: Int): List<AddedAlbum>
 
     @Query("SELECT $ALBUM_SUM FROM album_index WHERE `key` IN (:keys) GROUP BY `key`")
     suspend fun albumsByKeys(keys: List<String>): List<AlbumIndex>
 
-    @Query("SELECT * FROM tracks WHERE indexAlbum IN (:keys) AND scope IN (:scopes)")
+    /** The album index named: SQLite would otherwise pick the scope one and read most of the table. */
+    @Query("SELECT * FROM tracks INDEXED BY index_tracks_indexAlbum WHERE indexAlbum IN (:keys) AND scope IN (:scopes)")
     suspend fun tracksOfAlbums(keys: List<String>, scopes: List<Int>): List<Track>
 
     @Query("SELECT $ALBUM_SUM FROM album_index WHERE scope IN (:scopes) GROUP BY `key` ORDER BY sortKey, `key` LIMIT :limit OFFSET :offset")

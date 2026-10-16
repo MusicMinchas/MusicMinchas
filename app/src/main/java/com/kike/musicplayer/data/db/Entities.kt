@@ -15,7 +15,7 @@ import androidx.room.PrimaryKey
     tableName = "tracks",
     indices = [
         Index("source"), Index("metadataState"), Index("indexAlbum"), Index("indexArtist"), Index("indexGenre"),
-        Index("indexTitle"), Index("scope", "indexTitle"),
+        Index("indexTitle"), Index("scope", "indexTitle"), Index("dateAdded"),
     ],
 )
 data class Track(

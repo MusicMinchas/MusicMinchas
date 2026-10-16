@@ -208,16 +208,13 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
         .debounce(TRACKS_CHANGED_DEBOUNCE_MS)
         .map { }
 
-    /**
-     * Recently added albums, apart from [playlists] because reading them goes through every song:
-     * only again when songs change or a source is switched, not after each play.
-     */
+    /** Recently added albums: read again when songs change or a source is switched, not after each play. */
     @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
     private val addedAlbums: Flow<List<Album>> = combine(viewScopes, tracksChanged) { scopes, _ -> scopes }
         .mapLatest { scopes ->
             Bench.time("added albums") {
                 // Each album once (lists are keyed by album), from the source it was added to last.
-                val keys = browse.recentlyAddedAlbums(scopes, RECENT_ALBUMS * 3)
+                val keys = browse.newestSongAlbums(scopes, ADDED_LOOKUP)
                     .distinctBy { it.key }.take(RECENT_ALBUMS).map { it.scope to it.key }
                 albumsWithTracks(keys)
             }
@@ -774,6 +771,8 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
         const val RECENT_ALBUMS = 30
         /** Distinct recently played songs read for Recently Played and the recent albums. */
         const val RECENT_LOOKUP = 600
+        /** Newest songs read for the recently added albums (a few hundred albums' worth). */
+        const val ADDED_LOOKUP = 3000
         /** Mixes are made again after two days. */
         const val MIX_LIFETIME_MS = 48 * 60 * 60 * 1000L
         const val MOST_PLAYED_LOOKUP = 200
