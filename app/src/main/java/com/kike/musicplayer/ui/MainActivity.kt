@@ -10,6 +10,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.Icon
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.Alignment
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.fillMaxSize
@@ -155,7 +156,8 @@ class MainActivity : ComponentActivity() {
         val fullCover by libraryVm.fullScreenCover.collectAsState()
         // Status bar icons: light on the dark theme and on a full-screen cover, dark otherwise.
         val lightIcons = dark || (screen is Screen.NowPlaying && fullCover)
-        LaunchedEffect(lightIcons, dark) {
+        // Turning the phone resets the bar colours, so they're set again then too.
+        LaunchedEffect(lightIcons, dark, LocalConfiguration.current.orientation) {
             enableEdgeToEdge(
                 statusBarStyle = SystemBarStyle.auto(android.graphics.Color.TRANSPARENT, android.graphics.Color.TRANSPARENT) { lightIcons },
                 navigationBarStyle = SystemBarStyle.auto(android.graphics.Color.TRANSPARENT, android.graphics.Color.TRANSPARENT) { dark },

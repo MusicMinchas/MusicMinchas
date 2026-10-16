@@ -47,6 +47,7 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilledIconButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.IconButtonDefaults
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Slider
@@ -169,9 +170,39 @@ fun NowPlayingScreen(
     }
     if (showCast) CastSheet(playerVm) { showCast = false }
     val onFlip = { if (s.current != null) showLyrics = !showLyrics }
-    Box(Modifier.fillMaxSize()) {
-        if (!fullCover) ArtworkBackdrop(meta?.artworkUri)
-        if (fullCover) {
+    BoxWithConstraints(Modifier.fillMaxSize()) {
+        // Sideways: cover on the left, everything else on the right (the full cover is for upright only).
+        val landscape = maxWidth > maxHeight
+        val full = fullCover && !landscape
+        if (!full) ArtworkBackdrop(meta?.artworkUri)
+        if (landscape) {
+            Row(
+                Modifier.fillMaxSize().padding(contentPadding).padding(horizontal = 16.dp, vertical = 4.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Box(Modifier.fillMaxHeight().aspectRatio(1f)) {
+                    FlipCard(
+                        flipped = showLyrics,
+                        onFlip = onFlip,
+                        front = { Artwork(meta?.artworkUri, Modifier.fillMaxSize(), shape = RoundedCornerShape(12.dp)) },
+                        back = { LyricsPanel(lyrics, s.positionMs, playerVm::seekTo) },
+                        modifier = Modifier.fillMaxSize(),
+                    )
+                    // On the cover's corner, leaving the right side's height to the controls.
+                    FilledIconButton(
+                        onClick = onBack,
+                        modifier = Modifier.padding(8.dp).size(36.dp),
+                        colors = IconButtonDefaults.filledIconButtonColors(containerColor = Color.Black.copy(alpha = 0.4f), contentColor = Color.White),
+                    ) { Icon(Icons.Default.KeyboardArrowDown, "Close") }
+                }
+                Column(
+                    Modifier.weight(1f).fillMaxHeight().padding(start = 24.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                ) {
+                    NowPlayingDetails(s, playerVm, showLyrics, { showLyrics = !showLyrics }, { showCast = true }, onOpenQueue, heartOffset = 12.dp, compact = true)
+                }
+            }
+        } else if (full) {
             BoxWithConstraints(Modifier.fillMaxSize()) {
                 // The cover's bottom colour carries on below it and fades into the page.
                 EdgeColorBackdrop(meta?.artworkUri, coverFraction = maxWidth * FULL_COVER_HEIGHT / maxHeight)
@@ -341,6 +372,8 @@ private fun ColumnScope.NowPlayingDetails(
     onShowCast: () -> Unit,
     onOpenQueue: () -> Unit,
     heartOffset: Dp,
+    /** Sideways, where height is short: no extra space around the lyrics / cast / queue row. */
+    compact: Boolean = false,
 ) {
     val castTo by playerVm.castActive.collectAsState()
     val favourites by playerVm.favourites.collectAsState()
@@ -422,7 +455,10 @@ private fun ColumnScope.NowPlayingDetails(
     // Lyrics · Cast · Queue, within thumb reach under the playback controls.
     Row(
         // Tighter while casting: the speaker volume row needs the room.
-        Modifier.fillMaxWidth().padding(top = if (s.remoteVolume != null) 0.dp else 16.dp, bottom = if (s.remoteVolume != null) 0.dp else 8.dp),
+        Modifier.fillMaxWidth().padding(
+            top = if (s.remoteVolume != null || compact) 0.dp else 16.dp,
+            bottom = if (s.remoteVolume != null || compact) 0.dp else 8.dp,
+        ),
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically,
     ) {
