@@ -93,6 +93,7 @@ class PlaybackService : MediaLibraryService(), CastHost {
         private var counted = false
         private var startedAt = 0L
         private var scrobbled = false
+        private var reportedToServer = false
 
         override fun onEvents(player: Player, events: Player.Events) {
             // The paused phone player keeps reporting while Sonos plays; only follow the active one.
@@ -144,6 +145,7 @@ class PlaybackService : MediaLibraryService(), CastHost {
             listenedMs = 0
             counted = false
             scrobbled = false
+            reportedToServer = false
             startedAt = System.currentTimeMillis()
             val entry = PlayHistory(trackId = trackIdOf(id), playedAt = startedAt)
             container.scrobbler.nowPlaying(trackIdOf(id))
@@ -167,6 +169,11 @@ class PlaybackService : MediaLibraryService(), CastHost {
         private fun threshold() = if (durationMs > 0) durationMs / 2 else UNKNOWN_LENGTH_THRESHOLD_MS
 
         private fun persist() {
+            // A counted play also goes to the Subsonic server, when the user chose so (once per play).
+            if (counted && !reportedToServer) {
+                reportedToServer = true
+                mediaId?.let { container.serverPlays.played(trackIdOf(it), startedAt) }
+            }
             val row = rowId ?: return
             val ms = listened()
             val isCounted = counted

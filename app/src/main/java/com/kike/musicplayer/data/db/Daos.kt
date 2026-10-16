@@ -207,6 +207,25 @@ interface HistoryDao {
 }
 
 @Dao
+interface ServerOutboxDao {
+    @Insert
+    suspend fun insert(item: ServerOutboxItem)
+
+    /** Oldest first. */
+    @Query("SELECT * FROM server_outbox ORDER BY id LIMIT :limit")
+    suspend fun pending(limit: Int): List<ServerOutboxItem>
+
+    @Query("DELETE FROM server_outbox WHERE id = :id")
+    suspend fun delete(id: Long)
+
+    @Query("SELECT COUNT(*) FROM server_outbox")
+    fun observeCount(): Flow<Int>
+
+    @Query("DELETE FROM server_outbox")
+    suspend fun clear()
+}
+
+@Dao
 interface LastFmOutboxDao {
     @Insert
     suspend fun insert(item: LastFmOutboxItem)

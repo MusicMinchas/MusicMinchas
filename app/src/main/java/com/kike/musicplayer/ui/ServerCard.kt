@@ -18,6 +18,8 @@ import androidx.compose.material3.RadioButton
 import androidx.compose.material3.TextButton
 import com.kike.musicplayer.data.DriveSyncMode
 import com.kike.musicplayer.data.db.Track
+import androidx.compose.material.icons.outlined.Info
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
@@ -81,6 +83,7 @@ internal fun ServerCard(vm: LibraryViewModel) {
                 )
             }
             ServerSyncControls(vm)
+            PlayReports(vm)
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
                 OutlinedButton(onClick = { vm.checkSubsonic() }, enabled = !state.busy) { Text("Check connection") }
                 OutlinedButton(onClick = { confirmDisconnect = true }, enabled = !state.busy) { Text("Disconnect") }
@@ -160,6 +163,58 @@ private fun ServerSyncControls(vm: LibraryViewModel) {
         color = MaterialTheme.colorScheme.onSurfaceVariant,
     )
     HorizontalDivider(Modifier.padding(vertical = 4.dp))
+}
+
+/** Whether plays made in the app go to the server's play counts too (both off by default). */
+@Composable
+private fun PlayReports(vm: LibraryViewModel) {
+    val server by vm.reportServerPlays.collectAsState()
+    val other by vm.reportOtherPlays.collectAsState()
+    val pending by vm.pendingServerPlays.collectAsState()
+    Text("Plays", style = MaterialTheme.typography.labelLarge)
+    InfoSwitch(
+        "Report server song plays to Navidrome", server, vm::setReportServerPlays,
+        infoTitle = "Server song plays",
+        info = "When a server song has played halfway, the app tells the server, so its play counts and " +
+            "\"recently played\" include what you play here. The app scrobbles to Last.fm itself (Last.fm card).\n\n" +
+            "Warning: if scrobbling to Last.fm is also switched on in the server (Navidrome: Personal settings → " +
+            "Last.fm), the server forwards these plays to Last.fm as well, and they would be scrobbled twice.",
+    )
+    InfoSwitch(
+        "Report plays from other sources to Navidrome", other, vm::setReportOtherPlays,
+        infoTitle = "Plays from other sources",
+        info = "Plays of songs on this device or Google Drive are also reported, to the server's copy of the same " +
+            "song, so its play counts reflect all your listening.\n\nThe server's copy is found by artist and title " +
+            "(the same album when possible), so it can be imperfect: a song with several versions may be counted on " +
+            "a different version, and songs spelled differently aren't found. The same Last.fm warning applies.",
+    )
+    if (pending > 0) {
+        Text(
+            "${if (pending == 1) "1 play" else "$pending plays"} waiting to be sent to the server",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+    }
+    HorizontalDivider(Modifier.padding(vertical = 4.dp))
+}
+
+/** A setting with a switch and an (i) button that explains it. */
+@Composable
+private fun InfoSwitch(label: String, checked: Boolean, onChange: (Boolean) -> Unit, infoTitle: String, info: String) {
+    var showInfo by remember { mutableStateOf(false) }
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Text(label, Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium)
+        IconButton(onClick = { showInfo = true }) { Icon(Icons.Outlined.Info, "About this setting") }
+        Switch(checked = checked, onCheckedChange = onChange)
+    }
+    if (showInfo) {
+        AlertDialog(
+            onDismissRequest = { showInfo = false },
+            title = { Text(infoTitle) },
+            text = { Text(info) },
+            confirmButton = { TextButton(onClick = { showInfo = false }) { Text("OK") } },
+        )
+    }
 }
 
 private fun count(songs: Int) = if (songs == 1) "1 song" else "${NumberFormat.getIntegerInstance().format(songs)} songs"

@@ -171,6 +171,17 @@ data class LastFmOutboxItem(
 }
 
 /**
+ * A play waiting to be reported to the Subsonic server (its play count and "recently played"),
+ * kept until the server has it. [songId] is the server's song id; [time] the play's start (ms).
+ */
+@Entity(tableName = "server_outbox")
+data class ServerOutboxItem(
+    @PrimaryKey(autoGenerate = true) val id: Long = 0,
+    val songId: String,
+    val time: Long,
+)
+
+/**
  * A scrobble imported from Last.fm, one per user and second ([uts]). [trackId] is the library song
  * it matched (then it was also added as a play), or null while the song isn't in the library.
  */

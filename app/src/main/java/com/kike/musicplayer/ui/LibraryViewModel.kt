@@ -658,7 +658,14 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
     fun checkSubsonic() = viewModelScope.launch { subsonic.check() }
 
     /** Signs out and removes the server's songs from the library (plays and favourites stay). */
+    val reportServerPlays = subsonic.reportServerPlays
+    val reportOtherPlays = subsonic.reportOtherPlays
+    fun setReportServerPlays(on: Boolean) = subsonic.setReportServerPlays(on)
+    fun setReportOtherPlays(on: Boolean) = subsonic.setReportOtherPlays(on)
+    val pendingServerPlays = container.serverPlays.pending.stateIn(viewModelScope, SharingStarted.Eagerly, 0)
+
     fun disconnectSubsonic() = viewModelScope.launch {
+        container.serverPlays.clear()
         container.serverLibrary.removeAll()
         subsonic.disconnect()
     }

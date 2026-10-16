@@ -52,6 +52,24 @@ class SubsonicAccount(context: Context, val client: SubsonicClient, prefsName: S
     private val _state = MutableStateFlow(stored())
     val state: StateFlow<SubsonicState> = _state.asStateFlow()
 
+    private val _reportServerPlays = MutableStateFlow(prefs.getBoolean(KEY_REPORT_SERVER, false))
+    /** Report plays of server songs to the server (its play counts); off by default. */
+    val reportServerPlays: StateFlow<Boolean> = _reportServerPlays.asStateFlow()
+
+    private val _reportOtherPlays = MutableStateFlow(prefs.getBoolean(KEY_REPORT_OTHER, false))
+    /** Also report plays of device and Drive songs the server has too (matched by artist and title); off by default. */
+    val reportOtherPlays: StateFlow<Boolean> = _reportOtherPlays.asStateFlow()
+
+    fun setReportServerPlays(on: Boolean) {
+        prefs.edit { putBoolean(KEY_REPORT_SERVER, on) }
+        _reportServerPlays.value = on
+    }
+
+    fun setReportOtherPlays(on: Boolean) {
+        prefs.edit { putBoolean(KEY_REPORT_OTHER, on) }
+        _reportOtherPlays.value = on
+    }
+
     /** How to sign in to the server, or null when none is set up (or the password can't be read). */
     fun login(): SubsonicLogin? = cachedLogin ?: readLogin()?.also { cachedLogin = it }
 
@@ -140,6 +158,8 @@ class SubsonicAccount(context: Context, val client: SubsonicClient, prefsName: S
         cachedLogin = null
         prefs.edit { clear() }
         _state.value = SubsonicState()
+        _reportServerPlays.value = false
+        _reportOtherPlays.value = false
     }
 
     fun clearMessage() = _state.update { it.copy(message = null) }
@@ -168,6 +188,8 @@ class SubsonicAccount(context: Context, val client: SubsonicClient, prefsName: S
         const val KEY_SONGS = "song_count"
         const val KEY_FOLDERS = "folders"
         const val KEY_CHECKED = "checked_at"
+        const val KEY_REPORT_SERVER = "report_server_plays"
+        const val KEY_REPORT_OTHER = "report_other_plays"
         const val SEP = "\u001F"
         const val SYNC_PAGE = 500
 
