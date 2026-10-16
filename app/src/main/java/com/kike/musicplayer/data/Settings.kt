@@ -128,6 +128,11 @@ class Settings(context: Context, name: String = "settings") {
         _concertCountry.value = code
     }
 
+    /** Done once (1.31): songs MusicBrainz had named got their own tags read again. */
+    var musicBrainzTitlesReread: Boolean
+        get() = prefs.getBoolean(KEY_MB_TITLES_REREAD, false)
+        set(value) = prefs.edit { putBoolean(KEY_MB_TITLES_REREAD, value) }
+
     /** When the Discover tab last fetched everything. */
     var discoverRefreshedAt: Long
         get() = prefs.getLong(KEY_DISCOVER_REFRESHED, 0L)
@@ -167,6 +172,7 @@ class Settings(context: Context, name: String = "settings") {
         const val KEY_DISCOVER_REFRESHED = "discover_refreshed_at"
         const val KEY_ONLINE = "online_metadata"
         const val KEY_DARK_MODE = "dark_mode"
+        const val KEY_MB_TITLES_REREAD = "mb_titles_reread"
         const val KEY_FULL_COVER = "full_screen_cover"
         const val KEY_SYNC_MODE = "drive_sync_mode"
         const val KEY_LAST_SYNC = "drive_last_sync"
