@@ -187,6 +187,23 @@ private fun CollectionsSyncInfo(vm: LibraryViewModel) {
             color = MaterialTheme.colorScheme.primary,
         )
     }
+    InfoSwitch(
+        "Star favourites from other sources on Navidrome", vm.starOtherFavourites.collectAsState().value, vm::setStarOtherFavourites,
+        infoTitle = "Favourites from other sources",
+        info = "Favourites of songs on this device or Google Drive are also starred on the server's copy of the same " +
+            "song, and removing them unstars it. Unstarring that copy on the server removes the favourite here too.\n\n" +
+            "The server's copy is found by artist and title (the same album when possible), so it can be imperfect: " +
+            "a song with several versions may be starred on a different version, and songs spelled differently " +
+            "aren't found. Switching this off later leaves the stars on the server as they are.",
+    )
+    InfoSwitch(
+        "Love Navidrome stars on Last.fm", vm.loveServerStars.collectAsState().value, vm::setLoveServerStars,
+        infoTitle = "Stars and Last.fm",
+        info = "Songs starred on the server become favourites here; with this on they're also loved on Last.fm, and " +
+            "unstarring them unloves them. Favourites you change here are always loved or unloved on Last.fm " +
+            "(when it's connected), whatever this setting.\n\nIt applies to stars from now on: songs starred " +
+            "before aren't loved retroactively.",
+    )
     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         OutlinedButton(onClick = vm::syncCollections, enabled = !sync.running) { Text("Sync favourites & playlists") }
         if (sync.running) CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp)

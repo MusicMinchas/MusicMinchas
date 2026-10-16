@@ -6,6 +6,7 @@ import androidx.core.content.edit
 import com.kike.musicplayer.data.db.AppDatabase
 import com.kike.musicplayer.data.db.Favourite
 import com.kike.musicplayer.data.db.getByIds
+import com.kike.musicplayer.data.lastfm.Scrobbler
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.FlowPreview
@@ -52,6 +53,7 @@ class ServerCollections(
     private val account: SubsonicAccount,
     private val db: AppDatabase,
     private val match: ServerMatch,
+    private val scrobbler: Scrobbler,
     private val scope: CoroutineScope,
     prefsName: String = "subsonic-sync",
 ) {
@@ -118,38 +120,45 @@ class ServerCollections(
 
     private suspend fun syncStars(login: SubsonicLogin): String? {
         val onServer = client.starredSongs(login).mapTo(HashSet()) { it.id }
-        val here = favourites.serverTrackIds().mapTo(HashSet()) { it.removePrefix(SubsonicUrls.PREFIX) }
-        val known = prefs.getStringSet(KEY_STARRED, null)?.toSet()
-
-        val toFavourite: Set<String>
-        val toUnfavourite: Set<String>
-        val toStar: Set<String>
-        val toUnstar: Set<String>
-        if (known == null) {
-            // First sync: both sides keep everything, nothing is removed.
-            toFavourite = onServer - here
-            toUnfavourite = emptySet()
-            toStar = here - onServer
-            toUnstar = emptySet()
-        } else {
-            val addedHere = here - known
-            val removedHere = known - here
-            val addedThere = onServer - known
-            val removedThere = known - onServer
-            toFavourite = addedThere - here
-            toUnfavourite = (removedThere intersect here) - addedHere
-            toStar = addedHere - onServer
-            toUnstar = (removedHere intersect onServer) - addedThere
+        // What the app wants starred: its favourite server songs, and, when chosen, the server's copy of
+        // its device and Drive favourites. Which favourites stand behind each server song, to undo them.
+        val behind = HashMap<String, MutableList<String>>()
+        val withOthers = account.starOtherFavourites.value
+        for (trackId in favourites.allTrackIds()) {
+            val songId = if (trackId.startsWith(SubsonicUrls.PREFIX)) trackId.removePrefix(SubsonicUrls.PREFIX)
+            else if (withOthers) db.tracks().get(trackId)?.let { match.serverSongIdCached(it) } else null
+            if (songId != null) behind.getOrPut(songId) { ArrayList() } += trackId
         }
+        val here = behind.keys.toSet()
+
+        // The two sides as they were after the last sync (one set before both were kept apart).
+        val lastThere = (prefs.getStringSet(KEY_STARRED_THERE, null) ?: prefs.getStringSet(KEY_STARRED, null))?.toSet()
+        var lastHere = (prefs.getStringSet(KEY_STARRED_HERE, null) ?: prefs.getStringSet(KEY_STARRED, null))?.toSet()
+        // Starring other sources' favourites switched off: those stars stay on the server, nothing is unstarred.
+        if (prefs.getBoolean(KEY_WITH_OTHERS, false) && !withOthers) lastHere = lastHere?.let { it intersect here }
+
+        val (toFavourite, toUnfavourite, toStar, toUnstar) = planStars(onServer, here, lastThere, lastHere)
         val now = System.currentTimeMillis()
+        val love = account.loveServerStars.value
         if (toFavourite.isNotEmpty()) favourites.insertAll(toFavourite.map { Favourite(SubsonicUrls.PREFIX + it, now) })
-        toUnfavourite.forEach { favourites.delete(SubsonicUrls.PREFIX + it) }
+        if (love) toFavourite.forEach { scrobbler.love(SubsonicUrls.PREFIX + it, true) }
+        val unfavourited = toUnfavourite.flatMap { behind[it].orEmpty() }
+        for (trackId in unfavourited) {
+            favourites.delete(trackId)
+            if (love) scrobbler.love(trackId, false)
+        }
         client.star(login, toStar.toList())
         client.unstar(login, toUnstar.toList())
-        prefs.edit { putStringSet(KEY_STARRED, (onServer + toStar - toUnstar).toSet()) }
+        val starred = (onServer + toStar - toUnstar).toSet()
+        prefs.edit {
+            putStringSet(KEY_STARRED_THERE, starred)
+            putStringSet(KEY_STARRED_HERE, here - toUnfavourite + toFavourite)
+            putBoolean(KEY_WITH_OTHERS, withOthers)
+            remove(KEY_STARRED)
+        }
 
         val parts = listOfNotNull(
-            plural(toFavourite.size, "favourite", "from the server"), plural(toUnfavourite.size, "favourite", "removed (unstarred on the server)"),
+            plural(toFavourite.size, "favourite", "from the server"), plural(unfavourited.size, "favourite", "removed (unstarred on the server)"),
             plural(toStar.size, "song", "starred on the server"), plural(toUnstar.size, "song", "unstarred on the server"),
         )
         return parts.joinToString(", ").ifEmpty { null }
@@ -269,10 +278,35 @@ class ServerCollections(
     private companion object {
         const val TAG = "ServerCollections"
         const val KEY_STARRED = "starred"
+        const val KEY_STARRED_THERE = "starred_on_server"
+        const val KEY_STARRED_HERE = "starred_from_app"
+        const val KEY_WITH_OTHERS = "star_other_favourites"
         const val KEY_LINKED = "linked_playlists"
         const val KEY_AT = "synced_at"
         const val KEY_CHANGES = "last_changes"
         const val KEY_CHANGES_AT = "last_changes_at"
         const val CHANGE_DELAY_MS = 3_000L
     }
+}
+
+/** What a star sync does: server songs to favourite and unfavourite here, to star and unstar there. */
+internal data class StarPlan(val toFavourite: Set<String>, val toUnfavourite: Set<String>, val toStar: Set<String>, val toUnstar: Set<String>)
+
+/**
+ * Compares the server's starred songs ([there]) and the app's ([here]) with both as they were after
+ * the last sync, so a change on one side isn't mistaken for one on the other. With no last sync,
+ * both keep everything and nothing is removed.
+ */
+internal fun planStars(there: Set<String>, here: Set<String>, lastThere: Set<String>?, lastHere: Set<String>?): StarPlan {
+    if (lastThere == null || lastHere == null) return StarPlan(there - here, emptySet(), here - there, emptySet())
+    val addedHere = here - lastHere
+    val removedHere = lastHere - here
+    val addedThere = there - lastThere
+    val removedThere = lastThere - there
+    return StarPlan(
+        toFavourite = addedThere - here,
+        toUnfavourite = (removedThere intersect here) - addedHere,
+        toStar = addedHere - there,
+        toUnstar = (removedHere intersect there) - addedThere,
+    )
 }

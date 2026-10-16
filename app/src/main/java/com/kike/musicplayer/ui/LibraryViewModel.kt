@@ -664,6 +664,13 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
     fun setReportOtherPlays(on: Boolean) = subsonic.setReportOtherPlays(on)
     val pendingServerPlays = container.serverPlays.pending.stateIn(viewModelScope, SharingStarted.Eagerly, 0)
 
+    val starOtherFavourites = subsonic.starOtherFavourites
+    val loveServerStars = subsonic.loveServerStars
+    fun setStarOtherFavourites(on: Boolean) {
+        subsonic.setStarOtherFavourites(on)
+        container.serverCollections.syncNow()
+    }
+    fun setLoveServerStars(on: Boolean) = subsonic.setLoveServerStars(on)
     val collectionsSync = container.serverCollections.status
     fun syncCollections() = container.serverCollections.syncNow()
 

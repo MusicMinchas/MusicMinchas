@@ -146,11 +146,6 @@ class AppContainer(app: Application) {
     /** Plays reported to the server, as the user chose (off by default). */
     private val serverMatch = ServerMatch(database)
     val serverPlays = ServerPlays(subsonic, database, serverMatch, appScope).also { it.flush() }
-    /** Favourites ↔ stars and playlists, both ways. */
-    val serverCollections = ServerCollections(app, subsonic, database, serverMatch, appScope, "subsonic-sync$suffix").also { collections ->
-        serverLibrary.onSynced = collections::syncNow
-        collections.start()
-    }
 
     /** Lets Sonos fetch tracks from the phone while casting. */
     val trackServer = TrackServer(
@@ -168,6 +163,11 @@ class AppContainer(app: Application) {
     val scrobbler = Scrobbler(lastFm, database.lastFmOutbox(), database.tracks(), appScope).also { scrobbler ->
         lastFm.onConnected = scrobbler::flush
         scrobbler.flush() // whatever was left unsent last time
+    }
+    /** Favourites ↔ stars and playlists, both ways. */
+    val serverCollections = ServerCollections(app, subsonic, database, serverMatch, scrobbler, appScope, "subsonic-sync$suffix").also { collections ->
+        serverLibrary.onSynced = collections::syncNow
+        collections.start()
     }
     val scrobbleImporter = ScrobbleImporter(
         lastFm, database.lastFmScrobbles(), database.history(), database.tracks(), database.favourites(), scrobbler, appScope,

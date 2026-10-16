@@ -12,6 +12,19 @@ class ServerMatch(private val db: AppDatabase) {
         if (track.source == Track.SOURCE_SUBSONIC) track.uri.removePrefix(SubsonicUrls.PREFIX)
         else serverCopy(track)?.uri?.removePrefix(SubsonicUrls.PREFIX)
 
+    /**
+     * [serverSongId], remembered while the app runs: favourites are matched on every sync, and
+     * hundreds of them shouldn't be looked up each time. Songs the server got since are found after
+     * a restart.
+     */
+    suspend fun serverSongIdCached(track: Track): String? {
+        if (track.source == Track.SOURCE_SUBSONIC) return serverSongId(track)
+        cache[track.id]?.let { return it.ifEmpty { null } }
+        return serverSongId(track).also { cache[track.id] = it.orEmpty() }
+    }
+
+    private val cache = java.util.concurrent.ConcurrentHashMap<String, String>()
+
     /** The server's copy of a device or Drive song: same artist and title (the same album preferred). */
     suspend fun serverCopy(track: Track): Track? {
         val artist = track.artist ?: track.albumArtist ?: return null

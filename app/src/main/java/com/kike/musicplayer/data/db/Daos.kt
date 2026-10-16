@@ -415,6 +415,9 @@ interface FavouriteDao {
     @Query("DELETE FROM favourites WHERE trackId = :trackId")
     suspend fun delete(trackId: String)
 
+    @Query("SELECT trackId FROM favourites")
+    suspend fun allTrackIds(): List<String>
+
     /** Favourites that are songs on the Subsonic server. */
     @Query("SELECT trackId FROM favourites WHERE trackId LIKE 'subsonic:%'")
     suspend fun serverTrackIds(): List<String>

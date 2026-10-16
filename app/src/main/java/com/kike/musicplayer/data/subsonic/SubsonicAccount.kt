@@ -60,6 +60,24 @@ class SubsonicAccount(context: Context, val client: SubsonicClient, prefsName: S
     /** Also report plays of device and Drive songs the server has too (matched by artist and title); off by default. */
     val reportOtherPlays: StateFlow<Boolean> = _reportOtherPlays.asStateFlow()
 
+    private val _starOtherFavourites = MutableStateFlow(prefs.getBoolean(KEY_STAR_OTHER, false))
+    /** Star the server's copy of device and Drive favourites too (matched by artist and title); off by default. */
+    val starOtherFavourites: StateFlow<Boolean> = _starOtherFavourites.asStateFlow()
+
+    private val _loveServerStars = MutableStateFlow(prefs.getBoolean(KEY_LOVE_STARS, false))
+    /** Love (unlove) on Last.fm the songs starred (unstarred) on the server; off by default. */
+    val loveServerStars: StateFlow<Boolean> = _loveServerStars.asStateFlow()
+
+    fun setStarOtherFavourites(on: Boolean) {
+        prefs.edit { putBoolean(KEY_STAR_OTHER, on) }
+        _starOtherFavourites.value = on
+    }
+
+    fun setLoveServerStars(on: Boolean) {
+        prefs.edit { putBoolean(KEY_LOVE_STARS, on) }
+        _loveServerStars.value = on
+    }
+
     fun setReportServerPlays(on: Boolean) {
         prefs.edit { putBoolean(KEY_REPORT_SERVER, on) }
         _reportServerPlays.value = on
@@ -160,6 +178,8 @@ class SubsonicAccount(context: Context, val client: SubsonicClient, prefsName: S
         _state.value = SubsonicState()
         _reportServerPlays.value = false
         _reportOtherPlays.value = false
+        _starOtherFavourites.value = false
+        _loveServerStars.value = false
     }
 
     fun clearMessage() = _state.update { it.copy(message = null) }
@@ -190,6 +210,8 @@ class SubsonicAccount(context: Context, val client: SubsonicClient, prefsName: S
         const val KEY_CHECKED = "checked_at"
         const val KEY_REPORT_SERVER = "report_server_plays"
         const val KEY_REPORT_OTHER = "report_other_plays"
+        const val KEY_STAR_OTHER = "star_other_favourites"
+        const val KEY_LOVE_STARS = "love_server_stars"
         const val SEP = "\u001F"
         const val SYNC_PAGE = 500
 
