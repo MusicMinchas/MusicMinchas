@@ -363,7 +363,12 @@ data class IndexDirty(
  */
 @Fts4(tokenizer = FtsOptions.TOKENIZER_UNICODE61)
 @Entity(tableName = "tracks_fts")
-data class TrackFts(val title: String)
+data class TrackFts(
+    val title: String,
+    /** Artist and album artist, so "metallica one" finds One by Metallica. */
+    val artist: String,
+    val album: String,
+)
 
 @Fts4(tokenizer = FtsOptions.TOKENIZER_UNICODE61)
 @Entity(tableName = "album_fts")

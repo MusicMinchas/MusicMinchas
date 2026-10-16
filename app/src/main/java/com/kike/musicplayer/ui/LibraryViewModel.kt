@@ -174,7 +174,9 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
                 SearchResults(
                     artists = browse.searchArtists(match, SEARCH_ARTISTS, scopes),
                     albums = browse.searchAlbums(match, SEARCH_ALBUMS, scopes),
-                    songs = browse.searchSongs(match, SEARCH_SONGS, scopes),
+                    // Titles with every word first, then words spread over title, artist and album.
+                    songs = (browse.searchSongs(SearchText.titleMatch(q)!!, SEARCH_SONGS, scopes) + browse.searchSongs(match, SEARCH_SONGS, scopes))
+                        .distinctBy { it.id }.take(SEARCH_SONGS),
                 )
             }
         }

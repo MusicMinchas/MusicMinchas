@@ -16,6 +16,12 @@ object SearchText {
         val words = text.lowercase().split(SEPARATORS).filter { it.isNotEmpty() }
         return if (words.isEmpty()) null else words.joinToString(" ") { "$it*" }
     }
+
+    /**
+     * For the songs' search table, which also holds artist and album: [match] lets each word be in
+     * any of them ("metallica one"); this one wants them all in the title.
+     */
+    fun titleMatch(text: String): String? = match(text)?.split(' ')?.joinToString(" ") { "title:$it" }
 }
 
 /** Songs by title, artist or album, from the search tables (playlist picker, media browser). */
@@ -26,7 +32,9 @@ object SongSearch {
     suspend fun find(browse: BrowseDao, text: String, limit: Int, scopes: List<Int>, bySong: Boolean = true, byArtist: Boolean = true, byAlbum: Boolean = true): List<Track> {
         val match = SearchText.match(text) ?: return emptyList()
         val found = LinkedHashMap<String, Track>()
-        if (bySong) browse.searchSongs(match, limit, scopes).forEach { found[it.id] = it }
+        if (bySong) browse.searchSongs(SearchText.titleMatch(text)!!, limit, scopes).forEach { found[it.id] = it }
+        // Everything chosen: words may also be spread over title, artist and album ("metallica one").
+        if (bySong && byArtist && byAlbum) browse.searchSongs(match, limit, scopes).forEach { found.putIfAbsent(it.id, it) }
         if (byArtist) {
             val names = browse.searchArtists(match, NAMES, scopes).map { it.name }
             if (names.isNotEmpty()) browse.songsOfArtists(names, limit, scopes).forEach { found.putIfAbsent(it.id, it) }
