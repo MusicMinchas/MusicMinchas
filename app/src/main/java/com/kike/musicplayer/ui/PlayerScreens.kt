@@ -174,11 +174,12 @@ fun NowPlayingScreen(
         if (fullCover) {
             BoxWithConstraints(Modifier.fillMaxSize()) {
                 // The cover's bottom colour carries on below it and fades into the page.
-                EdgeColorBackdrop(meta?.artworkUri, coverFraction = maxWidth / maxHeight)
+                EdgeColorBackdrop(meta?.artworkUri, coverFraction = maxWidth * FULL_COVER_HEIGHT / maxHeight)
                 val top = contentPadding.calculateTopPadding()
                 // Where the title is in the normal layout: close bar, cover (page width plus the bleed), gap.
                 val titleTop = top + CLOSE_BAR + maxWidth - 48.dp + COVER_BLEED * 2 + TITLE_GAP
-                Box(Modifier.fillMaxWidth().aspectRatio(1f)) {
+                // A little taller than wide (the sides crop off), so it reaches further down.
+                Box(Modifier.fillMaxWidth().aspectRatio(1f / FULL_COVER_HEIGHT)) {
                     FlipCard(
                         flipped = showLyrics,
                         onFlip = onFlip,
@@ -240,7 +241,7 @@ private fun FadingCover(uri: Any?) {
             .drawWithContent {
                 drawContent()
                 drawRect(
-                    brush = Brush.verticalGradient(0.6f to Color.Black, 1f to Color.Transparent),
+                    brush = Brush.verticalGradient(0.7f to Color.Black, 1f to Color.Transparent),
                     blendMode = BlendMode.DstIn,
                 )
             },
@@ -258,14 +259,15 @@ private fun EdgeColorBackdrop(uri: Any?, coverFraction: Float) {
     val page = MaterialTheme.colorScheme.background
     val edge = rememberBottomEdgeColor(uri)
     // Dark page: the colour a little darker; light page: well lightened, for the dark text.
-    val tone = edge?.let { lerp(it, page, if (page.luminance() < 0.5f) 0.35f else 0.6f) } ?: page
+    val tone = edge?.let { lerp(it, page, if (page.luminance() < 0.5f) 0.15f else 0.45f) } ?: page
     val color by animateColorAsState(tone, tween(600), label = "edge colour")
     Box(
         Modifier.fillMaxSize().background(
             Brush.verticalGradient(
                 0f to color,
-                coverFraction to color,
-                (coverFraction + 0.3f).coerceAtMost(1f) to page,
+                // Solid down past the title, then fading out by the seek bar.
+                (coverFraction + 0.12f).coerceAtMost(1f) to color,
+                (coverFraction + 0.4f).coerceAtMost(1f) to page,
             ),
         ),
     )
@@ -416,6 +418,9 @@ private fun ColumnScope.NowPlayingDetails(
         )
     }
 }
+
+/** The full-width cover's height, relative to the screen width. */
+private const val FULL_COVER_HEIGHT = 1.05f
 
 /** Now Playing's close-arrow bar and the gap between cover and title (both layouts). */
 private val CLOSE_BAR = 40.dp
