@@ -31,7 +31,7 @@ data class SubsonicState(
     val username: String? = null,
     /** "Navidrome 0.61.1", or the Subsonic API version for servers that don't say. */
     val server: String? = null,
-    /** Songs on the server, when the server says (Navidrome does). */
+    /** Songs on Navidrome, when the server says (Navidrome does). */
     val songCount: Long? = null,
     val folders: List<String> = emptyList(),
     /** When the server last answered. */
@@ -53,7 +53,7 @@ class SubsonicAccount(context: Context, val client: SubsonicClient, prefsName: S
     val state: StateFlow<SubsonicState> = _state.asStateFlow()
 
     private val _reportServerPlays = MutableStateFlow(prefs.getBoolean(KEY_REPORT_SERVER, false))
-    /** Report plays of server songs to the server (its play counts); off by default. */
+    /** Report plays of server songs to Navidrome (its play counts); off by default. */
     val reportServerPlays: StateFlow<Boolean> = _reportServerPlays.asStateFlow()
 
     private val _reportOtherPlays = MutableStateFlow(prefs.getBoolean(KEY_REPORT_OTHER, false))
@@ -61,11 +61,11 @@ class SubsonicAccount(context: Context, val client: SubsonicClient, prefsName: S
     val reportOtherPlays: StateFlow<Boolean> = _reportOtherPlays.asStateFlow()
 
     private val _starOtherFavourites = MutableStateFlow(prefs.getBoolean(KEY_STAR_OTHER, false))
-    /** Star the server's copy of device and Drive favourites too (matched by artist and title); off by default. */
+    /** Star Navidrome's copy of device and Drive favourites too (matched by artist and title); off by default. */
     val starOtherFavourites: StateFlow<Boolean> = _starOtherFavourites.asStateFlow()
 
     private val _loveServerStars = MutableStateFlow(prefs.getBoolean(KEY_LOVE_STARS, false))
-    /** Love (unlove) on Last.fm the songs starred (unstarred) on the server; off by default. */
+    /** Love (unlove) on Last.fm the songs starred (unstarred) on Navidrome; off by default. */
     val loveServerStars: StateFlow<Boolean> = _loveServerStars.asStateFlow()
 
     fun setStarOtherFavourites(on: Boolean) {
@@ -88,7 +88,7 @@ class SubsonicAccount(context: Context, val client: SubsonicClient, prefsName: S
         _reportOtherPlays.value = on
     }
 
-    /** How to sign in to the server, or null when none is set up (or the password can't be read). */
+    /** How to sign in to Navidrome, or null when none is set up (or the password can't be read). */
     fun login(): SubsonicLogin? = cachedLogin ?: readLogin()?.also { cachedLogin = it }
 
     /** Decrypting takes a Keystore call; covers ask for the login all the time. */
@@ -139,7 +139,7 @@ class SubsonicAccount(context: Context, val client: SubsonicClient, prefsName: S
         val login = login()
         if (login == null) {
             if (prefs.contains(KEY_ADDRESS)) {
-                _state.update { it.copy(message = "Sign in to your server again (the saved password can't be read)") }
+                _state.update { it.copy(message = "Sign in to Navidrome again (the saved password can't be read)") }
             }
             return@withLock
         }
@@ -224,13 +224,13 @@ class SubsonicAccount(context: Context, val client: SubsonicClient, prefsName: S
             is SubsonicException -> when (e.code) {
                 SubsonicException.WRONG_CREDENTIALS -> "Wrong user name or password"
                 SubsonicException.NOT_AUTHORIZED -> "This user isn't allowed to use the API"
-                else -> e.message ?: "Server error ${e.code}"
+                else -> e.message ?: "Navidrome error ${e.code}"
             }
-            is UnknownHostException -> "Server not found: check the address and your internet connection"
+            is UnknownHostException -> "Navidrome not found: check the address and your internet connection"
             is UnknownServiceException -> "Only https:// addresses are supported"
-            is SSLException -> "Secure connection failed: the server's certificate isn't trusted"
-            is java.net.SocketTimeoutException, is java.net.ConnectException -> "The server didn't answer"
-            is IOException -> e.message ?: "Couldn't reach the server"
+            is SSLException -> "Secure connection failed: Navidrome's certificate isn't trusted"
+            is java.net.SocketTimeoutException, is java.net.ConnectException -> "Navidrome didn't answer"
+            is IOException -> e.message ?: "Couldn't reach Navidrome"
             else -> e.message ?: e.javaClass.simpleName
         }
     }

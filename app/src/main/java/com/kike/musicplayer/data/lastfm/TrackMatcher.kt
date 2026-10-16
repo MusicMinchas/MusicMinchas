@@ -38,12 +38,17 @@ class TrackMatcher(tracks: List<Track>) {
     fun match(artist: String, title: String, album: String?, mbid: String?): Track? {
         mbid?.let { byMbid[it] }?.let { return it }
         val wanted = album?.let(::basic)
-        val candidates = exact[key(basic(artist), basic(title))]
-            ?: loose[key(looseArtist(artist), looseTitle(title))]
-            ?: return lastResort(artist, title, wanted)
+        val exactHits = exact[key(basic(artist), basic(title))].orEmpty()
+        val looseHits = loose[key(looseArtist(artist), looseTitle(title))].orEmpty()
+        if (exactHits.isEmpty() && looseHits.isEmpty()) return lastResort(artist, title, wanted)
         val onAlbum = { t: Track -> wanted != null && t.album?.let(::basic) == wanted }
-        return candidates.firstOrNull { !it.fromServer && onAlbum(it) } ?: candidates.firstOrNull { !it.fromServer }
-            ?: candidates.firstOrNull(onAlbum) ?: candidates.first()
+        // The user's own copy of the same song beats a server file whose title only matches more
+        // exactly ("Fade To Black (Remastered)" is their "Fade to Black"); within each, the exact
+        // title, then the scrobble's album.
+        for (hits in listOf(exactHits.filter { !it.fromServer }, looseHits.filter { !it.fromServer }, exactHits, looseHits)) {
+            if (hits.isNotEmpty()) return hits.firstOrNull(onAlbum) ?: hits.first()
+        }
+        return null
     }
 
     private fun lastResort(artist: String, title: String, album: String?): Track? {

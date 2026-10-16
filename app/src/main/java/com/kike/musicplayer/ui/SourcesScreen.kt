@@ -103,7 +103,7 @@ fun SourcesScreen(
 
             SourceCard(
                 "Downloaded songs",
-                "Google Drive and server songs kept on the phone (Music/MusicMinchas), so they play without internet",
+                "Google Drive and Navidrome songs kept on the phone (Music/MusicMinchas), so they play without internet",
             ) {
                 val songs = downloads?.songs ?: 0
                 Text(
@@ -187,7 +187,7 @@ private fun MusicSourcesEntry(vm: LibraryViewModel, onOpen: () -> Unit) {
         counts[Track.SOURCE_SAF]?.takeIf { it > 0 }?.let { add("Local ${number.format(it)}") }
         if (account != null) add("GDrive ${number.format(counts[Track.SOURCE_DRIVE] ?: 0)}")
         if (server.address != null) {
-            add("${server.server?.substringBefore(' ') ?: "Server"} ${number.format(counts[Track.SOURCE_SUBSONIC] ?: 0)}")
+            add("${server.server?.substringBefore(' ') ?: "Navidrome"} ${number.format(counts[Track.SOURCE_SUBSONIC] ?: 0)}")
         }
     }
     Card(Modifier.fillMaxWidth().clickable(onClick = onOpen)) {
@@ -196,7 +196,7 @@ private fun MusicSourcesEntry(vm: LibraryViewModel, onOpen: () -> Unit) {
             Column(Modifier.weight(1f).padding(start = 12.dp)) {
                 Text("Music sources", style = MaterialTheme.typography.titleMedium)
                 Text(
-                    if (parts.isEmpty()) "Folders on this device, Google Drive, Navidrome / Subsonic server"
+                    if (parts.isEmpty()) "Folders on this device, Google Drive, Navidrome"
                     else parts.joinToString(" · ") + " songs",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,

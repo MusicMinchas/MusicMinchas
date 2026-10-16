@@ -33,11 +33,11 @@ data class ServerSync(
 )
 
 /**
- * Brings the server's songs into the library as their own source (Track.SOURCE_SUBSONIC, server
+ * Brings Navidrome's songs into the library as their own source (Track.SOURCE_SUBSONIC, server
  * scope). The whole library is listed page by page (search3 with an empty query); only songs that
  * are new or whose details changed are written, so a re-sync of an unchanged library writes
  * nothing, and the summaries and search tables are only touched for what changed. Songs come with
- * their tags from the server, so they skip the tag reading and online lookups of the own music.
+ * their tags from Navidrome, so they skip the tag reading and online lookups of the own music.
  */
 class SubsonicLibrary(
     private val account: SubsonicAccount,
@@ -64,7 +64,7 @@ class SubsonicLibrary(
         if (due && account.login() != null) sync(force = false)
     }
 
-    /** Lists the server's songs again; without [force], only if the server scanned since the last sync. */
+    /** Lists Navidrome's songs again; without [force], only if the server scanned since the last sync. */
     fun sync(force: Boolean = true) {
         if (job?.isActive == true) return
         job = scope.launch(Dispatchers.IO) {
@@ -74,7 +74,7 @@ class SubsonicLibrary(
                 val scan = runCatching { account.client.scanStatus(login) }.getOrNull()
                 if (!force && scan?.lastScan != null && scan.lastScan == settings.serverScanSynced && dao.countSource(Track.SOURCE_SUBSONIC) > 0) {
                     settings.setLastServerSync(System.currentTimeMillis())
-                    _status.value = ServerSync(message = "Up to date: nothing changed on the server")
+                    _status.value = ServerSync(message = "Up to date: nothing changed on Navidrome")
                     onSynced?.invoke()
                     return@launch
                 }
@@ -90,7 +90,7 @@ class SubsonicLibrary(
         }
     }
 
-    /** Removes the server's songs from the library (plays, favourites and playlists keep their ids). */
+    /** Removes Navidrome's songs from the library (plays, favourites and playlists keep their ids). */
     suspend fun removeAll() = withContext(Dispatchers.IO) {
         job?.cancel()
         dao.deleteSource(Track.SOURCE_SUBSONIC)
@@ -138,7 +138,7 @@ class SubsonicLibrary(
         }
         next.cancel()
 
-        // Songs no longer listed are gone from the server, unless the listing came up short.
+        // Songs no longer listed are gone from Navidrome, unless the listing came up short.
         val gone = known.keys - seen
         val complete = total == null || seen.size >= total
         val removed = if (complete && (seen.isNotEmpty() || known.isEmpty())) gone.size.also { dao.delete(gone) } else 0
@@ -146,7 +146,7 @@ class SubsonicLibrary(
         Bench.log("server sync: ${seen.size} listed, $added added, $changed changed, $removed removed")
         buildString {
             val n = java.text.NumberFormat.getIntegerInstance()
-            append("${n.format(seen.size)} songs on the server")
+            append("${n.format(seen.size)} songs on Navidrome")
             val parts = listOfNotNull(
                 "${n.format(added)} new".takeIf { added > 0 }, "${n.format(changed)} updated".takeIf { changed > 0 }, "${n.format(removed)} removed".takeIf { removed > 0 },
             )

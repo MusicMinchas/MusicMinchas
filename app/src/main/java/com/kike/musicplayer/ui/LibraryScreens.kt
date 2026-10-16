@@ -145,7 +145,7 @@ fun LibraryScreen(
                     val server = libraryVm.subsonicState.collectAsState().value.server
                     SourcesMenu(
                         available, libraryVm.hiddenScopes.collectAsState().value,
-                        serverName = server?.substringBefore(' ')?.takeIf { it.isNotBlank() } ?: "Server",
+                        serverName = server?.substringBefore(' ')?.takeIf { it.isNotBlank() } ?: "Navidrome",
                         onToggle = libraryVm::toggleScope,
                     )
                 }

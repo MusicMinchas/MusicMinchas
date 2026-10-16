@@ -35,15 +35,15 @@ data class CollectionsSync(
  * Keeps favourites and playlists in step with the Subsonic server, both ways.
  *
  * Favourites ↔ stars (server songs only): what was starred at the last sync is remembered, so a
- * change on either side is told apart from one on the other: starred or unstarred on the server
- * comes to the app, favourited or unfavourited here goes to the server.
+ * change on either side is told apart from one on the other: starred or unstarred on Navidrome
+ * comes to the app, favourited or unfavourited here goes to Navidrome.
  *
  * Playlists: each app playlist is linked to the user's own server playlist of the same songs. New
  * ones on either side are created on the other; one changed on one side (server: its "changed"
  * time; here: a fingerprint of name and songs) is copied to the other, the app's version winning
  * when both changed; one deleted on one side is deleted on the other (unless it was changed on the
- * other since). Device and Drive songs go to the server as its copy of the same song (artist and
- * title); those it hasn't got are left out there. Songs coming from the server keep being the
+ * other since). Device and Drive songs go to Navidrome as its copy of the same song (artist and
+ * title); those it hasn't got are left out there. Songs coming from Navidrome keep being the
  * user's own copy where they were before.
  *
  * Runs at start, after a server sync, and a few seconds after favourites or playlists change here.
@@ -70,13 +70,13 @@ class ServerCollections(
 
     @OptIn(FlowPreview::class)
     fun start() {
-        // Changes made here go to the server shortly after (the first emission is the start-up sync).
+        // Changes made here go to Navidrome shortly after (the first emission is the start-up sync).
         scope.launch {
             db.invalidationTracker.createFlow("favourites", "playlists", "playlist_tracks").debounce(CHANGE_DELAY_MS).collect { sync() }
         }
     }
 
-    /** Syncs favourites and playlists now (also after the server's songs were synced). */
+    /** Syncs favourites and playlists now (also after Navidrome's songs were synced). */
     fun syncNow() {
         scope.launch { sync() }
     }
@@ -120,7 +120,7 @@ class ServerCollections(
 
     private suspend fun syncStars(login: SubsonicLogin): String? {
         val onServer = client.starredSongs(login).mapTo(HashSet()) { it.id }
-        // What the app wants starred: its favourite server songs, and, when chosen, the server's copy of
+        // What the app wants starred: its favourite server songs, and, when chosen, Navidrome's copy of
         // its device and Drive favourites. Which favourites stand behind each server song, to undo them.
         val behind = HashMap<String, MutableList<String>>()
         val withOthers = account.starOtherFavourites.value
@@ -134,7 +134,7 @@ class ServerCollections(
         // The two sides as they were after the last sync (one set before both were kept apart).
         val lastThere = (prefs.getStringSet(KEY_STARRED_THERE, null) ?: prefs.getStringSet(KEY_STARRED, null))?.toSet()
         var lastHere = (prefs.getStringSet(KEY_STARRED_HERE, null) ?: prefs.getStringSet(KEY_STARRED, null))?.toSet()
-        // Starring other sources' favourites switched off: those stars stay on the server, nothing is unstarred.
+        // Starring other sources' favourites switched off: those stars stay on Navidrome, nothing is unstarred.
         if (prefs.getBoolean(KEY_WITH_OTHERS, false) && !withOthers) lastHere = lastHere?.let { it intersect here }
 
         val (toFavourite, toUnfavourite, toStar, toUnstar) = planStars(onServer, here, lastThere, lastHere)
@@ -158,8 +158,8 @@ class ServerCollections(
         }
 
         val parts = listOfNotNull(
-            plural(toFavourite.size, "favourite", "from the server"), plural(unfavourited.size, "favourite", "removed (unstarred on the server)"),
-            plural(toStar.size, "song", "starred on the server"), plural(toUnstar.size, "song", "unstarred on the server"),
+            plural(toFavourite.size, "favourite", "from Navidrome"), plural(unfavourited.size, "favourite", "removed (unstarred on Navidrome)"),
+            plural(toStar.size, "song", "starred on Navidrome"), plural(toUnstar.size, "song", "unstarred on Navidrome"),
         )
         return parts.joinToString(", ").ifEmpty { null }
     }
@@ -176,7 +176,7 @@ class ServerCollections(
         var removed = 0
         val pushed = HashSet<Long>()
 
-        // Deleted here since the last sync: delete on the server too.
+        // Deleted here since the last sync: delete on Navidrome too.
         val linkedNow = playlists.all().mapNotNullTo(HashSet()) { it.serverId }
         for (serverId in linkedBefore - linkedNow) {
             if (onServer.remove(serverId) != null) {
@@ -191,14 +191,14 @@ class ServerCollections(
             val changedHere = p.syncedHash == null || p.syncedHash != hash
             val there = p.serverId?.let { onServer[it] }
             when {
-                // New here, or deleted on the server while edited here: create it there.
+                // New here, or deleted on Navidrome while edited here: create it there.
                 p.serverId == null || (there == null && changedHere) -> {
                     val created = client.savePlaylist(login, null, p.name, serverSongIds(ids))
                     playlists.setSynced(p.id, created?.id, created?.changed, hash)
                     pushed += p.id
                     sent++
                 }
-                // Deleted on the server and not edited here since: delete here too.
+                // Deleted on Navidrome and not edited here since: delete here too.
                 there == null -> {
                     playlists.delete(p.id)
                     removed++
@@ -225,7 +225,7 @@ class ServerCollections(
             p.serverId?.let { onServer.remove(it) }
         }
 
-        // New on the server: create here.
+        // New on Navidrome: create here.
         for (sp in onServer.values) {
             val full = client.playlist(login, sp.id)
             val name = full.name ?: "Playlist"
@@ -235,7 +235,7 @@ class ServerCollections(
             received++
         }
 
-        // Sending changes the server's "changed" time: take the new one, or the edit would look like the server's next time.
+        // Sending changes Navidrome's "changed" time: take the new one, or the edit would look like Navidrome's next time.
         if (pushed.isNotEmpty()) {
             val changed = client.playlists(login).associate { it.id to it.changed }
             for (id in pushed) {
@@ -246,19 +246,19 @@ class ServerCollections(
         prefs.edit { putStringSet(KEY_LINKED, playlists.all().mapNotNullTo(HashSet()) { it.serverId }) }
 
         return listOfNotNull(
-            plural(sent, "playlist", "sent to the server"), plural(received, "playlist", "from the server"), plural(removed, "playlist", "deleted"),
+            plural(sent, "playlist", "sent to Navidrome"), plural(received, "playlist", "from Navidrome"), plural(removed, "playlist", "deleted"),
         ).joinToString(", ").ifEmpty { null }
     }
 
-    /** The server's song ids for these library songs, in order; songs the server hasn't got are left out. */
+    /** Navidrome's song ids for these library songs, in order; songs the server hasn't got are left out. */
     private suspend fun serverSongIds(trackIds: List<String>): List<String> {
         val byId = db.tracks().getByIds(trackIds.toSet()).associateBy { it.id }
         return trackIds.mapNotNull { id -> byId[id]?.let { match.serverSongId(it) } }
     }
 
     /**
-     * The server's playlist as library songs: where a song was there before as the user's own copy
-     * (that copy's server song is the same), it stays that copy; the rest are the server's songs.
+     * Navidrome's playlist as library songs: where a song was there before as the user's own copy
+     * (that copy's server song is the same), it stays that copy; the rest are Navidrome's songs.
      */
     private suspend fun fromServer(serverSongIds: List<String>, before: List<String>): List<String> {
         val tracks = db.tracks().getByIds(before.toSet()).associateBy { it.id }
@@ -293,7 +293,7 @@ class ServerCollections(
 internal data class StarPlan(val toFavourite: Set<String>, val toUnfavourite: Set<String>, val toStar: Set<String>, val toUnstar: Set<String>)
 
 /**
- * Compares the server's starred songs ([there]) and the app's ([here]) with both as they were after
+ * Compares Navidrome's starred songs ([there]) and the app's ([here]) with both as they were after
  * the last sync, so a change on one side isn't mistaken for one on the other. With no last sync,
  * both keep everything and nothing is removed.
  */

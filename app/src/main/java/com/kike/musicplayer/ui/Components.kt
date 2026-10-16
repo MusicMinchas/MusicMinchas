@@ -271,7 +271,7 @@ fun sourceIcon(source: String): ImageVector = when (source) {
 
 fun sourceName(source: String): String = when (source) {
     Track.SOURCE_DRIVE -> "Google Drive"
-    Track.SOURCE_SUBSONIC -> "Navidrome / Subsonic server"
+    Track.SOURCE_SUBSONIC -> "Navidrome"
     else -> "On this device"
 }
 

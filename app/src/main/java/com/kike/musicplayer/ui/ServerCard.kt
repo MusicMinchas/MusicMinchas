@@ -56,11 +56,11 @@ internal fun ServerCard(vm: LibraryViewModel) {
     LaunchedEffect(connected) { if (connected) vm.checkSubsonic() }
 
     SourceCard(
-        "Navidrome / Subsonic server",
+        "Navidrome",
         if (!connected) "Stream your music from your own Navidrome server or another Subsonic-compatible one"
         else buildString {
-            append("Connected as ${state.username} to ${state.server ?: "the server"}")
-            state.songCount?.let { append(" · ${NumberFormat.getIntegerInstance().format(it)} songs on the server") }
+            append("Connected as ${state.username} to ${state.server ?: "Navidrome"}")
+            state.songCount?.let { append(" · ${NumberFormat.getIntegerInstance().format(it)} songs on Navidrome") }
         },
     ) {
         state.message?.let { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) }
@@ -77,7 +77,7 @@ internal fun ServerCard(vm: LibraryViewModel) {
             }
             if (state.checkedAt > 0) {
                 Text(
-                    "Server last answered ${relativeTime(state.checkedAt)}",
+                    "Navidrome last answered ${relativeTime(state.checkedAt)}",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -96,11 +96,11 @@ internal fun ServerCard(vm: LibraryViewModel) {
         val songs = vm.sourceCounts.collectAsState().value[Track.SOURCE_SUBSONIC] ?: 0
         AlertDialog(
             onDismissRequest = { confirmDisconnect = false },
-            title = { Text("Disconnect the server?") },
+            title = { Text("Disconnect Navidrome?") },
             text = {
                 Text(
-                    "The ${count(songs)} from the server will be removed from the library. Plays, favourites and " +
-                        "playlists are kept and come back if you connect the same server again."
+                    "The ${count(songs)} from Navidrome will be removed from the library. Plays, favourites and " +
+                        "playlists are kept and come back if you connect the same Navidrome server again."
                 )
             },
             confirmButton = { TextButton(onClick = { confirmDisconnect = false; vm.disconnectSubsonic() }) { Text("Disconnect") } },
@@ -109,7 +109,7 @@ internal fun ServerCard(vm: LibraryViewModel) {
     }
 }
 
-/** Listing the server's songs into the library: now, or automatically. */
+/** Listing Navidrome's songs into the library: now, or automatically. */
 @Composable
 private fun ServerSyncControls(vm: LibraryViewModel) {
     val sync by vm.serverSync.collectAsState()
@@ -121,7 +121,7 @@ private fun ServerSyncControls(vm: LibraryViewModel) {
     HorizontalDivider(Modifier.padding(vertical = 4.dp))
     Text("Library", style = MaterialTheme.typography.labelLarge)
     Text(
-        if (inLibrary == 0) "Sync to add the server's songs to the library. They're listed apart from your own " +
+        if (inLibrary == 0) "Sync to add Navidrome's songs to the library. They're listed apart from your own " +
             "music; the switch above the library shows either or both."
         else "${count(inLibrary)} in the library",
         style = MaterialTheme.typography.bodySmall,
@@ -159,7 +159,7 @@ private fun ServerSyncControls(vm: LibraryViewModel) {
     }
     Text(
         (if (lastSync == 0L) "Not synced yet" else "Last synced ${relativeTime(lastSync)}") +
-            ". An automatic sync only lists the songs again if the server has scanned its library since.",
+            ". An automatic sync only lists the songs again if Navidrome has scanned its library since.",
         style = MaterialTheme.typography.bodySmall,
         color = MaterialTheme.colorScheme.onSurfaceVariant,
     )
@@ -172,8 +172,8 @@ private fun CollectionsSyncInfo(vm: LibraryViewModel) {
     val sync by vm.collectionsSync.collectAsState()
     Text("Favourites & playlists", style = MaterialTheme.typography.labelLarge)
     Text(
-        "Favourites of server songs are its starred songs, and your playlists are its playlists: changes on " +
-            "either side go to the other. Songs from this device or Drive go into server playlists as its copy " +
+        "Favourites of Navidrome songs are its starred songs, and your playlists are its playlists: changes on " +
+            "either side go to the other. Songs from this device or Drive go into Navidrome playlists as its copy " +
             "of the same song.",
         style = MaterialTheme.typography.bodySmall,
         color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -190,16 +190,17 @@ private fun CollectionsSyncInfo(vm: LibraryViewModel) {
     InfoSwitch(
         "Star favourites from other sources on Navidrome", vm.starOtherFavourites.collectAsState().value, vm::setStarOtherFavourites,
         infoTitle = "Favourites from other sources",
-        info = "Favourites of songs on this device or Google Drive are also starred on the server's copy of the same " +
-            "song, and removing them unstars it. Unstarring that copy on the server removes the favourite here too.\n\n" +
-            "The server's copy is found by artist and title (the same album when possible), so it can be imperfect: " +
+        info = "Favourites of songs on this device or Google Drive are also starred on Navidrome's copy of the same " +
+            "song, and removing them unstars it. Unstarring that copy on Navidrome removes the favourite here too.\n\n" +
+            "Navidrome's copy is found by artist and title, ignoring notes like \"(Remastered)\" but keeping live and " +
+            "demo versions apart (the same title and album first), so it can be imperfect: " +
             "a song with several versions may be starred on a different version, and songs spelled differently " +
-            "aren't found. Switching this off later leaves the stars on the server as they are.",
+            "aren't found. Switching this off later leaves the stars on Navidrome as they are.",
     )
     InfoSwitch(
         "Love Navidrome stars on Last.fm", vm.loveServerStars.collectAsState().value, vm::setLoveServerStars,
         infoTitle = "Stars and Last.fm",
-        info = "Songs starred on the server become favourites here; with this on they're also loved on Last.fm, and " +
+        info = "Songs starred on Navidrome become favourites here; with this on they're also loved on Last.fm, and " +
             "unstarring them unloves them. Favourites you change here are always loved or unloved on Last.fm " +
             "(when it's connected), whatever this setting.\n\nIt applies to stars from now on: songs starred " +
             "before aren't loved retroactively.",
@@ -211,7 +212,7 @@ private fun CollectionsSyncInfo(vm: LibraryViewModel) {
     HorizontalDivider(Modifier.padding(vertical = 4.dp))
 }
 
-/** Whether plays made in the app go to the server's play counts too (both off by default). */
+/** Whether plays made in the app go to Navidrome's play counts too (both off by default). */
 @Composable
 private fun PlayReports(vm: LibraryViewModel) {
     val server by vm.reportServerPlays.collectAsState()
@@ -219,24 +220,25 @@ private fun PlayReports(vm: LibraryViewModel) {
     val pending by vm.pendingServerPlays.collectAsState()
     Text("Plays", style = MaterialTheme.typography.labelLarge)
     InfoSwitch(
-        "Report server song plays to Navidrome", server, vm::setReportServerPlays,
-        infoTitle = "Server song plays",
-        info = "When a server song has played halfway, the app tells the server, so its play counts and " +
+        "Report Navidrome song plays", server, vm::setReportServerPlays,
+        infoTitle = "Navidrome song plays",
+        info = "When a Navidrome song has played halfway, the app tells Navidrome, so its play counts and " +
             "\"recently played\" include what you play here. The app scrobbles to Last.fm itself (Last.fm card).\n\n" +
-            "Warning: if scrobbling to Last.fm is also switched on in the server (Navidrome: Personal settings → " +
-            "Last.fm), the server forwards these plays to Last.fm as well, and they would be scrobbled twice.",
+            "Warning: if scrobbling to Last.fm is also switched on in Navidrome (Personal settings → " +
+            "Last.fm), Navidrome forwards these plays to Last.fm as well, and they would be scrobbled twice.",
     )
     InfoSwitch(
         "Report plays from other sources to Navidrome", other, vm::setReportOtherPlays,
         infoTitle = "Plays from other sources",
-        info = "Plays of songs on this device or Google Drive are also reported, to the server's copy of the same " +
-            "song, so its play counts reflect all your listening.\n\nThe server's copy is found by artist and title " +
-            "(the same album when possible), so it can be imperfect: a song with several versions may be counted on " +
+        info = "Plays of songs on this device or Google Drive are also reported, to Navidrome's copy of the same " +
+            "song, so its play counts reflect all your listening.\n\nNavidrome's copy is found by artist and title, " +
+            "ignoring notes like \"(Remastered)\" but keeping live and demo versions apart (the same title and album " +
+            "first), so it can be imperfect: a song with several versions may be counted on " +
             "a different version, and songs spelled differently aren't found. The same Last.fm warning applies.",
     )
     if (pending > 0) {
         Text(
-            "${if (pending == 1) "1 play" else "$pending plays"} waiting to be sent to the server",
+            "${if (pending == 1) "1 play" else "$pending plays"} waiting to be sent to Navidrome",
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )

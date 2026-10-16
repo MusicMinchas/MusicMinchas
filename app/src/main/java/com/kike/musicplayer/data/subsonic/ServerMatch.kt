@@ -25,21 +25,28 @@ class ServerMatch(private val db: AppDatabase) {
 
     private val cache = java.util.concurrent.ConcurrentHashMap<String, String>()
 
-    /** The server's copy of a device or Drive song: same artist and title (the same album preferred). */
+    /**
+     * The server's copy of a device or Drive song: the same song by the Last.fm matching rules (same
+     * artist; same title ignoring case, accents and notes like "(Remastered)" or "(feat. …)", while
+     * live, demo and remix versions stay apart). The identical title first, then the same album.
+     */
     suspend fun serverCopy(track: Track): Track? {
         val artist = track.artist ?: track.albumArtist ?: return null
-        val match = SearchText.match("$artist ${track.title}") ?: return null
-        val wantedArtists = listOfNotNull(track.artist, track.albumArtist).mapTo(HashSet(), TrackMatcher::basic)
-        val wantedTitle = TrackMatcher.basic(track.title)
+        val match = SearchText.match("$artist ${TrackMatcher.looseTitle(track.title)}") ?: return null
+        val wantedArtists = listOfNotNull(track.artist, track.albumArtist).mapTo(HashSet(), TrackMatcher::looseArtist)
+        val wantedTitle = TrackMatcher.looseTitle(track.title)
         val candidates = db.browse().searchSongs(match, CANDIDATES, listOf(Track.SCOPE_SERVER)).filter { c ->
-            TrackMatcher.basic(c.title) == wantedTitle &&
-                listOfNotNull(c.artist, c.albumArtist).any { TrackMatcher.basic(it) in wantedArtists }
+            TrackMatcher.looseTitle(c.title) == wantedTitle &&
+                listOfNotNull(c.artist, c.albumArtist).any { TrackMatcher.looseArtist(it) in wantedArtists }
         }
+        val exactTitle = TrackMatcher.basic(track.title)
         val album = track.album?.let(TrackMatcher::basic)
-        return candidates.firstOrNull { album != null && it.album?.let(TrackMatcher::basic) == album } ?: candidates.firstOrNull()
+        return candidates.sortedWith(
+            compareByDescending<Track> { TrackMatcher.basic(it.title) == exactTitle }.thenByDescending { album != null && it.album?.let(TrackMatcher::basic) == album }
+        ).firstOrNull()
     }
 
     private companion object {
-        const val CANDIDATES = 50
+        const val CANDIDATES = 100
     }
 }
