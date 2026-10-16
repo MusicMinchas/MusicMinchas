@@ -58,6 +58,8 @@ private sealed interface Screen {
     data object DriveFolders : Screen
     data object RecentTracks : Screen
     data object RecentAlbums : Screen
+    data object AddedAlbums : Screen
+    data object Mixes : Screen
     data object Replay : Screen
     data object MostPlayed : Screen
     data object Favourites : Screen
@@ -183,6 +185,8 @@ class MainActivity : ComponentActivity() {
                             onOpenMusicSources = { push(Screen.MusicSources) },
                             onOpenRecentTracks = { push(Screen.RecentTracks) },
                             onOpenRecentAlbums = { push(Screen.RecentAlbums) },
+                            onOpenAddedAlbums = { push(Screen.AddedAlbums) },
+                            onOpenMixes = { push(Screen.Mixes) },
                             onOpenReplay = { push(Screen.Replay) },
                             onOpenMostPlayed = { push(Screen.MostPlayed) },
                             onOpenFavourites = { push(Screen.Favourites) },
@@ -230,6 +234,11 @@ class MainActivity : ComponentActivity() {
                             "Recently Played Albums", playlists.recentAlbums, playerVm, downloadable = true,
                             onOpenAlbum = { push(Screen.AlbumDetail(it)) }, onBack = ::pop, contentPadding = padding,
                         )
+                        Screen.AddedAlbums -> AlbumListScreen(
+                            "Recently Added Albums", playlists.addedAlbums, playerVm, downloadable = true,
+                            onOpenAlbum = { push(Screen.AlbumDetail(it)) }, onBack = ::pop, contentPadding = padding,
+                        )
+                        Screen.Mixes -> MixListScreen(mixes, playerVm, onOpenMix = { push(Screen.MixDetail(it)) }, onBack = ::pop, contentPadding = padding)
                         Screen.Following -> FollowingScreen(libraryVm, onOpenArtist = { push(Screen.ArtistDetail(it)) }, onBack = ::pop, contentPadding = padding)
                         Screen.Sources -> SourcesScreen(
                             libraryVm,
