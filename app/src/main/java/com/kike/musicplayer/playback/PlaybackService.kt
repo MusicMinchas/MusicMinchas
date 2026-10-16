@@ -413,8 +413,10 @@ class PlaybackService : MediaLibraryService(), CastHost {
         if (player.mediaItemCount > 0) return
         val saved = loadSavedQueue() ?: return
         if (player.mediaItemCount > 0) return // a controller set a queue in the meantime
+        // Not prepared: that opened the song (Drive / Navidrome: downloading tens of MB) on every
+        // start, play or not. Play prepares it (the app's button, and Media3 for the notification,
+        // headphones and the car).
         player.setMediaItems(saved.mediaItems, saved.startIndex, saved.startPositionMs)
-        player.prepare()
     }
 
     private suspend fun loadSavedQueue(): MediaItemsWithStartPosition? {

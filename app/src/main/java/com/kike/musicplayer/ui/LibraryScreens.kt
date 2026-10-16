@@ -113,6 +113,8 @@ fun LibraryScreen(
     onOpenMusicSources: () -> Unit,
     onOpenRecentTracks: () -> Unit,
     onOpenRecentAlbums: () -> Unit,
+    onOpenAddedAlbums: () -> Unit,
+    onOpenMixes: () -> Unit,
     onOpenReplay: () -> Unit,
     onOpenMostPlayed: () -> Unit,
     onOpenFavourites: () -> Unit,
@@ -188,7 +190,10 @@ fun LibraryScreen(
             return@Column
         }
         when (LIBRARY_TABS[tab]) {
-            "Home" -> HomeTab(libraryVm, playerVm, onOpenReplay, onOpenMostPlayed, onOpenFavourites, onOpenRecentTracks, onOpenMix, onOpenAlbum)
+            "Home" -> HomeTab(
+                libraryVm, playerVm, onOpenReplay, onOpenMostPlayed, onOpenFavourites, onOpenRecentTracks,
+                onOpenMix, onOpenMixes, onOpenRecentAlbums, onOpenAddedAlbums, onOpenAlbum,
+            )
             "Discover" -> DiscoverTab(libraryVm, onOpenArtist, onOpenAlbum, onOpenFollowing)
             "Albums" -> AlbumsTab(libraryVm, onOpenAlbum)
             "Artists" -> ArtistsTab(libraryVm, onOpenArtist)
@@ -196,7 +201,7 @@ fun LibraryScreen(
             "Songs" -> SongsTab(libraryVm, playerVm)
             "Playlists" -> PlaylistsTab(
                 playlists, libraryVm.userPlaylists.collectAsState().value, playerVm,
-                onOpenRecentTracks, onOpenRecentAlbums, onOpenMostPlayed, onOpenFavourites, onNewPlaylist, onOpenPlaylist,
+                onOpenRecentTracks, onOpenRecentAlbums, onOpenAddedAlbums, onOpenMostPlayed, onOpenFavourites, onNewPlaylist, onOpenPlaylist,
                 libraryVm::deletePlaylist, libraryVm::renamePlaylist,
             )
         }
@@ -570,7 +575,7 @@ fun TrackListScreen(
     }
 }
 
-/** Recently Played Albums: the albums as a grid; Play plays them all, newest first. */
+/** Recently Played / Added Albums: the albums as a grid; Play plays them all, newest first. */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun AlbumListScreen(
@@ -608,6 +613,7 @@ private fun PlaylistsTab(
     playerVm: PlayerViewModel,
     onOpenRecentTracks: () -> Unit,
     onOpenRecentAlbums: () -> Unit,
+    onOpenAddedAlbums: () -> Unit,
     onOpenMostPlayed: () -> Unit,
     onOpenFavourites: () -> Unit,
     onNewPlaylist: () -> Unit,
@@ -630,6 +636,7 @@ private fun PlaylistsTab(
     val downloads = LocalDownloads.current
     val recent = playlists.recentTracks
     val albums = playlists.recentAlbums.flatMap { it.tracks }
+    val added = playlists.addedAlbums.flatMap { it.tracks }
     val most = playlists.mostPlayed.map { it.item }
     val favourites = playlists.favourites
     Box(Modifier.fillMaxSize()) {
@@ -646,6 +653,9 @@ private fun PlaylistsTab(
                     CollectionCard("Recently Played Albums",
                         if (albums.isEmpty()) "Nothing played yet" else count(playlists.recentAlbums.size, "album"),
                         albums, onOpenRecentAlbums, { playerVm.playTracks(albums, 0) }, card)
+                    CollectionCard("Recently Added Albums",
+                        if (added.isEmpty()) "Nothing added yet" else count(playlists.addedAlbums.size, "album"),
+                        added, onOpenAddedAlbums, { playerVm.playTracks(added, 0) }, card)
                     CollectionCard("Most Played", if (most.isEmpty()) "Nothing played yet" else count(most.size, "song"),
                         most, onOpenMostPlayed, { playerVm.playTracks(most, 0) }, card)
                     CollectionCard("Favourite Songs", if (favourites.isEmpty()) "Tap the heart on a song" else count(favourites.size, "song"),

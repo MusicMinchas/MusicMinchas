@@ -55,6 +55,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.onStart
 import kotlinx.coroutines.flow.mapLatest
 import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.distinctUntilChanged
@@ -121,6 +122,8 @@ fun jumps(firsts: List<FirstChar>): List<Jump> {
 data class Playlists(
     val recentTracks: List<Track> = emptyList(),
     val recentAlbums: List<Album> = emptyList(),
+    /** Albums of the sources switched on, by when their newest song was added, newest first. */
+    val addedAlbums: List<Album> = emptyList(),
     /** Counted plays (half the track listened), most first. */
     val mostPlayed: List<Ranked<Track>> = emptyList(),
     /** Favourite songs, most recently added first. */
@@ -205,9 +208,24 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
         .debounce(TRACKS_CHANGED_DEBOUNCE_MS)
         .map { }
 
+    /** Recently added albums: read again when songs change or a source is switched, not after each play. */
     @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
-    val playlists: StateFlow<Playlists> = combine(history, favouriteRows, tracksChanged) { h, f, _ -> h to f }
-        .mapLatest { (history, favourites) -> Bench.time("playlists") { buildPlaylists(history, favourites) } }
+    private val addedAlbums: Flow<List<Album>> = combine(viewScopes, tracksChanged) { scopes, _ -> scopes }
+        .mapLatest { scopes ->
+            Bench.time("added albums") {
+                // Each album once (lists are keyed by album), from the source it was added to last.
+                val keys = browse.newestSongAlbums(scopes, ADDED_LOOKUP)
+                    .distinctBy { it.key }.take(RECENT_ALBUMS).map { it.scope to it.key }
+                albumsWithTracks(keys)
+            }
+        }
+
+    @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
+    val playlists: StateFlow<Playlists> = combine(
+        combine(history, favouriteRows, tracksChanged) { h, f, _ -> h to f }
+            .mapLatest { (history, favourites) -> Bench.time("playlists") { buildPlaylists(history, favourites) } },
+        addedAlbums.onStart { emit(emptyList()) },
+    ) { playlists, added -> playlists.copy(addedAlbums = added) }
         .flowOn(Dispatchers.IO).stateIn(viewModelScope, SharingStarted.Eagerly, Playlists())
 
     /** Recently played, recent albums, most played and favourites: only their songs are read. */
@@ -218,7 +236,9 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
         val topIds = stats.plays.entries.sortedByDescending { it.value }.take(MOST_PLAYED_LOOKUP).map { it.key }
         val byId = database.tracks().getByIds((recentIds + topIds + favourites.map { it.trackId }).toSet())
             .filter { it.durationMs >= 0 }.associateBy { it.id }
-        val albumKeys = recentIds.mapNotNull { id -> byId[id]?.let { it.scope to it.albumKey } }.distinct().take(RECENT_ALBUMS)
+        // Each album once (lists are keyed by album), from the source it was played from.
+        val albumKeys = recentIds.mapNotNull { id -> byId[id]?.let { it.scope to it.albumKey } }
+            .distinctBy { it.second }.take(RECENT_ALBUMS)
         return Playlists(
             recentTracks = recentIds.mapNotNull { byId[it] }.take(RECENT_TRACKS),
             recentAlbums = albumsWithTracks(albumKeys),
@@ -360,6 +380,10 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
     val unplayableCount = repo.unplayableCount.stateIn(viewModelScope, SharingStarted.Eagerly, 0)
     val safFolders = settings.safFolders
     val onlineMetadata = settings.onlineMetadata
+    val darkMode = settings.darkMode
+    val fullScreenCover = settings.fullScreenCover
+    fun setDarkMode(enabled: Boolean) = settings.setDarkMode(enabled)
+    fun setFullScreenCover(enabled: Boolean) = settings.setFullScreenCover(enabled)
     val driveAccount = driveAuth.account
     val driveNeedsReconnect = driveAuth.needsReconnect
 
@@ -747,9 +771,12 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
     private companion object {
         const val TAG = "LibraryViewModel"
         const val RECENT_TRACKS = 30
-        const val RECENT_ALBUMS = 10
+        /** Albums on the recently played / added pages (Home's rows show the first few). */
+        const val RECENT_ALBUMS = 30
         /** Distinct recently played songs read for Recently Played and the recent albums. */
-        const val RECENT_LOOKUP = 300
+        const val RECENT_LOOKUP = 600
+        /** Newest songs read for the recently added albums (a few hundred albums' worth). */
+        const val ADDED_LOOKUP = 3000
         /** Mixes are made again after two days. */
         const val MIX_LIFETIME_MS = 48 * 60 * 60 * 1000L
         const val MOST_PLAYED_LOOKUP = 200

@@ -18,11 +18,15 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.items as gridItems
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
@@ -45,11 +49,15 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.kike.musicplayer.data.db.Track
+import com.kike.musicplayer.recommend.Mix
 import java.time.Month
 import java.time.format.TextStyle
 import java.util.Locale
 
-/** Home: the Recently Played tile, Replay / Favourite Songs / Most Played cards, generated mixes, recently played albums. */
+/**
+ * Home: the Recently Played tile, Replay / Favourite Songs / Most Played cards, generated mixes,
+ * recently played and recently added albums.
+ */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun HomeTab(
@@ -60,6 +68,9 @@ fun HomeTab(
     onOpenFavourites: () -> Unit,
     onOpenRecentTracks: () -> Unit,
     onOpenMix: (String) -> Unit,
+    onOpenMixes: () -> Unit,
+    onOpenRecentAlbums: () -> Unit,
+    onOpenAddedAlbums: () -> Unit,
     onOpenAlbum: (String) -> Unit,
 ) {
     val playlists by libraryVm.playlists.collectAsState()
@@ -115,7 +126,7 @@ fun HomeTab(
                     )
                 }
             }
-            item { SectionTitle("Made for you") }
+            item { SectionTitle("Made for you", onClick = onOpenMixes.takeIf { mixes.isNotEmpty() }) }
             item {
                 if (mixes.isEmpty()) {
                     Text(
@@ -138,31 +149,78 @@ fun HomeTab(
                 }
             }
             if (playlists.recentAlbums.isNotEmpty()) {
-                item { SectionTitle("Recently played albums") }
-                item {
-                    LazyRow(contentPadding = PaddingValues(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                        items(playlists.recentAlbums, key = { it.key }) { album ->
-                            Column(Modifier.width(120.dp).clickable { onOpenAlbum(album.key) }) {
-                                Artwork(album.artworkUri, Modifier.fillMaxWidth().aspectRatio(1f))
-                                Text(album.title, maxLines = 1, overflow = TextOverflow.Ellipsis,
-                                    style = MaterialTheme.typography.bodyMedium, modifier = Modifier.padding(top = 4.dp))
-                                ArtistAlbumText(album.artist, listOf(album.artist))
-                            }
-                        }
-                    }
-                }
+                item { SectionTitle("Recently played albums", onClick = onOpenRecentAlbums) }
+                item { AlbumRow(playlists.recentAlbums.take(HOME_ALBUMS), onOpenAlbum) }
+            }
+            if (playlists.addedAlbums.isNotEmpty()) {
+                item { SectionTitle("Recently added albums", onClick = onOpenAddedAlbums) }
+                item { AlbumRow(playlists.addedAlbums.take(HOME_ALBUMS), onOpenAlbum) }
             }
         }
     }
 }
 
 @Composable
-internal fun SectionTitle(text: String) {
-    Text(
-        text, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold,
-        modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 24.dp, bottom = 8.dp),
-    )
+private fun AlbumRow(albums: List<Album>, onOpenAlbum: (String) -> Unit) {
+    LazyRow(contentPadding = PaddingValues(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+        items(albums, key = { it.key }) { album ->
+            Column(Modifier.width(120.dp).clickable { onOpenAlbum(album.key) }) {
+                Artwork(album.artworkUri, Modifier.fillMaxWidth().aspectRatio(1f))
+                Text(album.title, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                    style = MaterialTheme.typography.bodyMedium, modifier = Modifier.padding(top = 4.dp))
+                ArtistAlbumText(album.artist, listOf(album.artist))
+            }
+        }
+    }
 }
+
+/** A section heading; with [onClick] it opens the whole list, marked by a chevron. */
+@Composable
+internal fun SectionTitle(text: String, onClick: (() -> Unit)? = null) {
+    Row(
+        Modifier.fillMaxWidth()
+            .then(if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier)
+            .padding(start = 16.dp, end = 16.dp, top = 24.dp, bottom = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(text, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+        if (onClick != null) Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, "See all")
+    }
+}
+
+/** Made for you: every mix as a card, in a grid. */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun MixListScreen(
+    mixes: List<Mix>,
+    playerVm: PlayerViewModel,
+    onOpenMix: (String) -> Unit,
+    onBack: () -> Unit,
+    contentPadding: PaddingValues,
+) {
+    Column(Modifier.fillMaxSize().padding(contentPadding)) {
+        TopAppBar(
+            windowInsets = NoTopInsets,
+            title = { Text("Made for you") },
+            navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back") } },
+        )
+        LazyVerticalGrid(
+            columns = GridCells.Adaptive(150.dp),
+            contentPadding = PaddingValues(16.dp),
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+            verticalArrangement = Arrangement.spacedBy(16.dp),
+            modifier = Modifier.fillMaxSize(),
+        ) {
+            gridItems(mixes, key = { it.id }) { mix ->
+                CollectionCard(mix.title, mix.subtitle, mix.tracks,
+                    onOpen = { onOpenMix(mix.id) }, onPlay = { playerVm.playTracks(mix.tracks, 0) })
+            }
+        }
+    }
+}
+
+/** Albums in a Home row; their pages show [LibraryViewModel]'s full 30. */
+private const val HOME_ALBUMS = 10
 
 /**
  * A mix or playlist card: 2×2 cover mosaic (one cover when fewer than four) with a play button,

@@ -39,6 +39,9 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
+import androidx.compose.material3.SingleChoiceSegmentedButtonRow
+import androidx.compose.material3.SegmentedButtonDefaults
+import androidx.compose.material3.SegmentedButton
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
@@ -100,6 +103,8 @@ fun SourcesScreen(
             error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
 
             MusicSourcesEntry(vm, onOpenMusicSources)
+
+            AppearanceCard(vm)
 
             SourceCard(
                 "Downloaded songs",
@@ -497,6 +502,36 @@ private fun FolderRow(icon: androidx.compose.ui.graphics.vector.ImageVector, lab
         Icon(icon, null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
         Text(label, Modifier.weight(1f).padding(start = 8.dp), maxLines = 2, overflow = TextOverflow.Ellipsis)
         IconButton(onClick = onRemove) { Icon(Icons.Default.Delete, "Remove folder") }
+    }
+}
+
+/** Appearance: light or dark (black and red) theme, and Now Playing's full-width cover. */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun AppearanceCard(vm: LibraryViewModel) {
+    val dark by vm.darkMode.collectAsState()
+    val fullCover by vm.fullScreenCover.collectAsState()
+    SourceCard("Appearance", "How MusicMinchas looks") {
+        SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
+            listOf(false to "Light mode", true to "Dark mode").forEachIndexed { index, (value, label) ->
+                SegmentedButton(
+                    selected = dark == value,
+                    onClick = { vm.setDarkMode(value) },
+                    shape = SegmentedButtonDefaults.itemShape(index, 2),
+                ) { Text(label) }
+            }
+        }
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f)) {
+                Text("Full screen cover art")
+                Text(
+                    "Now Playing shows the cover across the whole width of the screen",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            Switch(checked = fullCover, onCheckedChange = vm::setFullScreenCover, modifier = Modifier.padding(start = 8.dp))
+        }
     }
 }
 
