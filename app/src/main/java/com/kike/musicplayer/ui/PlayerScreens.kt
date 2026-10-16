@@ -92,6 +92,7 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.material3.TopAppBarDefaults
 import coil3.compose.AsyncImage
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.ui.graphics.lerp
@@ -116,11 +117,13 @@ import sh.calvin.reorderable.rememberReorderableLazyListState
 fun MiniPlayer(playerVm: PlayerViewModel, onOpen: () -> Unit) {
     val s by playerVm.state.collectAsState()
     val castTo by playerVm.castActive.collectAsState()
+    // Read in the progress lambda only: the line redraws without recomposing the mini player.
+    val progress = playerVm.progress.collectAsStateWithLifecycle()
     val item = s.current ?: return
     Surface(tonalElevation = 3.dp, modifier = Modifier.fillMaxWidth().clickable(onClick = onOpen)) {
         Column {
             LinearProgressIndicator(
-                progress = { if (s.durationMs > 0) s.positionMs.toFloat() / s.durationMs else 0f },
+                progress = { if (s.durationMs > 0) progress.value.positionMs.toFloat() / s.durationMs else 0f },
                 modifier = Modifier.fillMaxWidth().height(2.dp),
             )
             Row(Modifier.padding(horizontal = 12.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -185,7 +188,7 @@ fun NowPlayingScreen(
                         flipped = showLyrics,
                         onFlip = onFlip,
                         front = { Artwork(meta?.artworkUri, Modifier.fillMaxSize(), shape = RoundedCornerShape(12.dp)) },
-                        back = { LyricsPanel(lyrics, s.positionMs, playerVm::seekTo) },
+                        back = { LiveLyrics(lyrics, playerVm) },
                         modifier = Modifier.fillMaxSize(),
                     )
                     // On the cover's corner, leaving the right side's height to the controls.
@@ -218,7 +221,7 @@ fun NowPlayingScreen(
                         flipped = showLyrics,
                         onFlip = onFlip,
                         front = { FadingCover(meta?.artworkUri) },
-                        back = { Box(Modifier.padding(top = top)) { LyricsPanel(lyrics, s.positionMs, playerVm::seekTo) } },
+                        back = { Box(Modifier.padding(top = top)) { LiveLyrics(lyrics, playerVm) } },
                         modifier = Modifier.fillMaxSize(),
                     )
                     // A light shade at the top keeps the status bar and the close arrow readable on any cover.
@@ -253,7 +256,7 @@ fun NowPlayingScreen(
                         flipped = showLyrics,
                         onFlip = onFlip,
                         front = { Artwork(meta?.artworkUri, Modifier.fillMaxSize(), shape = RoundedCornerShape(12.dp)) },
-                        back = { LyricsPanel(lyrics, s.positionMs, playerVm::seekTo) },
+                        back = { LiveLyrics(lyrics, playerVm) },
                         // A little wider than the rest of the page.
                         modifier = Modifier.bleed(COVER_BLEED).fillMaxWidth().aspectRatio(1f),
                     )
@@ -263,6 +266,13 @@ fun NowPlayingScreen(
             }
         }
     }
+}
+
+/** Lyrics in step with playback; only this part redraws as the song moves on. */
+@Composable
+private fun LiveLyrics(lyrics: LyricsState, playerVm: PlayerViewModel) {
+    val position by playerVm.progress.collectAsStateWithLifecycle()
+    LyricsPanel(lyrics, position.positionMs, playerVm::seekTo)
 }
 
 /** The cover edge to edge, fading out at the bottom into [EdgeColorBackdrop]. */
@@ -421,7 +431,7 @@ private fun ColumnScope.NowPlayingDetails(
     // Spare height goes here, so the controls below keep the same spacing whether the
     // title takes one line or two.
     Spacer(Modifier.weight(1f))
-    SeekBar(s, playerVm::seekTo)
+    SeekBar(s, playerVm)
     Row(
         Modifier.fillMaxWidth(),
         horizontalArrangement = Arrangement.SpaceEvenly,
@@ -656,11 +666,13 @@ internal fun DotSlider(
 }
 
 @Composable
-private fun SeekBar(s: PlayerUiState, onSeek: (Long) -> Unit) {
+private fun SeekBar(s: PlayerUiState, playerVm: PlayerViewModel) {
+    val onSeek: (Long) -> Unit = playerVm::seekTo
+    val position by playerVm.progress.collectAsStateWithLifecycle()
     // While dragging, show the thumb where the finger is instead of the live position.
     var dragFraction by remember { mutableStateOf<Float?>(null) }
     val duration = s.durationMs.coerceAtLeast(1)
-    val fraction = dragFraction ?: (s.positionMs.toFloat() / duration).coerceIn(0f, 1f)
+    val fraction = dragFraction ?: (position.positionMs.toFloat() / duration).coerceIn(0f, 1f)
     Column(Modifier.fillMaxWidth()) {
         DotSlider(
             value = fraction,

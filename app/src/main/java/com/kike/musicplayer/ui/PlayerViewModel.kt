@@ -33,13 +33,17 @@ import kotlinx.coroutines.launch
 
 data class QueueEntry(val playlistIndex: Int, val item: MediaItem)
 
+/**
+ * Where playback is. Apart from [PlayerUiState] because it changes twice a second while playing:
+ * only the progress line, seek bar and lyrics read it, so the rest of the screen doesn't redraw.
+ */
+data class PlayerProgress(val positionMs: Long = 0, val bufferedMs: Long = 0)
+
 data class PlayerUiState(
     val connected: Boolean = false,
     val current: MediaItem? = null,
     val isPlaying: Boolean = false,
     val isBuffering: Boolean = false,
-    val positionMs: Long = 0,
-    val bufferedMs: Long = 0,
     val durationMs: Long = 0,
     val shuffle: Boolean = false,
     val repeatMode: Int = Player.REPEAT_MODE_OFF,
@@ -73,6 +77,9 @@ class PlayerViewModel(app: Application) : AndroidViewModel(app) {
     private val _state = MutableStateFlow(PlayerUiState())
     val state: StateFlow<PlayerUiState> = _state.asStateFlow()
 
+    private val _progress = MutableStateFlow(PlayerProgress())
+    val progress: StateFlow<PlayerProgress> = _progress.asStateFlow()
+
     private var ticker: Job? = null
 
     private val listener = object : Player.Listener {
@@ -94,9 +101,8 @@ class PlayerViewModel(app: Application) : AndroidViewModel(app) {
             current = p.currentMediaItem,
             isPlaying = p.isPlaying,
             isBuffering = p.playbackState == Player.STATE_BUFFERING,
-            positionMs = p.currentPosition,
-            bufferedMs = p.bufferedPosition,
-            durationMs = p.duration.takeIf { it != C.TIME_UNSET } ?: 0,
+            // Before the player opens the song (a restored queue), the length from the library.
+            durationMs = p.duration.takeIf { it != C.TIME_UNSET } ?: p.mediaMetadata.durationMs ?: 0,
             shuffle = p.shuffleModeEnabled,
             repeatMode = p.repeatMode,
             currentIndex = p.currentMediaItemIndex,
@@ -106,6 +112,7 @@ class PlayerViewModel(app: Application) : AndroidViewModel(app) {
             error = p.playerError?.let(::playbackErrorText),
             remoteVolume = p.deviceVolume.takeIf { p.deviceInfo.playbackType == DeviceInfo.PLAYBACK_TYPE_REMOTE },
         )
+        _progress.value = PlayerProgress(p.currentPosition, p.bufferedPosition)
         if (p.isPlaying) startTicker() else ticker?.cancel()
     }
 
@@ -147,8 +154,9 @@ class PlayerViewModel(app: Application) : AndroidViewModel(app) {
         if (ticker?.isActive == true) return
         ticker = viewModelScope.launch {
             while (isActive) {
-                controller?.let { c ->
-                    _state.update { it.copy(positionMs = c.currentPosition, bufferedMs = c.bufferedPosition) }
+                // Only while something on screen shows it (not with the app in the background).
+                if (_progress.subscriptionCount.value > 0) controller?.let { c ->
+                    _progress.value = PlayerProgress(c.currentPosition, c.bufferedPosition)
                 }
                 delay(500)
             }
@@ -237,7 +245,7 @@ class PlayerViewModel(app: Application) : AndroidViewModel(app) {
 
     fun seekTo(positionMs: Long) {
         controller?.seekTo(positionMs)
-        _state.update { it.copy(positionMs = positionMs) }
+        _progress.update { it.copy(positionMs = positionMs) }
     }
 
     fun toggleShuffle() = controller?.let { it.shuffleModeEnabled = !it.shuffleModeEnabled }
