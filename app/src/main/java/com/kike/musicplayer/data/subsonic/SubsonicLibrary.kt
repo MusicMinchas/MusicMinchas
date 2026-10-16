@@ -54,8 +54,10 @@ class SubsonicLibrary(
     private val _status = MutableStateFlow(ServerSync())
     val status: StateFlow<ServerSync> = _status.asStateFlow()
 
-    /** Syncs at start when the sync setting says so. */
+    /** Syncs at start when the sync setting says so, once the first sync was asked for. */
     fun syncIfDue() {
+        // The first sync (a whole library) only when the user asks for it (Sync now).
+        if (settings.lastServerSync.value == 0L) return
         val due = when (settings.serverSyncMode.value) {
             DriveSyncMode.OFF -> false
             DriveSyncMode.APP_START -> true

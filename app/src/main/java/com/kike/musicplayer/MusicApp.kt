@@ -165,7 +165,10 @@ class AppContainer(app: Application) {
         scrobbler.flush() // whatever was left unsent last time
     }
     /** Favourites ↔ stars and playlists, both ways. */
-    val serverCollections = ServerCollections(app, subsonic, database, serverMatch, scrobbler, appScope, "subsonic-sync$suffix").also { collections ->
+    val serverCollections = ServerCollections(
+        app, subsonic, database, serverMatch, scrobbler, songsSynced = { settings.lastServerSync.value > 0 }, scope = appScope,
+        prefsName = "subsonic-sync$suffix",
+    ).also { collections ->
         serverLibrary.onSynced = collections::syncNow
         collections.start()
     }

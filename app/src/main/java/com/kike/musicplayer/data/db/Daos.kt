@@ -47,6 +47,10 @@ interface TrackDao {
     @Query("SELECT COUNT(*) FROM tracks WHERE source = :source")
     suspend fun countSource(source: String): Int
 
+    /** Songs of a source downloaded to the phone. */
+    @Query("SELECT COUNT(*) FROM tracks WHERE source = :source AND downloadState = ${Track.DOWNLOADED}")
+    fun observeDownloadedCount(source: String): Flow<Int>
+
     /** Id and checksum of a source's songs, to see what a sync changed without loading whole rows. */
     @Query("SELECT id, checksum FROM tracks WHERE source = :source")
     suspend fun checksums(source: String): List<IdChecksum>

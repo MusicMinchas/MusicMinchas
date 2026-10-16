@@ -19,6 +19,9 @@ import androidx.compose.material3.TextButton
 import com.kike.musicplayer.data.DriveSyncMode
 import com.kike.musicplayer.data.db.Track
 import androidx.compose.material.icons.outlined.Info
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Column
+import androidx.compose.material3.Checkbox
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
@@ -94,16 +97,34 @@ internal fun ServerCard(vm: LibraryViewModel) {
     }
     if (confirmDisconnect) {
         val songs = vm.sourceCounts.collectAsState().value[Track.SOURCE_SUBSONIC] ?: 0
+        val downloaded by vm.serverDownloads.collectAsState()
+        var deleteDownloads by remember { mutableStateOf(false) }
         AlertDialog(
             onDismissRequest = { confirmDisconnect = false },
             title = { Text("Disconnect Navidrome?") },
             text = {
-                Text(
-                    "The ${count(songs)} from Navidrome will be removed from the library. Plays, favourites and " +
-                        "playlists are kept and come back if you connect the same Navidrome server again."
-                )
+                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Text(
+                        "The ${count(songs)} from Navidrome will be removed from the library. Plays, favourites and " +
+                            "playlists are kept and come back if you connect the same Navidrome server again."
+                    )
+                    if (downloaded > 0) {
+                        Row(
+                            Modifier.fillMaxWidth().clickable { deleteDownloads = !deleteDownloads },
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Checkbox(checked = deleteDownloads, onCheckedChange = null)
+                            Text(
+                                "Also delete the ${if (downloaded == 1) "downloaded song" else "$downloaded downloaded songs"} from the phone",
+                                Modifier.padding(start = 12.dp),
+                            )
+                        }
+                    }
+                }
             },
-            confirmButton = { TextButton(onClick = { confirmDisconnect = false; vm.disconnectSubsonic() }) { Text("Disconnect") } },
+            confirmButton = {
+                TextButton(onClick = { confirmDisconnect = false; vm.disconnectSubsonic(deleteDownloads && downloaded > 0) }) { Text("Disconnect") }
+            },
             dismissButton = { TextButton(onClick = { confirmDisconnect = false }) { Text("Cancel") } },
         )
     }

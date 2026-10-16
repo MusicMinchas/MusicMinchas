@@ -674,7 +674,12 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
     val collectionsSync = container.serverCollections.status
     fun syncCollections() = container.serverCollections.syncNow()
 
-    fun disconnectSubsonic() = viewModelScope.launch {
+    /** Navidrome songs downloaded to the phone (offered for deletion when disconnecting). */
+    val serverDownloads: StateFlow<Int> = database.tracks().observeDownloadedCount(Track.SOURCE_SUBSONIC)
+        .stateIn(viewModelScope, SharingStarted.Eagerly, 0)
+
+    fun disconnectSubsonic(deleteDownloads: Boolean) = viewModelScope.launch {
+        if (deleteDownloads) downloader.deleteAll(Track.SOURCE_SUBSONIC)
         container.serverPlays.clear()
         container.serverCollections.forget()
         container.serverLibrary.removeAll()

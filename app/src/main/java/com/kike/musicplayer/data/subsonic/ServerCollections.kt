@@ -54,6 +54,8 @@ class ServerCollections(
     private val db: AppDatabase,
     private val match: ServerMatch,
     private val scrobbler: Scrobbler,
+    /** Whether Navidrome's songs are in the library yet: favourites and playlists wait for them. */
+    private val songsSynced: () -> Boolean,
     private val scope: CoroutineScope,
     prefsName: String = "subsonic-sync",
 ) {
@@ -92,6 +94,7 @@ class ServerCollections(
 
     private suspend fun sync() = mutex.withLock {
         val login = account.login() ?: return@withLock
+        if (!songsSynced()) return@withLock
         _status.value = _status.value.copy(running = true)
         val result = runCatching {
             val stars = syncStars(login)
