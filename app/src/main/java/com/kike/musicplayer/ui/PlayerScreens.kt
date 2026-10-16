@@ -158,11 +158,13 @@ fun NowPlayingScreen(
     if (showCast) CastSheet(playerVm) { showCast = false }
     val onFlip = { if (s.current != null) showLyrics = !showLyrics }
     Box(Modifier.fillMaxSize()) {
-        ArtworkBackdrop(meta?.artworkUri)
+        // Further down with the full cover, so its colours carry on under the title.
+        ArtworkBackdrop(meta?.artworkUri, reach = if (fullCover) 1f else 0.85f)
         if (fullCover) {
             BoxWithConstraints(Modifier.fillMaxSize()) {
                 val top = contentPadding.calculateTopPadding()
-                val coverSize = maxWidth
+                // Where the title is in the normal layout: close bar, cover (page width plus the bleed), gap.
+                val titleTop = top + CLOSE_BAR + maxWidth - 48.dp + COVER_BLEED * 2 + TITLE_GAP
                 Box(Modifier.fillMaxWidth().aspectRatio(1f)) {
                     FlipCard(
                         flipped = showLyrics,
@@ -184,15 +186,15 @@ fun NowPlayingScreen(
                     Modifier.fillMaxSize().padding(bottom = contentPadding.calculateBottomPadding()).padding(horizontal = 24.dp),
                     horizontalAlignment = Alignment.CenterHorizontally,
                 ) {
-                    // The title starts on the faded bottom of the cover.
-                    Spacer(Modifier.height(coverSize - FULL_COVER_OVERLAP))
+                    // The title at the same height as without the full cover.
+                    Spacer(Modifier.height(titleTop))
                     NowPlayingDetails(s, playerVm, showLyrics, { showLyrics = !showLyrics }, { showCast = true }, onOpenQueue, heartOffset = 12.dp)
                 }
             }
         } else {
             Column(Modifier.fillMaxSize().padding(contentPadding)) {
                 // Just the close arrow: a slim bar leaves the cover more room.
-                Box(Modifier.fillMaxWidth().height(40.dp).padding(start = 4.dp), contentAlignment = Alignment.CenterStart) {
+                Box(Modifier.fillMaxWidth().height(CLOSE_BAR).padding(start = 4.dp), contentAlignment = Alignment.CenterStart) {
                     IconButton(onClick = onBack) { Icon(Icons.Default.KeyboardArrowDown, "Close") }
                 }
                 Column(
@@ -207,7 +209,7 @@ fun NowPlayingScreen(
                         // A little wider than the rest of the page.
                         modifier = Modifier.bleed(COVER_BLEED).fillMaxWidth().aspectRatio(1f),
                     )
-                    Spacer(Modifier.height(22.dp))
+                    Spacer(Modifier.height(TITLE_GAP))
                     NowPlayingDetails(s, playerVm, showLyrics, { showLyrics = !showLyrics }, { showCast = true }, onOpenQueue, heartOffset = 12.dp + COVER_BLEED)
                 }
             }
@@ -356,8 +358,9 @@ private fun ColumnScope.NowPlayingDetails(
     }
 }
 
-/** How far the title reaches up into the full-width cover's fade. */
-private val FULL_COVER_OVERLAP = 56.dp
+/** Now Playing's close-arrow bar and the gap between cover and title (both layouts). */
+private val CLOSE_BAR = 40.dp
+private val TITLE_GAP = 22.dp
 
 /** How far the Now Playing cover reaches past the page margin on each side. */
 private val COVER_BLEED = 10.dp
@@ -446,7 +449,7 @@ private fun CastRow(icon: ImageVector, label: String, selected: Boolean, onClick
  * the top to fully transparent before the transport controls.
  */
 @Composable
-private fun ArtworkBackdrop(uri: Any?) {
+private fun ArtworkBackdrop(uri: Any?, reach: Float = 0.85f) {
     if (uri == null) return
     AsyncImage(
         model = uri,
@@ -455,7 +458,7 @@ private fun ArtworkBackdrop(uri: Any?) {
         alignment = Alignment.TopCenter,
         modifier = Modifier
             .fillMaxWidth()
-            .fillMaxHeight(0.85f)
+            .fillMaxHeight(reach)
             .blur(20.dp) // no-op before Android 12
             // Offscreen so the gradient below can mask this layer's alpha (DstIn keeps the image
             // only where the mask is opaque).
