@@ -70,6 +70,23 @@ class RecommenderTest {
     }
 
     @Test
+    fun `mixes pick only from the chosen sources but learn the taste from every source`() {
+        // The server has the same artists; only Drive songs were ever played, all metal.
+        val server = tracks.map { it.copy(id = "s-" + it.id, source = Track.SOURCE_SUBSONIC, scope = Track.SCOPE_SERVER) }
+        val history = (1..12).map { play("m${it % 6 + 1}-1-${it % 4 + 1}", it.toDouble()) }
+        val mixes = Recommender(tracks + server, history, tags, now, pickable = { it.scope == Track.SCOPE_SERVER }).mixes()
+        assertTrue(mixes.isNotEmpty())
+        assertTrue(mixes.all { mix -> mix.tracks.all { it.source == Track.SOURCE_SUBSONIC } })
+        // Metal leads, from the Drive plays, although no server song was played.
+        assertEquals("genre:heavy metal", mixes.first { it.id.startsWith("genre:") }.id)
+
+        // Both sources: songs the user has on Drive come from Drive, the server adds only what's new.
+        val extra = track("x1", "Metal 1", "Server Only Album").copy(id = "s-x1", title = "Server Only", source = Track.SOURCE_SUBSONIC, scope = Track.SCOPE_SERVER)
+        val both = Recommender(tracks + server + extra, history, tags, now).mixes().flatMap { it.tracks }
+        assertTrue(both.none { it.id.startsWith("s-") && it.id != "s-x1" })
+    }
+
+    @Test
     fun `favourites lift their genre and get a mix when forgotten for half a year`() {
         // A few recent metal plays, and a dozen jazz favourites not played in a year.
         val history = (1..3).map { play("m${it}-1-1", it.toDouble()) } + (1..12).map { play("j${it % 4 + 1}-1-${it % 4 + 1}", 400.0) }

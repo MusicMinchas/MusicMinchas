@@ -103,7 +103,7 @@ class PlayerViewModel(app: Application) : AndroidViewModel(app) {
             upNext = upNext(p),
             queueSize = p.mediaItemCount,
             formatInfo = formatInfo(p),
-            error = p.playerError?.let { e -> e.cause?.message ?: e.errorCodeName },
+            error = p.playerError?.let(::playbackErrorText),
             remoteVolume = p.deviceVolume.takeIf { p.deviceInfo.playbackType == DeviceInfo.PLAYBACK_TYPE_REMOTE },
         )
         if (p.isPlaying) startTicker() else ticker?.cancel()
@@ -268,5 +268,22 @@ class PlayerViewModel(app: Application) : AndroidViewModel(app) {
     override fun onCleared() {
         controller?.removeListener(listener)
         MediaController.releaseFuture(controllerFuture)
+    }
+}
+
+/** What went wrong, in words: the HTTP status of a failed stream when there is one. */
+internal fun playbackErrorText(e: androidx.media3.common.PlaybackException): String {
+    val detail = e.cause?.message
+    val status = detail?.let { Regex("""Response code: (\d+)""").find(it)?.groupValues?.get(1)?.toInt() }
+    return when {
+        // Cloudflare and other proxies: the address answers, the music server behind it doesn't.
+        status != null && status in 520..530 -> "The server is unreachable right now (HTTP $status)"
+        status == 401 || status == 403 -> "The server refused access (HTTP $status): check the sign-in"
+        status == 404 -> "The file isn't on the server any more (HTTP 404): try syncing"
+        status != null -> "The server answered HTTP $status"
+        e.errorCode == androidx.media3.common.PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_FAILED ||
+            e.errorCode == androidx.media3.common.PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_TIMEOUT ->
+            "Can't connect: check the internet connection"
+        else -> detail ?: e.errorCodeName
     }
 }

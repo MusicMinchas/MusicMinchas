@@ -20,6 +20,12 @@ class SearchTextTest {
     }
 
     @Test
+    fun titleOnlyVariantForTheSongsTable() {
+        assertEquals("title:metallica* title:one*", SearchText.titleMatch("Metallica One"))
+        assertNull(SearchText.titleMatch("--"))
+    }
+
+    @Test
     fun nothingSearchable() {
         assertNull(SearchText.match(""))
         assertNull(SearchText.match(" -*\"() "))

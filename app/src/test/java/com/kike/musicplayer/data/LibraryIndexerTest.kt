@@ -27,6 +27,22 @@ class LibraryIndexerTest {
     }
 
     @Test
+    fun sortTextSkipsLeadingSpacesAndPunctuation() {
+        assertEquals("low rider", LibraryIndexer.sortText(" Low Rider"))
+        assertEquals("heroes\"", LibraryIndexer.sortText("\"Heroes\""))
+        assertEquals("angel", LibraryIndexer.sortText("‎¡Ángel"))
+        assertEquals("...", LibraryIndexer.sortText("..."))
+        assertEquals("5 years", LibraryIndexer.sortText("(5 Years)").removeSuffix(")"))
+    }
+
+    @Test
+    fun scopeFollowsTheSource() {
+        assertEquals(Track.SCOPE_SERVER, Track.scopeOf(Track.SOURCE_SUBSONIC))
+        assertEquals(Track.SCOPE_DRIVE, Track.scopeOf(Track.SOURCE_DRIVE))
+        assertEquals(Track.SCOPE_LOCAL, Track.scopeOf(Track.SOURCE_SAF))
+    }
+
+    @Test
     fun genreFallsBackToArtistTagsThenUnknown() {
         val tags = mapOf("måns zelmerlöw" to listOf("swedish pop", "pop"))
         assertEquals("swedish pop", LibraryIndexer.keysOf(track("1"), tags).third)

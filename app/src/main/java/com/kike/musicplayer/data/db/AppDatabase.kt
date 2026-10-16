@@ -10,8 +10,8 @@ import androidx.sqlite.db.SupportSQLiteDatabase
 @Database(
     entities = [Track::class, QueueItem::class, SessionState::class, PlayHistory::class, ArtistInfo::class, Favourite::class, LastFmOutboxItem::class, LastFmScrobble::class, ReplacedTrack::class, ArtistImage::class, StoredLyrics::class, UserPlaylist::class, PlaylistTrack::class, FollowedArtist::class, DiscoverItem::class,
         AlbumIndex::class, ArtistIndex::class, GenreIndex::class, IndexDirty::class,
-        TrackFts::class, AlbumFts::class, ArtistFts::class],
-    version = 17,
+        TrackFts::class, AlbumFts::class, ArtistFts::class, ServerOutboxItem::class],
+    version = 21,
 )
 abstract class AppDatabase : RoomDatabase() {
     abstract fun tracks(): TrackDao
@@ -28,6 +28,7 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun discover(): DiscoverDao
     abstract fun libraryIndex(): LibraryIndexDao
     abstract fun browse(): BrowseDao
+    abstract fun serverOutbox(): ServerOutboxDao
 
     companion object {
         /** Adds the play history. Real migrations keep the scanned library (tags, covers) intact. */
@@ -215,6 +216,77 @@ abstract class AppDatabase : RoomDatabase() {
         }
 
         /**
+         * Songs of a Subsonic server are kept apart from the user's own (scope): the summaries get
+         * a scope in their key and are rebuilt from scratch, which takes seconds for a phone library.
+         */
+        private val MIGRATION_17_18 = object : Migration(17, 18) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE `tracks` ADD COLUMN `scope` INTEGER NOT NULL DEFAULT 0")
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_tracks_scope_indexTitle` ON `tracks` (`scope`, `indexTitle`)")
+                for (table in listOf("album_index", "artist_index", "genre_index")) db.execSQL("DROP TABLE IF EXISTS `$table`")
+                db.execSQL(
+                    "CREATE TABLE IF NOT EXISTS `album_index` (`key` TEXT NOT NULL, `scope` INTEGER NOT NULL DEFAULT 0, `title` TEXT NOT NULL, " +
+                        "`artist` TEXT NOT NULL, `year` INTEGER, `artworkUri` TEXT, `trackCount` INTEGER NOT NULL, `durationMs` INTEGER NOT NULL, " +
+                        "`sortKey` TEXT NOT NULL, PRIMARY KEY(`key`, `scope`))"
+                )
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_album_index_sortKey` ON `album_index` (`sortKey`)")
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_album_index_artist` ON `album_index` (`artist`)")
+                db.execSQL(
+                    "CREATE TABLE IF NOT EXISTS `artist_index` (`name` TEXT NOT NULL, `scope` INTEGER NOT NULL DEFAULT 0, " +
+                        "`trackCount` INTEGER NOT NULL, `albumCount` INTEGER NOT NULL, `sortKey` TEXT NOT NULL, PRIMARY KEY(`name`, `scope`))"
+                )
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_artist_index_sortKey` ON `artist_index` (`sortKey`)")
+                db.execSQL(
+                    "CREATE TABLE IF NOT EXISTS `genre_index` (`key` TEXT NOT NULL, `scope` INTEGER NOT NULL DEFAULT 0, `name` TEXT NOT NULL, " +
+                        "`songCount` INTEGER NOT NULL, `artistCount` INTEGER NOT NULL, `albumCount` INTEGER NOT NULL, `sortKey` TEXT NOT NULL, " +
+                        "`artworkUri` TEXT, PRIMARY KEY(`key`, `scope`))"
+                )
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_genre_index_sortKey` ON `genre_index` (`sortKey`)")
+                // The summaries' search rows went with them; the triggers refill them as they're rebuilt.
+                db.execSQL("DELETE FROM album_fts")
+                db.execSQL("DELETE FROM artist_fts")
+                createIndexTriggers(db)
+                db.execSQL("INSERT INTO index_dirty(trackId) SELECT id FROM tracks")
+            }
+        }
+
+        /** The songs' search table also holds artist and album, so a search can mix them with the title. */
+        private val MIGRATION_18_19 = object : Migration(18, 19) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                for (t in listOf("insert", "update", "delete")) db.execSQL("DROP TRIGGER IF EXISTS tracks_fts_$t")
+                db.execSQL("DROP TABLE IF EXISTS tracks_fts")
+                db.execSQL(
+                    "CREATE VIRTUAL TABLE IF NOT EXISTS `tracks_fts` USING FTS4(`title` TEXT NOT NULL, `artist` TEXT NOT NULL, " +
+                        "`album` TEXT NOT NULL, tokenize=unicode61)"
+                )
+                db.execSQL(
+                    "INSERT INTO tracks_fts(docid, title, artist, album) SELECT rowid, title, " +
+                        "TRIM(IFNULL(artist, '') || ' ' || IFNULL(albumArtist, '')), IFNULL(album, '') FROM tracks"
+                )
+                createIndexTriggers(db)
+            }
+        }
+
+        /** Playlists linked to the server's, for syncing them both ways. */
+        private val MIGRATION_20_21 = object : Migration(20, 21) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                for (column in listOf("serverId", "serverChanged", "syncedHash")) {
+                    db.execSQL("ALTER TABLE `playlists` ADD COLUMN `$column` TEXT")
+                }
+            }
+        }
+
+        /** Plays waiting to be reported to the Subsonic server. */
+        private val MIGRATION_19_20 = object : Migration(19, 20) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    "CREATE TABLE IF NOT EXISTS `server_outbox` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, " +
+                        "`songId` TEXT NOT NULL, `time` INTEGER NOT NULL)"
+                )
+            }
+        }
+
+        /**
          * Queue every added, changed (in a column the summaries use) or removed song for
          * LibraryIndexer, whatever code changed it. Not part of Room's schema, so created on every open.
          */
@@ -234,9 +306,20 @@ abstract class AppDatabase : RoomDatabase() {
                     "INSERT INTO index_dirty(oldAlbum, oldArtist, oldGenre) " +
                     "VALUES (OLD.indexAlbum, OLD.indexArtist, OLD.indexGenre); END"
             )
-            // The search tables follow song titles, album titles and artist names.
+            // The songs' search table: title, artist (with album artist) and album.
+            val songRow = "NEW.rowid, NEW.title, TRIM(IFNULL(NEW.artist, '') || ' ' || IFNULL(NEW.albumArtist, '')), IFNULL(NEW.album, '')"
+            db.execSQL(
+                "CREATE TRIGGER IF NOT EXISTS tracks_fts_insert AFTER INSERT ON tracks BEGIN " +
+                    "INSERT INTO tracks_fts(docid, title, artist, album) VALUES ($songRow); END"
+            )
+            db.execSQL(
+                "CREATE TRIGGER IF NOT EXISTS tracks_fts_update AFTER UPDATE OF title, artist, albumArtist, album ON tracks BEGIN " +
+                    "DELETE FROM tracks_fts WHERE docid = OLD.rowid; INSERT INTO tracks_fts(docid, title, artist, album) VALUES ($songRow); END"
+            )
+            db.execSQL("CREATE TRIGGER IF NOT EXISTS tracks_fts_delete AFTER DELETE ON tracks BEGIN DELETE FROM tracks_fts WHERE docid = OLD.rowid; END")
+            // The summaries' search tables follow album titles and artist names.
             for ((table, fts, column) in listOf(
-                Triple("tracks", "tracks_fts", "title"), Triple("album_index", "album_fts", "title"), Triple("artist_index", "artist_fts", "name"),
+                Triple("album_index", "album_fts", "title"), Triple("artist_index", "artist_fts", "name"),
             )) {
                 db.execSQL(
                     "CREATE TRIGGER IF NOT EXISTS ${fts}_insert AFTER INSERT ON $table BEGIN " +
@@ -252,7 +335,7 @@ abstract class AppDatabase : RoomDatabase() {
 
         fun create(context: Context, name: String = "music.db"): AppDatabase =
             Room.databaseBuilder(context, AppDatabase::class.java, name)
-                .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11, MIGRATION_11_12, MIGRATION_12_13, MIGRATION_13_14, MIGRATION_14_15, MIGRATION_15_16, MIGRATION_16_17)
+                .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11, MIGRATION_11_12, MIGRATION_12_13, MIGRATION_13_14, MIGRATION_14_15, MIGRATION_15_16, MIGRATION_16_17, MIGRATION_17_18, MIGRATION_18_19, MIGRATION_19_20, MIGRATION_20_21)
                 .addCallback(object : Callback() {
                     override fun onOpen(db: SupportSQLiteDatabase) = createIndexTriggers(db)
                 })

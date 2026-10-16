@@ -18,8 +18,8 @@ interface TrackDao {
     // @Transaction: a large library spans several CursorWindows; without a read transaction a
     // concurrent write between window refills makes rows vanish ("Couldn't read row N").
     @Transaction
-    @Query("SELECT * FROM tracks WHERE durationMs >= 0 ORDER BY title COLLATE NOCASE")
-    suspend fun getAll(): List<Track>
+    @Query("SELECT * FROM tracks WHERE durationMs >= 0 AND scope IN (:scopes) ORDER BY title COLLATE NOCASE")
+    suspend fun getAll(scopes: List<Int>): List<Track>
 
     @Transaction
     @Query("SELECT * FROM tracks WHERE source = :source")
@@ -43,6 +43,17 @@ interface TrackDao {
 
     @Query("SELECT COUNT(*) FROM tracks")
     suspend fun countAll(): Int
+
+    @Query("SELECT COUNT(*) FROM tracks WHERE source = :source")
+    suspend fun countSource(source: String): Int
+
+    /** Songs of a source downloaded to the phone. */
+    @Query("SELECT COUNT(*) FROM tracks WHERE source = :source AND downloadState = ${Track.DOWNLOADED}")
+    fun observeDownloadedCount(source: String): Flow<Int>
+
+    /** Id and checksum of a source's songs, to see what a sync changed without loading whole rows. */
+    @Query("SELECT id, checksum FROM tracks WHERE source = :source")
+    suspend fun checksums(source: String): List<IdChecksum>
 
     @Query("SELECT COUNT(*) FROM tracks WHERE downloadState = ${Track.DOWNLOAD_QUEUED}")
     suspend fun countDownloadQueued(): Int
@@ -73,13 +84,13 @@ interface TrackDao {
     @Query("SELECT * FROM tracks WHERE mbRecordingId IN (:ids)")
     suspend fun byRecordingIdsChunk(ids: List<String>): List<Track>
 
-    @Query("SELECT COUNT(*) FROM tracks WHERE durationMs >= 0")
-    suspend fun countPlayable(): Int
+    @Query("SELECT COUNT(*) FROM tracks WHERE durationMs >= 0 AND scope IN (:scopes)")
+    suspend fun countPlayable(scopes: List<Int>): Int
 
     /** Every artist and album artist in the library (for the genre lookup). */
     @Query(
-        "SELECT DISTINCT artist FROM tracks WHERE artist IS NOT NULL AND durationMs >= 0 " +
-            "UNION SELECT DISTINCT albumArtist FROM tracks WHERE albumArtist IS NOT NULL AND durationMs >= 0"
+        "SELECT DISTINCT artist FROM tracks WHERE artist IS NOT NULL AND durationMs >= 0 AND scope <> ${Track.SCOPE_SERVER} " +
+            "UNION SELECT DISTINCT albumArtist FROM tracks WHERE albumArtist IS NOT NULL AND durationMs >= 0 AND scope <> ${Track.SCOPE_SERVER}"
     )
     suspend fun artistNames(): List<String>
 
@@ -107,7 +118,7 @@ interface TrackDao {
 
     @Query(
         "UPDATE tracks SET metadataState = ${Track.META_LOCAL_DONE} WHERE metadataState = ${Track.META_DONE} " +
-            "AND (artist IS NULL OR album IS NULL OR artworkUri IS NULL)"
+            "AND (artist IS NULL OR album IS NULL OR artworkUri IS NULL) AND scope <> ${Track.SCOPE_SERVER}"
     )
     suspend fun requeueIncomplete(): Int
 
@@ -115,7 +126,7 @@ interface TrackDao {
      * Tracks without a duration were never read successfully (or are MP3s read before durations were
      * estimated); queue them for another tag read.
      */
-    @Query("UPDATE tracks SET metadataState = ${Track.META_NEW} WHERE durationMs = 0 AND metadataState != ${Track.META_NEW}")
+    @Query("UPDATE tracks SET metadataState = ${Track.META_NEW} WHERE durationMs = 0 AND metadataState != ${Track.META_NEW} AND scope <> ${Track.SCOPE_SERVER}")
     suspend fun requeueUnread(): Int
 
     @Upsert
@@ -146,6 +157,8 @@ data class ArtistPair(val artist: String?, val albumArtist: String?)
 data class SourceCount(val source: String, val count: Int)
 
 data class NameCount(val name: String, val count: Int)
+
+data class IdChecksum(val id: String, val checksum: String?)
 
 suspend fun TrackDao.delete(ids: Collection<String>) =
     ids.chunked(500).forEach { deleteChunk(it) }
@@ -195,6 +208,25 @@ interface HistoryDao {
     @Transaction
     @Query("SELECT * FROM play_history ORDER BY playedAt DESC")
     fun observeAll(): Flow<List<PlayHistory>>
+}
+
+@Dao
+interface ServerOutboxDao {
+    @Insert
+    suspend fun insert(item: ServerOutboxItem)
+
+    /** Oldest first. */
+    @Query("SELECT * FROM server_outbox ORDER BY id LIMIT :limit")
+    suspend fun pending(limit: Int): List<ServerOutboxItem>
+
+    @Query("DELETE FROM server_outbox WHERE id = :id")
+    suspend fun delete(id: Long)
+
+    @Query("SELECT COUNT(*) FROM server_outbox")
+    fun observeCount(): Flow<Int>
+
+    @Query("DELETE FROM server_outbox")
+    suspend fun clear()
 }
 
 @Dao
@@ -251,7 +283,7 @@ interface ReplacementDao {
     suspend fun delete(ids: List<String>)
 
     /** Songs added since [since] (by a sync), with their tags read. */
-    @Query("SELECT * FROM tracks WHERE dateAdded >= :since AND metadataState != ${Track.META_NEW} AND durationMs >= 0")
+    @Query("SELECT * FROM tracks WHERE dateAdded >= :since AND metadataState != ${Track.META_NEW} AND durationMs >= 0 AND scope <> ${Track.SCOPE_SERVER}")
     suspend fun addedSince(since: Long): List<Track>
 
     @Query("SELECT COUNT(*) FROM tracks WHERE dateAdded >= :since AND metadataState = ${Track.META_NEW}")
@@ -298,6 +330,16 @@ interface PlaylistDao {
 
     @Query("SELECT COUNT(*) FROM playlists")
     suspend fun count(): Int
+
+    @Query("SELECT * FROM playlists ORDER BY id")
+    suspend fun all(): List<UserPlaylist>
+
+    @Query("SELECT * FROM playlists WHERE id = :playlistId")
+    suspend fun get(playlistId: Long): UserPlaylist?
+
+    /** Records the playlist's server counterpart and its state at this sync. */
+    @Query("UPDATE playlists SET serverId = :serverId, serverChanged = :serverChanged, syncedHash = :syncedHash WHERE id = :playlistId")
+    suspend fun setSynced(playlistId: Long, serverId: String?, serverChanged: String?, syncedHash: String?)
 
     @Insert
     suspend fun insertPlaylist(playlist: UserPlaylist): Long
@@ -376,6 +418,13 @@ interface FavouriteDao {
 
     @Query("DELETE FROM favourites WHERE trackId = :trackId")
     suspend fun delete(trackId: String)
+
+    @Query("SELECT trackId FROM favourites")
+    suspend fun allTrackIds(): List<String>
+
+    /** Favourites that are songs on the Subsonic server. */
+    @Query("SELECT trackId FROM favourites WHERE trackId LIKE 'subsonic:%'")
+    suspend fun serverTrackIds(): List<String>
 }
 
 @Dao
@@ -466,9 +515,9 @@ interface DiscoverDao {
     }
 }
 
-data class ArtistCounts(val name: String, val trackCount: Int, val albumCount: Int)
+data class ArtistCounts(val name: String, val scope: Int, val trackCount: Int, val albumCount: Int)
 
-data class GenreCounts(val key: String, val songCount: Int, val artistCount: Int, val albumCount: Int)
+data class GenreCounts(val key: String, val scope: Int, val songCount: Int, val artistCount: Int, val albumCount: Int)
 
 /** The album, artist and genre summaries, and the queue of songs to (re)index (see LibraryIndexer). */
 @Dao
@@ -476,8 +525,8 @@ interface LibraryIndexDao {
     @Query("SELECT COUNT(*) FROM index_dirty")
     fun observeDirtyCount(): Flow<Int>
 
-    @Query("SELECT * FROM index_dirty ORDER BY seq LIMIT :limit")
-    suspend fun dirty(limit: Int): List<IndexDirty>
+    @Query("SELECT * FROM index_dirty WHERE seq > :afterSeq ORDER BY seq LIMIT :limit")
+    suspend fun dirty(afterSeq: Long, limit: Int): List<IndexDirty>
 
     @Query("DELETE FROM index_dirty WHERE seq <= :seq")
     suspend fun clearDirty(seq: Long)
@@ -486,11 +535,15 @@ interface LibraryIndexDao {
     @Query("INSERT INTO index_dirty(trackId) SELECT id FROM tracks WHERE genre IS NULL")
     suspend fun markUntaggedDirty()
 
+    /** Everything again (the indexing rules changed); the summaries are rewritten as songs are seen. */
+    @Query("INSERT INTO index_dirty(trackId) SELECT id FROM tracks")
+    suspend fun markAllDirty()
+
     @Query("SELECT * FROM tracks WHERE id IN (:ids)")
     suspend fun tracks(ids: List<String>): List<Track>
 
-    @Query("UPDATE tracks SET indexAlbum = :album, indexArtist = :artist, indexGenre = :genre, indexTitle = :title WHERE id = :id")
-    suspend fun setIndex(id: String, album: String, artist: String, genre: String, title: String)
+    @Query("UPDATE tracks SET indexAlbum = :album, indexArtist = :artist, indexGenre = :genre, indexTitle = :title, scope = :scope WHERE id = :id")
+    suspend fun setIndex(id: String, album: String, artist: String, genre: String, title: String, scope: Int)
 
     @Query("SELECT * FROM tracks WHERE indexAlbum IN (:keys)")
     suspend fun tracksOfAlbums(keys: List<String>): List<Track>
@@ -498,29 +551,29 @@ interface LibraryIndexDao {
     @Upsert
     suspend fun upsertAlbums(albums: List<AlbumIndex>)
 
-    @Query("DELETE FROM album_index WHERE `key` IN (:keys)")
-    suspend fun deleteAlbums(keys: List<String>)
+    @Query("DELETE FROM album_index WHERE scope = :scope AND `key` IN (:keys)")
+    suspend fun deleteAlbums(keys: List<String>, scope: Int)
 
     @Query(
-        "SELECT indexArtist AS name, COUNT(*) AS trackCount, COUNT(DISTINCT indexAlbum) AS albumCount " +
-            "FROM tracks WHERE indexArtist IN (:names) GROUP BY indexArtist"
+        "SELECT indexArtist AS name, scope, COUNT(*) AS trackCount, COUNT(DISTINCT indexAlbum) AS albumCount " +
+            "FROM tracks WHERE indexArtist IN (:names) GROUP BY indexArtist, scope"
     )
     suspend fun artistCounts(names: List<String>): List<ArtistCounts>
 
     @Upsert
     suspend fun upsertArtists(artists: List<ArtistIndex>)
 
-    @Query("DELETE FROM artist_index WHERE name IN (:names)")
-    suspend fun deleteArtists(names: List<String>)
+    @Query("DELETE FROM artist_index WHERE scope = :scope AND name IN (:names)")
+    suspend fun deleteArtists(names: List<String>, scope: Int)
 
     @Query(
-        "SELECT indexGenre AS `key`, COUNT(*) AS songCount, COUNT(DISTINCT indexArtist) AS artistCount, " +
-            "COUNT(DISTINCT indexAlbum) AS albumCount FROM tracks WHERE indexGenre IN (:keys) GROUP BY indexGenre"
+        "SELECT indexGenre AS `key`, scope, COUNT(*) AS songCount, COUNT(DISTINCT indexArtist) AS artistCount, " +
+            "COUNT(DISTINCT indexAlbum) AS albumCount FROM tracks WHERE indexGenre IN (:keys) GROUP BY indexGenre, scope"
     )
     suspend fun genreCounts(keys: List<String>): List<GenreCounts>
 
-    @Query("SELECT artworkUri FROM tracks WHERE indexGenre = :key AND artworkUri IS NOT NULL LIMIT 1")
-    suspend fun genreCover(key: String): String?
+    @Query("SELECT artworkUri FROM tracks WHERE indexGenre = :key AND scope = :scope AND artworkUri IS NOT NULL LIMIT 1")
+    suspend fun genreCover(key: String, scope: Int): String?
 
     /** The genre's most common spelling in the files, e.g. "Hard Rock" for "hard rock". */
     @Query("SELECT genre FROM tracks WHERE indexGenre = :key AND genre IS NOT NULL GROUP BY genre ORDER BY COUNT(*) DESC, genre LIMIT 1")
@@ -529,8 +582,8 @@ interface LibraryIndexDao {
     @Upsert
     suspend fun upsertGenres(genres: List<GenreIndex>)
 
-    @Query("DELETE FROM genre_index WHERE `key` IN (:keys)")
-    suspend fun deleteGenres(keys: List<String>)
+    @Query("DELETE FROM genre_index WHERE scope = :scope AND `key` IN (:keys)")
+    suspend fun deleteGenres(keys: List<String>, scope: Int)
 
     @Query("SELECT * FROM album_index")
     suspend fun allAlbums(): List<AlbumIndex>
@@ -559,119 +612,138 @@ data class TrackPlays(@Embedded val track: Track, val plays: Int)
 /**
  * The library screens' data, straight from the database: songs, albums and artists page by page,
  * the rest as small lists (an album's songs, an artist's albums, the genres).
+ *
+ * [scopes] picks whose music is listed (Track.SCOPES: local folders, Drive, server; any combination). Albums,
+ * artists and genres are summarised per scope; with several, the rows of a key are added together.
  */
 @Dao
 interface BrowseDao {
     // Songs tab: listed songs are the indexed, playable ones, by title.
-    @Query("SELECT * FROM tracks WHERE indexTitle <> '' ORDER BY indexTitle, id")
-    fun songs(): PagingSource<Int, Track>
+    @Query("SELECT * FROM tracks WHERE indexTitle <> '' AND scope IN (:scopes) ORDER BY indexTitle, id")
+    fun songs(scopes: List<Int>): PagingSource<Int, Track>
 
-    @Query("SELECT COUNT(*) FROM tracks WHERE indexTitle <> ''")
-    fun observeSongCount(): Flow<Int>
+    @Query("SELECT COUNT(*) FROM tracks WHERE indexTitle <> '' AND scope IN (:scopes)")
+    fun observeSongCount(scopes: List<Int>): Flow<Int>
 
-    @Query("SELECT * FROM tracks WHERE indexTitle <> '' ORDER BY indexTitle, id LIMIT :limit OFFSET :offset")
-    suspend fun songsFrom(offset: Int, limit: Int): List<Track>
+    @Query("SELECT * FROM tracks WHERE indexTitle <> '' AND scope IN (:scopes) ORDER BY indexTitle, id LIMIT :limit OFFSET :offset")
+    suspend fun songsFrom(offset: Int, limit: Int, scopes: List<Int>): List<Track>
 
-    @Query("SELECT * FROM tracks WHERE indexTitle <> '' ORDER BY RANDOM() LIMIT :limit")
-    suspend fun randomSongs(limit: Int): List<Track>
+    @Query("SELECT * FROM tracks WHERE indexTitle <> '' AND scope IN (:scopes) ORDER BY RANDOM() LIMIT :limit")
+    suspend fun randomSongs(limit: Int, scopes: List<Int>): List<Track>
 
-    @Query("SELECT substr(indexTitle, 1, 1) AS ch, COUNT(*) AS count FROM tracks WHERE indexTitle <> '' GROUP BY ch ORDER BY ch")
-    fun songFirstChars(): Flow<List<FirstChar>>
+    @Query(
+        "SELECT substr(indexTitle, 1, 1) AS ch, COUNT(*) AS count FROM tracks " +
+            "WHERE indexTitle <> '' AND scope IN (:scopes) GROUP BY ch ORDER BY ch"
+    )
+    fun songFirstChars(scopes: List<Int>): Flow<List<FirstChar>>
 
     // Albums tab
-    @Query("SELECT * FROM album_index ORDER BY sortKey, `key`")
-    fun albums(): PagingSource<Int, AlbumIndex>
+    @Query("SELECT $ALBUM_SUM FROM album_index WHERE scope IN (:scopes) GROUP BY `key` ORDER BY sortKey, `key`")
+    fun albums(scopes: List<Int>): PagingSource<Int, AlbumIndex>
 
-    @Query("SELECT substr(sortKey, 2, 1) AS ch, COUNT(*) AS count FROM album_index GROUP BY substr(sortKey, 1, 2) ORDER BY substr(sortKey, 1, 2)")
-    fun albumFirstChars(): Flow<List<FirstChar>>
+    @Query(
+        "SELECT substr(sortKey, 2, 1) AS ch, COUNT(DISTINCT `key`) AS count FROM album_index WHERE scope IN (:scopes) " +
+            "GROUP BY substr(sortKey, 1, 2) ORDER BY substr(sortKey, 1, 2)"
+    )
+    fun albumFirstChars(scopes: List<Int>): Flow<List<FirstChar>>
 
-    @Query("SELECT * FROM album_index WHERE `key` = :key")
-    fun observeAlbum(key: String): Flow<AlbumIndex?>
+    @Query("SELECT $ALBUM_SUM FROM album_index WHERE `key` = :key AND scope IN (:scopes) GROUP BY `key`")
+    fun observeAlbum(key: String, scopes: List<Int>): Flow<AlbumIndex?>
 
-    @Query("SELECT * FROM tracks WHERE indexAlbum = :key")
-    fun observeAlbumTracks(key: String): Flow<List<Track>>
+    @Query("SELECT * FROM tracks WHERE indexAlbum = :key AND scope IN (:scopes)")
+    fun observeAlbumTracks(key: String, scopes: List<Int>): Flow<List<Track>>
 
     // Artists tab
-    @Query("SELECT * FROM artist_index ORDER BY sortKey, name")
-    fun artists(): PagingSource<Int, ArtistIndex>
+    @Query("SELECT $ARTIST_SUM FROM artist_index WHERE scope IN (:scopes) GROUP BY name ORDER BY sortKey, name")
+    fun artists(scopes: List<Int>): PagingSource<Int, ArtistIndex>
 
-    @Query("SELECT substr(sortKey, 2, 1) AS ch, COUNT(*) AS count FROM artist_index GROUP BY substr(sortKey, 1, 2) ORDER BY substr(sortKey, 1, 2)")
-    fun artistFirstChars(): Flow<List<FirstChar>>
+    @Query(
+        "SELECT substr(sortKey, 2, 1) AS ch, COUNT(DISTINCT name) AS count FROM artist_index WHERE scope IN (:scopes) " +
+            "GROUP BY substr(sortKey, 1, 2) ORDER BY substr(sortKey, 1, 2)"
+    )
+    fun artistFirstChars(scopes: List<Int>): Flow<List<FirstChar>>
 
-    @Query("SELECT * FROM artist_index WHERE name = :name")
-    fun observeArtist(name: String): Flow<ArtistIndex?>
+    @Query("SELECT $ARTIST_SUM FROM artist_index WHERE name = :name AND scope IN (:scopes) GROUP BY name")
+    fun observeArtist(name: String, scopes: List<Int>): Flow<ArtistIndex?>
 
     /** The artist's albums, newest first. */
-    @Query("SELECT * FROM album_index WHERE artist = :name ORDER BY year IS NULL, year DESC, sortKey")
-    fun observeArtistAlbums(name: String): Flow<List<AlbumIndex>>
+    @Query(
+        "SELECT $ALBUM_SUM FROM album_index WHERE artist = :name AND scope IN (:scopes) GROUP BY `key` " +
+            "ORDER BY year IS NULL, year DESC, sortKey"
+    )
+    fun observeArtistAlbums(name: String, scopes: List<Int>): Flow<List<AlbumIndex>>
 
     /** The artist's songs by album, then disc and track number. */
     @Query(
-        "SELECT * FROM tracks WHERE indexArtist = :name " +
+        "SELECT * FROM tracks WHERE indexArtist = :name AND scope IN (:scopes) " +
             "ORDER BY indexAlbum, IFNULL(discNumber, 0), IFNULL(trackNumber, 2147483647), indexTitle"
     )
-    fun observeArtistTracks(name: String): Flow<List<Track>>
+    fun observeArtistTracks(name: String, scopes: List<Int>): Flow<List<Track>>
 
     /** The artist's most played songs (counted plays). */
     @Query(
         "SELECT tracks.*, COUNT(play_history.id) AS plays FROM tracks " +
             "JOIN play_history ON play_history.trackId = tracks.id AND play_history.counted = 1 " +
-            "WHERE tracks.indexArtist = :name GROUP BY tracks.id ORDER BY plays DESC, tracks.indexTitle LIMIT :limit"
+            "WHERE tracks.indexArtist = :name AND tracks.scope IN (:scopes) GROUP BY tracks.id ORDER BY plays DESC, tracks.indexTitle LIMIT :limit"
     )
-    fun observeArtistTop(name: String, limit: Int): Flow<List<TrackPlays>>
+    fun observeArtistTop(name: String, limit: Int, scopes: List<Int>): Flow<List<TrackPlays>>
 
     // Genres tab
-    @Query("SELECT * FROM genre_index ORDER BY sortKey")
-    fun observeGenres(): Flow<List<GenreIndex>>
+    @Query("SELECT $GENRE_SUM FROM genre_index WHERE scope IN (:scopes) GROUP BY `key` ORDER BY sortKey")
+    fun observeGenres(scopes: List<Int>): Flow<List<GenreIndex>>
 
-    @Query("SELECT * FROM genre_index WHERE `key` = :key")
-    fun observeGenre(key: String): Flow<GenreIndex?>
+    @Query("SELECT $GENRE_SUM FROM genre_index WHERE `key` = :key AND scope IN (:scopes) GROUP BY `key`")
+    fun observeGenre(key: String, scopes: List<Int>): Flow<GenreIndex?>
 
     /** Albums with at least one song of the genre. */
-    @Query("SELECT * FROM album_index WHERE `key` IN (SELECT DISTINCT indexAlbum FROM tracks WHERE indexGenre = :genre) ORDER BY sortKey, `key`")
-    fun genreAlbums(genre: String): PagingSource<Int, AlbumIndex>
+    @Query(
+        "SELECT $ALBUM_SUM FROM album_index WHERE scope IN (:scopes) AND `key` IN " +
+            "(SELECT DISTINCT indexAlbum FROM tracks WHERE indexGenre = :genre AND scope IN (:scopes)) GROUP BY `key` ORDER BY sortKey, `key`"
+    )
+    fun genreAlbums(genre: String, scopes: List<Int>): PagingSource<Int, AlbumIndex>
 
-    @Query("SELECT * FROM tracks WHERE indexAlbum = :album AND indexGenre = :genre")
-    fun observeAlbumTracksInGenre(album: String, genre: String): Flow<List<Track>>
+    @Query("SELECT * FROM tracks WHERE indexAlbum = :album AND indexGenre = :genre AND scope IN (:scopes)")
+    fun observeAlbumTracksInGenre(album: String, genre: String, scopes: List<Int>): Flow<List<Track>>
 
     /** The genre's songs album by album (for Play), at most [limit]. */
     @Query(
-        "SELECT tracks.* FROM tracks JOIN album_index ON album_index.`key` = tracks.indexAlbum WHERE tracks.indexGenre = :genre " +
+        "SELECT tracks.* FROM tracks JOIN album_index ON album_index.`key` = tracks.indexAlbum AND album_index.scope = tracks.scope " +
+            "WHERE tracks.indexGenre = :genre AND tracks.scope IN (:scopes) " +
             "ORDER BY album_index.sortKey, tracks.indexAlbum, IFNULL(discNumber, 0), IFNULL(trackNumber, 2147483647) LIMIT :limit"
     )
-    suspend fun genreTracks(genre: String, limit: Int): List<Track>
+    suspend fun genreTracks(genre: String, limit: Int, scopes: List<Int>): List<Track>
 
-    @Query("SELECT * FROM tracks WHERE indexGenre = :genre ORDER BY RANDOM() LIMIT :limit")
-    suspend fun randomGenreTracks(genre: String, limit: Int): List<Track>
+    @Query("SELECT * FROM tracks WHERE indexGenre = :genre AND scope IN (:scopes) ORDER BY RANDOM() LIMIT :limit")
+    suspend fun randomGenreTracks(genre: String, limit: Int, scopes: List<Int>): List<Track>
 
-    @Query("SELECT name FROM artist_index WHERE name IN (:names)")
+    @Query("SELECT DISTINCT name FROM artist_index WHERE name IN (:names)")
     suspend fun existingArtists(names: List<String>): List<String>
 
     /** Listed songs per source ("drive", "saf"…). */
     @Query("SELECT source, COUNT(*) AS count FROM tracks WHERE durationMs >= 0 GROUP BY source")
     fun observeSourceCounts(): Flow<List<SourceCount>>
 
-    @Query("SELECT * FROM album_index WHERE `key` IN (:keys)")
+    @Query("SELECT $ALBUM_SUM FROM album_index WHERE `key` IN (:keys) GROUP BY `key`")
     suspend fun albumsByKeys(keys: List<String>): List<AlbumIndex>
 
-    @Query("SELECT * FROM tracks WHERE indexAlbum IN (:keys)")
-    suspend fun tracksOfAlbums(keys: List<String>): List<Track>
+    @Query("SELECT * FROM tracks WHERE indexAlbum IN (:keys) AND scope IN (:scopes)")
+    suspend fun tracksOfAlbums(keys: List<String>, scopes: List<Int>): List<Track>
 
-    @Query("SELECT * FROM album_index ORDER BY sortKey, `key` LIMIT :limit OFFSET :offset")
-    suspend fun albumsFrom(offset: Int, limit: Int): List<AlbumIndex>
+    @Query("SELECT $ALBUM_SUM FROM album_index WHERE scope IN (:scopes) GROUP BY `key` ORDER BY sortKey, `key` LIMIT :limit OFFSET :offset")
+    suspend fun albumsFrom(offset: Int, limit: Int, scopes: List<Int>): List<AlbumIndex>
 
     /** Songs A–Z from the given one on (inclusive). */
     @Query(
-        "SELECT * FROM tracks WHERE indexTitle <> '' AND (indexTitle > :title OR (indexTitle = :title AND id >= :id)) " +
+        "SELECT * FROM tracks WHERE indexTitle <> '' AND scope IN (:scopes) AND (indexTitle > :title OR (indexTitle = :title AND id >= :id)) " +
             "ORDER BY indexTitle, id LIMIT :limit"
     )
-    suspend fun songsFromTitle(title: String, id: String, limit: Int): List<Track>
+    suspend fun songsFromTitle(title: String, id: String, limit: Int, scopes: List<Int>): List<Track>
 
-    @Query("SELECT * FROM tracks WHERE indexArtist IN (:names) ORDER BY indexTitle LIMIT :limit")
-    suspend fun songsOfArtists(names: List<String>, limit: Int): List<Track>
+    @Query("SELECT * FROM tracks WHERE indexArtist IN (:names) AND scope IN (:scopes) ORDER BY indexTitle LIMIT :limit")
+    suspend fun songsOfArtists(names: List<String>, limit: Int, scopes: List<Int>): List<Track>
 
-    @Query("SELECT * FROM tracks WHERE indexAlbum IN (:keys) ORDER BY indexTitle LIMIT :limit")
-    suspend fun songsOfAlbums(keys: List<String>, limit: Int): List<Track>
+    @Query("SELECT * FROM tracks WHERE indexAlbum IN (:keys) AND scope IN (:scopes) ORDER BY indexTitle LIMIT :limit")
+    suspend fun songsOfAlbums(keys: List<String>, limit: Int, scopes: List<Int>): List<Track>
 
     /** Counted plays per listed artist, most played first. */
     @Query(
@@ -682,21 +754,41 @@ interface BrowseDao {
 
     // Search box: [match] is a full-text query from SearchText.match.
     @Query(
-        "SELECT tracks.* FROM tracks JOIN tracks_fts ON tracks.rowid = tracks_fts.docid " +
-            "WHERE tracks_fts MATCH :match AND tracks.indexTitle <> '' ORDER BY tracks.indexTitle LIMIT :limit"
+        // The full-text match once, as a subquery: joined, SQLite may walk every song of one source in title order
+        // and run the match per song (minutes on a large server library).
+        "SELECT * FROM tracks WHERE rowid IN (SELECT docid FROM tracks_fts WHERE tracks_fts MATCH :match) " +
+            "AND indexTitle <> '' AND scope IN (:scopes) ORDER BY indexTitle LIMIT :limit"
     )
-    suspend fun searchSongs(match: String, limit: Int): List<Track>
+    suspend fun searchSongs(match: String, limit: Int, scopes: List<Int>): List<Track>
 
     @Query(
-        "SELECT album_index.* FROM album_index JOIN album_fts ON album_index.rowid = album_fts.docid " +
-            "WHERE album_fts MATCH :match ORDER BY album_index.sortKey LIMIT :limit"
+        "SELECT $ALBUM_SUM FROM album_index WHERE rowid IN (SELECT docid FROM album_fts WHERE album_fts MATCH :match) " +
+            "AND scope IN (:scopes) GROUP BY `key` ORDER BY sortKey LIMIT :limit"
     )
-    suspend fun searchAlbums(match: String, limit: Int): List<AlbumIndex>
+    suspend fun searchAlbums(match: String, limit: Int, scopes: List<Int>): List<AlbumIndex>
 
     @Query(
-        "SELECT artist_index.* FROM artist_index JOIN artist_fts ON artist_index.rowid = artist_fts.docid " +
-            "WHERE artist_fts MATCH :match ORDER BY artist_index.sortKey LIMIT :limit"
+        "SELECT $ARTIST_SUM FROM artist_index WHERE rowid IN (SELECT docid FROM artist_fts WHERE artist_fts MATCH :match) " +
+            "AND scope IN (:scopes) GROUP BY name ORDER BY sortKey LIMIT :limit"
     )
-    suspend fun searchArtists(match: String, limit: Int): List<ArtistIndex>
+    suspend fun searchArtists(match: String, limit: Int, scopes: List<Int>): List<ArtistIndex>
+
+    // The scopes an album, artist or genre has songs in (detail pages fall back to these).
+    @Query("SELECT scope FROM album_index WHERE `key` = :key")
+    fun observeAlbumScopes(key: String): Flow<List<Int>>
+
+    @Query("SELECT scope FROM artist_index WHERE name = :name")
+    fun observeArtistScopes(name: String): Flow<List<Int>>
+
+    @Query("SELECT scope FROM genre_index WHERE `key` = :key")
+    fun observeGenreScopes(key: String): Flow<List<Int>>
+
+    companion object {
+        /** One album row from its rows in the chosen scopes: counts added up; the own cover (file:, https:) before the server's (subsonic:). */
+        const val ALBUM_SUM = "`key`, MIN(scope) AS scope, title, artist, MAX(year) AS year, MIN(artworkUri) AS artworkUri, " +
+            "SUM(trackCount) AS trackCount, SUM(durationMs) AS durationMs, MIN(sortKey) AS sortKey"
+        const val ARTIST_SUM = "name, MIN(scope) AS scope, SUM(trackCount) AS trackCount, SUM(albumCount) AS albumCount, MIN(sortKey) AS sortKey"
+        const val GENRE_SUM = "`key`, MIN(scope) AS scope, name, SUM(songCount) AS songCount, SUM(artistCount) AS artistCount, " +
+            "SUM(albumCount) AS albumCount, MIN(sortKey) AS sortKey, MIN(artworkUri) AS artworkUri"
+    }
 }
-

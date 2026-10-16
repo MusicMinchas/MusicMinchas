@@ -23,6 +23,8 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Cloud
+import androidx.compose.material.icons.filled.LibraryMusic
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.FolderShared
@@ -44,7 +46,6 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.material3.Slider
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -62,9 +63,190 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.kike.musicplayer.data.db.Track
 
+/** Settings: the music sources (own page), downloads, Last.fm and metadata. */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SourcesScreen(
+    vm: LibraryViewModel,
+    onBack: () -> Unit,
+    onOpenMusicSources: () -> Unit,
+    contentPadding: PaddingValues,
+) {
+    val online by vm.onlineMetadata.collectAsState()
+    val pending by vm.pendingMetadata.collectAsState()
+    val progress by vm.metadataProgress.collectAsState()
+    val status by vm.scanStatus.collectAsState()
+    val error by vm.lastError.collectAsState()
+    val downloads by vm.downloadTotals.collectAsState()
+    var confirmDeleteDownloads by remember { mutableStateOf(false) }
+    val lastFm by vm.lastFmState.collectAsState()
+    val scrobbling by vm.scrobbleSettings.collectAsState()
+    val pendingScrobbles by vm.pendingScrobbles.collectAsState()
+    val importStatus by vm.importStatus.collectAsState()
+    val scrobbleCounts by vm.scrobbleCounts.collectAsState()
+    val uriHandler = LocalUriHandler.current
+
+    Column(Modifier.fillMaxSize().padding(contentPadding)) {
+        TopAppBar(
+            windowInsets = NoTopInsets,
+            title = { Text("Settings") },
+            navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back") } },
+        )
+        Column(
+            Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 12.dp, vertical = 8.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            status?.let { Text(it, color = MaterialTheme.colorScheme.primary) }
+            error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
+
+            MusicSourcesEntry(vm, onOpenMusicSources)
+
+            SourceCard(
+                "Downloaded songs",
+                "Google Drive and Navidrome songs kept on the phone (Music/MusicMinchas), so they play without internet",
+            ) {
+                val songs = downloads?.songs ?: 0
+                Text(
+                    if (songs == 0) "No songs downloaded" else "${if (songs == 1) "1 song" else "$songs songs"} · ${formatBytes(downloads!!.bytes)}",
+                    style = MaterialTheme.typography.bodyMedium,
+                )
+                if (songs > 0) {
+                    OutlinedButton(onClick = { confirmDeleteDownloads = true }) { Text("Delete all downloads") }
+                }
+            }
+            if (confirmDeleteDownloads) {
+                AlertDialog(
+                    onDismissRequest = { confirmDeleteDownloads = false },
+                    title = { Text("Delete all downloads?") },
+                    text = {
+                        Text(
+                            "The ${downloads?.songs ?: 0} downloaded songs are removed from the phone and play from " +
+                                "Google Drive again. Plays, favourites and the files on Drive are not affected."
+                        )
+                    },
+                    confirmButton = {
+                        TextButton(onClick = { confirmDeleteDownloads = false; vm.removeAllDownloads() }) { Text("Delete") }
+                    },
+                    dismissButton = { TextButton(onClick = { confirmDeleteDownloads = false }) { Text("Cancel") } },
+                )
+            }
+
+            SourceCard(
+                "Last.fm",
+                when {
+                    lastFm.user != null -> "Connected as ${lastFm.user}"
+                    lastFm.awaitingApproval -> "Approve MusicMinchas on the Last.fm page, then come back here"
+                    else -> "Scrobble what you play and bring in your Last.fm history and loved tracks"
+                },
+            ) {
+                lastFm.message?.let { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) }
+                when {
+                    lastFm.user != null -> {
+                        ScrobbleControls(scrobbling, pendingScrobbles, vm::setScrobbleSettings)
+                        HistoryImport(scrobbleCounts, importStatus, vm::importScrobbles)
+                        LovedTracks(importStatus, vm::importLoved)
+                        OutlinedButton(onClick = vm::disconnectLastFm) { Text("Disconnect") }
+                    }
+                    lastFm.awaitingApproval -> Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Button(onClick = { vm.connectLastFm { uriHandler.openUri(it.toString()) } }) { Text("Open Last.fm again") }
+                        OutlinedButton(onClick = vm::cancelLastFmConnect) { Text("Cancel") }
+                    }
+                    else -> Button(onClick = { vm.connectLastFm { uriHandler.openUri(it.toString()) } }) { Text("Connect Last.fm") }
+                }
+            }
+
+            SourceCard(
+                "Metadata & cover art",
+                "Tags and artwork are read from the files first. Songs still missing details are looked up on " +
+                    "MusicBrainz, with covers from the Cover Art Archive.",
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text("Look up missing info online", Modifier.weight(1f))
+                    Switch(checked = online, onCheckedChange = vm::setOnlineMetadata)
+                }
+                Text(
+                    progress?.let { "${it.stage}: ${it.done} of ${it.total}" } ?: "$pending songs waiting",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                OutlinedButton(onClick = { vm.retryMetadata() }) { Text("Retry songs with missing info") }
+            }
+
+            SyncCard(vm)
+        }
+    }
+}
+
+/** One switch (and a button) instead of importing and syncing in each service's card. */
+@Composable
+private fun SyncCard(vm: LibraryViewModel) {
+    val sync by vm.autoSync.collectAsState()
+    SourceCard(
+        "Sync",
+        "One switch instead of importing and syncing in each card: Last.fm \"Import new\" and loved tracks, then " +
+            "Navidrome's favourites and playlists, for the services that are connected.",
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(
+                "Sync Listening History, Favourites, Playlists and Loved tracks across MusicMinchas and connected " +
+                    "services like Last.fm and Navidrome (if connected) every 24 hours",
+                Modifier.weight(1f),
+                style = MaterialTheme.typography.bodyMedium,
+            )
+            Switch(checked = sync.enabled, onCheckedChange = vm::setAutoSync, modifier = Modifier.padding(start = 8.dp))
+        }
+        if (sync.lastRun > 0) {
+            Text("Last synced ${relativeTime(sync.lastRun)}", style = MaterialTheme.typography.labelMedium)
+            sync.summary?.let {
+                Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+        }
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+            OutlinedButton(onClick = vm::syncEverything, enabled = !sync.running) { Text("Sync everything now") }
+            if (sync.running) CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp)
+        }
+    }
+}
+
+/** The settings row that opens Music sources: each source with its song count. */
+@Composable
+private fun MusicSourcesEntry(vm: LibraryViewModel, onOpen: () -> Unit) {
+    val counts by vm.sourceCounts.collectAsState()
+    val account by vm.driveAccount.collectAsState()
+    val server by vm.subsonicState.collectAsState()
+    val needsReconnect by vm.driveNeedsReconnect.collectAsState()
+    val number = java.text.NumberFormat.getIntegerInstance()
+    val parts = buildList {
+        counts[Track.SOURCE_SAF]?.takeIf { it > 0 }?.let { add("Local ${number.format(it)}") }
+        if (account != null) add("GDrive ${number.format(counts[Track.SOURCE_DRIVE] ?: 0)}")
+        if (server.address != null) {
+            add("${server.server?.substringBefore(' ') ?: "Navidrome"} ${number.format(counts[Track.SOURCE_SUBSONIC] ?: 0)}")
+        }
+    }
+    Card(Modifier.fillMaxWidth().clickable(onClick = onOpen)) {
+        Row(Modifier.padding(horizontal = 12.dp, vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
+            Icon(Icons.Default.LibraryMusic, null, tint = MaterialTheme.colorScheme.primary)
+            Column(Modifier.weight(1f).padding(start = 12.dp)) {
+                Text("Music sources", style = MaterialTheme.typography.titleMedium)
+                Text(
+                    if (parts.isEmpty()) "Folders on this device, Google Drive, Navidrome"
+                    else parts.joinToString(" · ") + " songs",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                if (needsReconnect && account != null) {
+                    Text("Google Drive needs you to sign in again", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
+                }
+            }
+            Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, null)
+        }
+    }
+}
+
+/** Where the music comes from: folders on the phone, Google Drive and a Subsonic server. */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun MusicSourcesScreen(
     vm: LibraryViewModel,
     onBack: () -> Unit,
     onAddFolder: () -> Unit,
@@ -76,9 +258,6 @@ fun SourcesScreen(
     val account by vm.driveAccount.collectAsState()
     val driveFolders by vm.driveFolders.collectAsState()
     val driveMessage by vm.driveMessage.collectAsState()
-    val online by vm.onlineMetadata.collectAsState()
-    val pending by vm.pendingMetadata.collectAsState()
-    val progress by vm.metadataProgress.collectAsState()
     val status by vm.scanStatus.collectAsState()
     val error by vm.lastError.collectAsState()
     val unplayable by vm.unplayableCount.collectAsState()
@@ -86,25 +265,18 @@ fun SourcesScreen(
     val lastSync by vm.lastDriveSync.collectAsState()
     val counts by vm.sourceCounts.collectAsState()
     val downloads by vm.downloadTotals.collectAsState()
-    var confirmDeleteDownloads by remember { mutableStateOf(false) }
     var confirmDisconnect by remember { mutableStateOf(false) }
     val needsReconnect by vm.driveNeedsReconnect.collectAsState()
-    val lastFm by vm.lastFmState.collectAsState()
-    val scrobbling by vm.scrobbleSettings.collectAsState()
-    val pendingScrobbles by vm.pendingScrobbles.collectAsState()
-    val importStatus by vm.importStatus.collectAsState()
-    val scrobbleCounts by vm.scrobbleCounts.collectAsState()
-    val uriHandler = LocalUriHandler.current
 
     Column(Modifier.fillMaxSize().padding(contentPadding)) {
         TopAppBar(
             windowInsets = NoTopInsets,
-            title = { Text("Sources & metadata") },
+            title = { Text("Music sources") },
             navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back") } },
         )
         Column(
-            Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp),
+            Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 12.dp, vertical = 8.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
             status?.let { Text(it, color = MaterialTheme.colorScheme.primary) }
             error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
@@ -196,76 +368,7 @@ fun SourcesScreen(
                 )
             }
 
-            SourceCard(
-                "Downloaded songs",
-                "Google Drive songs kept on the phone (Music/MusicMinchas), so they play without internet",
-            ) {
-                val songs = downloads?.songs ?: 0
-                Text(
-                    if (songs == 0) "No songs downloaded" else "${if (songs == 1) "1 song" else "$songs songs"} · ${formatBytes(downloads!!.bytes)}",
-                    style = MaterialTheme.typography.bodyMedium,
-                )
-                if (songs > 0) {
-                    OutlinedButton(onClick = { confirmDeleteDownloads = true }) { Text("Delete all downloads") }
-                }
-            }
-            if (confirmDeleteDownloads) {
-                AlertDialog(
-                    onDismissRequest = { confirmDeleteDownloads = false },
-                    title = { Text("Delete all downloads?") },
-                    text = {
-                        Text(
-                            "The ${downloads?.songs ?: 0} downloaded songs are removed from the phone and play from " +
-                                "Google Drive again. Plays, favourites and the files on Drive are not affected."
-                        )
-                    },
-                    confirmButton = {
-                        TextButton(onClick = { confirmDeleteDownloads = false; vm.removeAllDownloads() }) { Text("Delete") }
-                    },
-                    dismissButton = { TextButton(onClick = { confirmDeleteDownloads = false }) { Text("Cancel") } },
-                )
-            }
-
-            SourceCard(
-                "Last.fm",
-                when {
-                    lastFm.user != null -> "Connected as ${lastFm.user}"
-                    lastFm.awaitingApproval -> "Approve MusicMinchas on the Last.fm page, then come back here"
-                    else -> "Scrobble what you play and bring in your Last.fm history and loved tracks"
-                },
-            ) {
-                lastFm.message?.let { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) }
-                when {
-                    lastFm.user != null -> {
-                        ScrobbleControls(scrobbling, pendingScrobbles, vm::setScrobbleSettings)
-                        HistoryImport(scrobbleCounts, importStatus, vm::importScrobbles)
-                        LovedTracks(importStatus, vm::importLoved)
-                        OutlinedButton(onClick = vm::disconnectLastFm) { Text("Disconnect") }
-                    }
-                    lastFm.awaitingApproval -> Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Button(onClick = { vm.connectLastFm { uriHandler.openUri(it.toString()) } }) { Text("Open Last.fm again") }
-                        OutlinedButton(onClick = vm::cancelLastFmConnect) { Text("Cancel") }
-                    }
-                    else -> Button(onClick = { vm.connectLastFm { uriHandler.openUri(it.toString()) } }) { Text("Connect Last.fm") }
-                }
-            }
-
-            SourceCard(
-                "Metadata & cover art",
-                "Tags and artwork are read from the files first. Songs still missing details are looked up on " +
-                    "MusicBrainz, with covers from the Cover Art Archive.",
-            ) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text("Look up missing info online", Modifier.weight(1f))
-                    Switch(checked = online, onCheckedChange = vm::setOnlineMetadata)
-                }
-                Text(
-                    progress?.let { "${it.stage}: ${it.done} of ${it.total}" } ?: "$pending songs waiting",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-                OutlinedButton(onClick = { vm.retryMetadata() }) { Text("Retry songs with missing info") }
-            }
+            ServerCard(vm)
         }
     }
 }
@@ -318,16 +421,18 @@ private fun ScrobbleControls(settings: ScrobbleSettings, pending: Int, onChange:
         settings.copy(rule = ScrobbleRule(percent.roundToInt(), cap.roundToInt().takeIf { it < NO_CAP }))
     )
     Text("After ${percent.roundToInt()}% of the song", style = MaterialTheme.typography.bodyMedium)
-    Slider(
+    DotSlider(
         value = percent, onValueChange = { percent = it }, onValueChangeFinished = ::save,
         valueRange = ScrobbleRule.MIN_PERCENT.toFloat()..100f, steps = 9,
+        inactiveTrackColor = MaterialTheme.colorScheme.outlineVariant,
     )
     val capLabel = cap.roundToInt().let { if (it >= NO_CAP) "no time limit" else "$it minutes" }
     Text("…or after $capLabel, whichever comes first", style = MaterialTheme.typography.bodyMedium)
-    Slider(
+    DotSlider(
         value = cap, onValueChange = { cap = it }, onValueChangeFinished = ::save,
         valueRange = ScrobbleRule.MIN_CAP_MINUTES.toFloat()..NO_CAP.toFloat(),
         steps = NO_CAP - ScrobbleRule.MIN_CAP_MINUTES - 1,
+        inactiveTrackColor = MaterialTheme.colorScheme.outlineVariant,
     )
     Text(
         "Songs of 30 seconds or less aren't scrobbled." +
@@ -358,9 +463,9 @@ private fun HistoryImport(counts: ScrobbleCounts?, status: ImportStatus, onImpor
     Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
         val first = counts == null || counts.total == 0
         Button(onClick = { onImport(first) }, enabled = !status.running) {
-            Text(if (first) "Import history" else "Import new scrobbles")
+            Text(if (first) "Import history" else "Import new")
         }
-        if (!first) OutlinedButton(onClick = { onImport(true) }, enabled = !status.running) { Text("Import all again") }
+        if (!first) OutlinedButton(onClick = { onImport(true) }, enabled = !status.running) { Text("Re-import all") }
         if (status.running && !status.loved) CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp)
     }
 }
@@ -396,9 +501,9 @@ private fun FolderRow(icon: androidx.compose.ui.graphics.vector.ImageVector, lab
 }
 
 @Composable
-private fun SourceCard(title: String, subtitle: String, content: @Composable () -> Unit) {
+internal fun SourceCard(title: String, subtitle: String, content: @Composable () -> Unit) {
     Card(Modifier.fillMaxWidth()) {
-        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Column(Modifier.padding(horizontal = 14.dp, vertical = 12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
             Text(title, style = MaterialTheme.typography.titleMedium)
             Text(subtitle, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             content()

@@ -106,4 +106,25 @@ class TrackMatcherTest {
         assertNull(match("Daft Punk", "One More Time"))
         assertNull(match("Metallica", "One"))
     }
+
+    @Test
+    fun `the user's own copy wins over the server's, even on another album`() {
+        val server = track("s1", "Opeth", "Ghost of Perdition", album = "Ghost Reveries (Special Edition)", mbid = "rec-1")
+            .copy(source = Track.SOURCE_SUBSONIC, scope = Track.SCOPE_SERVER)
+        val own = track("d1", "Opeth", "Ghost of Perdition", album = "Ghost Reveries", mbid = "rec-1")
+        val matcher = TrackMatcher(listOf(server, own))
+        assertEquals("d1", matcher.match("Opeth", "Ghost of Perdition", "Ghost Reveries (Special Edition)", null)?.id)
+        assertEquals("d1", matcher.match("Opeth", "Ghost of Perdition", null, "rec-1")?.id)
+        // A server file titled exactly like the love doesn't beat the user's copy of the same song.
+        val remaster = track("s3", "Metallica", "Fade To Black (Remastered)", album = "Ride The Lightning (Remastered)")
+            .copy(source = Track.SOURCE_SUBSONIC, scope = Track.SCOPE_SERVER)
+        val drive = track("d3", "Metallica", "Fade to Black", album = "Ride the Lightning")
+        assertEquals("d3", TrackMatcher(listOf(remaster, drive)).match("Metallica", "Fade To Black (Remastered)", null, null)?.id)
+        // A live version is another recording: the server's live file, not the studio copy.
+        val live = track("s4", "Metallica", "Fade To Black (Live)", album = "S&M").copy(source = Track.SOURCE_SUBSONIC, scope = Track.SCOPE_SERVER)
+        assertEquals("s4", TrackMatcher(listOf(live, drive)).match("Metallica", "Fade To Black (Live)", null, null)?.id)
+        // Only on the server: matched there.
+        val onlyServer = track("s2", "Opeth", "Harvest", album = "Blackwater Park").copy(source = Track.SOURCE_SUBSONIC, scope = Track.SCOPE_SERVER)
+        assertEquals("s2", TrackMatcher(listOf(onlyServer, own)).match("Opeth", "Harvest", null, null)?.id)
+    }
 }

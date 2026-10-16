@@ -50,6 +50,15 @@ import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.PrimaryScrollableTabRow
+import androidx.compose.material3.AssistChip
+import androidx.compose.material.icons.filled.ArrowDropDown
+import androidx.compose.material.icons.filled.Cloud
+import androidx.compose.material.icons.filled.Folder
+import androidx.compose.material3.Checkbox
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.material.icons.filled.Dns
+import androidx.compose.material.icons.filled.LibraryMusic
+import androidx.compose.material.icons.filled.PhoneAndroid
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.material3.OutlinedTextFieldDefaults
@@ -101,6 +110,7 @@ fun LibraryScreen(
     onOpenAlbum: (String) -> Unit,
     onOpenArtist: (String) -> Unit,
     onOpenSources: () -> Unit,
+    onOpenMusicSources: () -> Unit,
     onOpenRecentTracks: () -> Unit,
     onOpenRecentAlbums: () -> Unit,
     onOpenReplay: () -> Unit,
@@ -129,7 +139,18 @@ fun LibraryScreen(
         TopAppBar(
             windowInsets = NoTopInsets,
             title = { Text(stringResource(R.string.app_name)) },
-            actions = { IconButton(onClick = onOpenSources) { Icon(Icons.Default.Tune, "Sources & settings") } },
+            actions = {
+                val available by libraryVm.availableScopes.collectAsState()
+                if (available.size > 1) {
+                    val server = libraryVm.subsonicState.collectAsState().value.server
+                    SourcesMenu(
+                        available, libraryVm.hiddenScopes.collectAsState().value,
+                        serverName = server?.substringBefore(' ')?.takeIf { it.isNotBlank() } ?: "Navidrome",
+                        onToggle = libraryVm::toggleScope,
+                    )
+                }
+                IconButton(onClick = onOpenSources) { Icon(Icons.Default.Tune, "Settings") }
+            },
         )
         SearchField(query, libraryVm::setQuery, Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp))
         if (query.isNotEmpty()) {
@@ -163,7 +184,7 @@ fun LibraryScreen(
         val songCount by libraryVm.songCount.collectAsState()
         val indexing by libraryVm.indexing.collectAsState()
         if (songCount == 0 && scanStatus == null && !indexing) {
-            EmptyLibrary(onOpenSources)
+            EmptyLibrary(onOpenMusicSources)
             return@Column
         }
         when (LIBRARY_TABS[tab]) {
@@ -182,7 +203,57 @@ fun LibraryScreen(
     }
 }
 
-private fun count(n: Int, noun: String) = if (n == 1) "1 $noun" else "$n ${noun}s"
+/** Which sources the library lists: each one switched on or off (at least one stays on). */
+@Composable
+private fun SourcesMenu(available: List<Int>, hidden: Set<Int>, serverName: String, onToggle: (Int) -> Unit) {
+    var open by remember { mutableStateOf(false) }
+    val shown = available.filter { it !in hidden }.ifEmpty { available }
+    fun label(scope: Int) = when (scope) {
+        Track.SCOPE_DRIVE -> "GDrive"
+        Track.SCOPE_SERVER -> serverName
+        else -> "Local"
+    }
+    fun icon(scope: Int) = when (scope) {
+        Track.SCOPE_DRIVE -> Icons.Default.Cloud
+        Track.SCOPE_SERVER -> SubmarineIcon
+        else -> Icons.Default.Folder
+    }
+    Box {
+        AssistChip(
+            onClick = { open = true },
+            label = {
+                Text(
+                    when {
+                        shown.size == available.size -> "All sources"
+                        shown.size == 1 -> label(shown.single())
+                        else -> shown.joinToString(" + ") { label(it) }
+                    },
+                    maxLines = 1,
+                )
+            },
+            leadingIcon = {
+                Icon(if (shown.size == 1) icon(shown.single()) else Icons.Default.LibraryMusic, null, Modifier.size(18.dp))
+            },
+            trailingIcon = { Icon(Icons.Default.ArrowDropDown, null, Modifier.size(18.dp)) },
+            modifier = Modifier.widthIn(max = 200.dp),
+        )
+        DropdownMenu(expanded = open, onDismissRequest = { open = false }) {
+            available.forEach { scope ->
+                val on = scope in shown
+                DropdownMenuItem(
+                    text = { Text(label(scope)) },
+                    // Stays open, so several sources can be switched in one go.
+                    onClick = { onToggle(scope) },
+                    leadingIcon = { Icon(icon(scope), null) },
+                    trailingIcon = { Checkbox(checked = on, onCheckedChange = null) },
+                    enabled = !(on && shown.size == 1),
+                )
+            }
+        }
+    }
+}
+
+private fun count(n: Int, noun: String) =if (n == 1) "1 $noun" else "$n ${noun}s"
 
 /** The library search box: an outlined pill like OutlinedTextField, but 44 dp tall instead of 56. */
 @OptIn(ExperimentalMaterial3Api::class)
@@ -392,7 +463,10 @@ fun AlbumScreen(
 ) {
     val player by playerVm.state.collectAsState()
     val albumOrNull by remember(albumKey) { libraryVm.album(albumKey) }.collectAsState(null)
-    val tracks by remember(albumKey, genreKey) { libraryVm.albumTracks(albumKey, genreKey) }.collectAsState(emptyList())
+    val allTracks by remember(albumKey, genreKey) { libraryVm.albumTracks(albumKey, genreKey) }.collectAsState(emptyList())
+    // The album in several sources: each song once (own copy first), or one source's copy.
+    var source by rememberSaveable(albumKey) { mutableStateOf<Int?>(null) }
+    val tracks = remember(allTracks, source) { songsFromSource(allTracks, source) }
     val genre by remember(genreKey) { genreKey?.let { libraryVm.genre(it) } ?: flowOf(null) }.collectAsState(null)
     Column(Modifier.fillMaxSize().padding(contentPadding)) {
         TopAppBar(
@@ -428,6 +502,7 @@ fun AlbumScreen(
                     }
                 }
             }
+            item { SourceChips(allTracks, source, { source = it }, Modifier.padding(bottom = 4.dp)) }
             item {
                 PlayShuffleRow(
                     onPlay = { playerVm.playTracks(tracks, 0) },
@@ -459,6 +534,8 @@ fun TrackListScreen(
     playerVm: PlayerViewModel,
     onBack: () -> Unit,
     contentPadding: PaddingValues,
+    /** A line under the title, e.g. a mix's artists. */
+    subtitle: String? = null,
     badge: (Track) -> String? = { null },
 ) {
     val player by playerVm.state.collectAsState()
@@ -470,6 +547,7 @@ fun TrackListScreen(
         )
         if (tracks == null) return@Column
         LazyColumn(Modifier.fillMaxSize()) {
+            item { CollectionHeader(title, tracks, subtitle) }
             item {
                 PlayShuffleRow(
                     onPlay = { playerVm.playTracks(tracks, 0) },
@@ -512,6 +590,7 @@ fun AlbumListScreen(
             navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back") } },
         )
         val all = albums.flatMap { it.tracks }
+        CollectionHeader(title, all, extra = count(albums.size, "album"))
         PlayShuffleRow(
             onPlay = { playerVm.playTracks(all, 0) },
             onShuffle = { playerVm.playTracks(all, 0, shuffle = true) },

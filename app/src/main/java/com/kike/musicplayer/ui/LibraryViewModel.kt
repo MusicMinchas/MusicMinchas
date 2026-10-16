@@ -14,8 +14,12 @@ import com.kike.musicplayer.data.db.getByIds
 import com.kike.musicplayer.data.db.Favourite
 import com.kike.musicplayer.data.db.PlayHistory
 import com.kike.musicplayer.recommend.MixCandidates
+import com.kike.musicplayer.data.lastfm.TrackMatcher
+import com.kike.musicplayer.recommend.SavedMix
+import com.kike.musicplayer.recommend.SavedMixSet
 import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.filter
 import com.kike.musicplayer.data.SearchText
 import com.kike.musicplayer.data.SongSearch
 import androidx.paging.Pager
@@ -92,15 +96,20 @@ data class SearchResults(
 data class Jump(val label: String, val position: Int)
 
 /**
- * A–Z bar entries from the first characters of a sorted list (lower case, no accents): letters
- * by themselves, digits and symbols together as "#"; each label at its first position.
+ * A–Z bar entries from the first characters of a sorted list (lower case, no accents): A to Z
+ * by themselves, digits and symbols before them as "#", everything after Z (other alphabets,
+ * which sort there) as "…"; each label at its first position.
  */
 fun jumps(firsts: List<FirstChar>): List<Jump> {
     val out = ArrayList<Jump>()
     var position = 0
     for (f in firsts) {
         val c = f.ch.firstOrNull()
-        val label = if (c != null && c.isLetter()) c.uppercase() else "#"
+        val label = when {
+            c == null || c < 'a' -> "#"
+            c <= 'z' -> c.uppercase()
+            else -> "…"
+        }
         if (out.none { it.label == label }) out += Jump(label, position)
         position += f.count
     }
@@ -127,6 +136,30 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
     private val settings = container.settings
     private val driveAuth = container.driveAuth
 
+    /** The sources (Track scopes) that have songs in the library, in menu order. */
+    val availableScopes: StateFlow<List<Int>> = container.database.browse().observeSourceCounts()
+        .map { counts ->
+            val present = counts.filter { it.count > 0 }.mapTo(HashSet()) { Track.scopeOf(it.source) }
+            Track.SCOPES.filter { it in present }
+        }
+        .distinctUntilChanged()
+        .stateIn(viewModelScope, SharingStarted.Eagerly, Track.SCOPES)
+
+    /** Sources switched off in the library menu. */
+    val hiddenScopes: StateFlow<Set<Int>> = settings.hiddenScopes
+
+    /** Switches a source on or off; the last one shown stays on. */
+    fun toggleScope(scope: Int) {
+        val hidden = settings.hiddenScopes.value
+        val next = if (scope in hidden) hidden - scope else hidden + scope
+        if (availableScopes.value.any { it !in next }) settings.setHiddenScopes(next)
+    }
+
+    /** The sources the library lists: those with songs, minus the switched-off ones (never none). */
+    private val viewScopes: StateFlow<List<Int>> = combine(availableScopes, settings.hiddenScopes) { available, hidden ->
+        available.filter { it !in hidden }.ifEmpty { available }.ifEmpty { Track.SCOPES }
+    }.distinctUntilChanged().stateIn(viewModelScope, SharingStarted.Eagerly, Track.SCOPES)
+
     private val _query = MutableStateFlow("")
     val query: StateFlow<String> = _query.asStateFlow()
 
@@ -134,14 +167,17 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
     @OptIn(kotlinx.coroutines.FlowPreview::class, kotlinx.coroutines.ExperimentalCoroutinesApi::class)
     val searchResults: StateFlow<SearchResults> = _query
         .debounce { if (it.isBlank()) 0L else SEARCH_DEBOUNCE_MS }
-        .mapLatest { q ->
+        .combine(viewScopes) { q, scopes -> q to scopes }
+        .mapLatest { (q, scopes) ->
             val match = SearchText.match(q) ?: return@mapLatest SearchResults()
             val browse = container.database.browse()
             Bench.time("search '$q'") {
                 SearchResults(
-                    artists = browse.searchArtists(match, SEARCH_ARTISTS),
-                    albums = browse.searchAlbums(match, SEARCH_ALBUMS),
-                    songs = browse.searchSongs(match, SEARCH_SONGS),
+                    artists = browse.searchArtists(match, SEARCH_ARTISTS, scopes),
+                    albums = browse.searchAlbums(match, SEARCH_ALBUMS, scopes),
+                    // Titles with every word first, then words spread over title, artist and album.
+                    songs = (browse.searchSongs(SearchText.titleMatch(q)!!, SEARCH_SONGS, scopes) + browse.searchSongs(match, SEARCH_SONGS, scopes))
+                        .distinctBy { it.id }.take(SEARCH_SONGS),
                 )
             }
         }
@@ -160,7 +196,12 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
      * doesn't rebuild everything per song): the lists below are rebuilt from the database then.
      */
     @OptIn(kotlinx.coroutines.FlowPreview::class)
-    private val tracksChanged: Flow<Unit> = database.invalidationTracker.createFlow("tracks", "album_index")
+    private val tracksChanged: Flow<Unit> = combine(
+        database.invalidationTracker.createFlow("tracks", "album_index"),
+        // A server sync writes pages for minutes: rebuild once it's done instead.
+        container.serverLibrary.status.map { it.running }.distinctUntilChanged(),
+    ) { _, syncing -> syncing }
+        .filter { syncing -> !syncing }
         .debounce(TRACKS_CHANGED_DEBOUNCE_MS)
         .map { }
 
@@ -172,11 +213,12 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
     /** Recently played, recent albums, most played and favourites: only their songs are read. */
     private suspend fun buildPlaylists(history: List<PlayHistory>, favourites: List<Favourite>): Playlists {
         val stats = ListeningStats(history, System.currentTimeMillis())
-        val recentIds = history.asSequence().map { it.trackId }.distinct().take(RECENT_LOOKUP).toList()
+        // Like everywhere else, a play counts once half the song was listened to (the playing one joins then).
+        val recentIds = history.asSequence().filter { it.counted }.map { it.trackId }.distinct().take(RECENT_LOOKUP).toList()
         val topIds = stats.plays.entries.sortedByDescending { it.value }.take(MOST_PLAYED_LOOKUP).map { it.key }
         val byId = database.tracks().getByIds((recentIds + topIds + favourites.map { it.trackId }).toSet())
             .filter { it.durationMs >= 0 }.associateBy { it.id }
-        val albumKeys = recentIds.mapNotNull { byId[it]?.albumKey }.distinct().take(RECENT_ALBUMS)
+        val albumKeys = recentIds.mapNotNull { id -> byId[id]?.let { it.scope to it.albumKey } }.distinct().take(RECENT_ALBUMS)
         return Playlists(
             recentTracks = recentIds.mapNotNull { byId[it] }.take(RECENT_TRACKS),
             recentAlbums = albumsWithTracks(albumKeys),
@@ -185,29 +227,74 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
         )
     }
 
-    /** These albums (in this order) with their songs. */
-    private suspend fun albumsWithTracks(keys: List<String>): List<Album> {
+    /** These albums (scope and key, in this order) with their songs from that scope. */
+    private suspend fun albumsWithTracks(keys: List<Pair<Int, String>>): List<Album> {
         if (keys.isEmpty()) return emptyList()
-        val summaries = browse.albumsByKeys(keys).associateBy { it.key }
-        val songs = browse.tracksOfAlbums(keys).groupBy { it.indexAlbum }
+        val albumKeys = keys.map { it.second }.distinct()
+        val summaries = browse.albumsByKeys(albumKeys).associateBy { it.key }
+        val songs = browse.tracksOfAlbums(albumKeys, Track.SCOPES).groupBy { it.scope to it.indexAlbum }
         return keys.mapNotNull { key ->
-            val a = summaries[key] ?: return@mapNotNull null
+            val a = summaries[key.second] ?: return@mapNotNull null
             Album(a.key, a.title, a.artist, a.year, a.artworkUri, songs[key].orEmpty().sortedWith(albumTrackOrder))
         }
     }
 
-    /** Generated mixes for the Home tab. */
+    private val savedMixes = container.savedMixes
+    private val mixRequests = MutableStateFlow(0)
+    private var mixRequestsDone = 0
+
+    private val _mixesRefreshing = MutableStateFlow(false)
+    /** True while new mixes are being made after a pull to refresh. */
+    val mixesRefreshing: StateFlow<Boolean> = _mixesRefreshing.asStateFlow()
+
+    /** Makes new mixes now (pull to refresh on Home). */
+    fun refreshMixes() {
+        _mixesRefreshing.value = true
+        mixRequests.value++
+    }
+
+    /**
+     * Generated mixes for the Home tab: made of songs from the sources switched on in the library
+     * menu, while plays and favourites from every source show the taste. Once made they're kept
+     * (saved, so also across restarts) and only their songs' details follow library changes; new
+     * ones are made on a pull to refresh, after [MIX_LIFETIME_MS], or when the sources change.
+     */
     @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
-    val mixes: StateFlow<List<Mix>> = combine(history, artistTags, favouriteRows, tracksChanged) { h, tags, f, _ -> Triple(h, tags, f) }
-        .mapLatest { (history, tags, favourites) ->
+    val mixes: StateFlow<List<Mix>> = combine(viewScopes, mixRequests, tracksChanged) { scopes, requests, _ -> scopes to requests }
+        .mapLatest { (scopes, requests) ->
             // Recommendations are a nice-to-have: a bug there must never take the app down.
             runCatching {
-                val favouriteIds = favourites.mapTo(HashSet()) { it.trackId }
-                val candidates = MixCandidates.load(database, history, favouriteIds)
-                Bench.time("mixes from ${candidates.size} songs") { Recommender(candidates, history, tags, favourites = favouriteIds).mixes() }
+                val saved = savedMixes.load()
+                val asked = requests > mixRequestsDone
+                val fresh = saved != null && saved.scopes == scopes && System.currentTimeMillis() - saved.madeAt < MIX_LIFETIME_MS
+                if (!asked && fresh) return@runCatching savedMixesWithTracks(saved!!)
+                val made = makeMixes(scopes)
+                // Nothing made yet (e.g. the library is still loading): try again on the next change.
+                if (made.isNotEmpty()) {
+                    savedMixes.save(SavedMixSet(System.currentTimeMillis(), scopes, made.map { m -> SavedMix(m.id, m.title, m.subtitle, m.tracks.map { it.id }) }))
+                }
+                mixRequestsDone = requests
+                made
             }.onFailure { Log.w(TAG, "Recommender failed", it) }.getOrDefault(emptyList())
+                .also { _mixesRefreshing.value = false }
         }
         .flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
+
+    private suspend fun makeMixes(scopes: List<Int>): List<Mix> {
+        val history = history.first()
+        val favouriteIds = favouriteRows.first().mapTo(HashSet()) { it.trackId }
+        val candidates = MixCandidates.load(database, history, favouriteIds, scopes)
+        return Bench.time("mixes from ${candidates.size} songs") {
+            Recommender(candidates, history, artistTags.first(), favourites = favouriteIds, pickable = { it.scope in scopes }).mixes()
+        }
+    }
+
+    /** The saved mixes with their songs as they are now (songs gone from the library are left out). */
+    private suspend fun savedMixesWithTracks(saved: SavedMixSet): List<Mix> {
+        val byId = database.tracks().getByIds(saved.mixes.flatMapTo(HashSet()) { it.trackIds }).associateBy { it.id }
+        return saved.mixes.map { m -> Mix(m.id, m.title, m.subtitle, m.trackIds.mapNotNull { byId[it] }.filter { it.durationMs >= 0 }) }
+            .filter { it.tracks.isNotEmpty() }
+    }
 
     private val replayPeriod = MutableStateFlow<ReplayPeriod?>(null)
 
@@ -243,7 +330,7 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
 
     /** The library album by this artist with this title (ignoring case, accents and punctuation), if any. */
     suspend fun albumInLibrary(artist: String, title: String): String? =
-        browse.observeArtistAlbums(artist).first()
+        browse.observeArtistAlbums(artist, Track.SCOPES).first()
             .firstOrNull { com.kike.musicplayer.data.discover.Names.comparable(it.title) == com.kike.musicplayer.data.discover.Names.comparable(title) }?.key
 
     /**
@@ -251,7 +338,7 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
      * starting with the ones typed, A–Z, at most [PICKER_LIMIT].
      */
     suspend fun searchSongsBy(text: String, bySong: Boolean, byArtist: Boolean, byAlbum: Boolean): List<Track> =
-        SongSearch.find(database.browse(), text, PICKER_LIMIT, bySong, byArtist, byAlbum)
+        SongSearch.find(database.browse(), text, PICKER_LIMIT, viewScopes.value, bySong, byArtist, byAlbum)
 
     /** Listed songs per source, for the Sources screen. */
     val sourceCounts: StateFlow<Map<String, Int>> = database.browse().observeSourceCounts().map { list -> list.associate { it.source to it.count } }
@@ -291,6 +378,7 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
         if (started) return
         started = true
         repo.refreshAll()
+        container.serverLibrary.syncIfDue()
     }
 
     fun setQuery(q: String) {
@@ -478,40 +566,65 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
     /** Pages of 60; placeholders give lists their full length, so the A–Z bar can jump anywhere. */
     private val paging = PagingConfig(pageSize = 60, initialLoadSize = 120, enablePlaceholders = true, jumpThreshold = 240)
 
-    val songPages: Flow<PagingData<Track>> = Pager(paging) { browse.songs() }.flow.cachedIn(viewModelScope)
-    val albumPages: Flow<PagingData<AlbumIndex>> = Pager(paging) { browse.albums() }.flow.cachedIn(viewModelScope)
-    val artistPages: Flow<PagingData<ArtistIndex>> = Pager(paging) { browse.artists() }.flow.cachedIn(viewModelScope)
+    @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
+    val songPages: Flow<PagingData<Track>> = viewScopes.flatMapLatest { s -> Pager(paging) { browse.songs(s) }.flow }.cachedIn(viewModelScope)
+    @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
+    val albumPages: Flow<PagingData<AlbumIndex>> = viewScopes.flatMapLatest { s -> Pager(paging) { browse.albums(s) }.flow }.cachedIn(viewModelScope)
+    @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
+    val artistPages: Flow<PagingData<ArtistIndex>> = viewScopes.flatMapLatest { s -> Pager(paging) { browse.artists(s) }.flow }.cachedIn(viewModelScope)
 
-    val songJumps: StateFlow<List<Jump>> = browse.songFirstChars().map(::jumps).stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
-    val albumJumps: StateFlow<List<Jump>> = browse.albumFirstChars().map(::jumps).stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
-    val artistJumps: StateFlow<List<Jump>> = browse.artistFirstChars().map(::jumps).stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
+    @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
+    private fun <T> inView(block: (List<Int>) -> Flow<T>): Flow<T> = viewScopes.flatMapLatest(block)
+
+    val songJumps: StateFlow<List<Jump>> = inView { browse.songFirstChars(it) }.map(::jumps).stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
+    val albumJumps: StateFlow<List<Jump>> = inView { browse.albumFirstChars(it) }.map(::jumps).stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
+    val artistJumps: StateFlow<List<Jump>> = inView { browse.artistFirstChars(it) }.map(::jumps).stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
 
     /** True while the album, artist and genre summaries are being brought up to date. */
     val indexing: StateFlow<Boolean> = container.indexer.busy
 
-    val songCount: StateFlow<Int> = browse.observeSongCount().stateIn(viewModelScope, SharingStarted.Eagerly, 0)
-    val genreList: StateFlow<List<GenreIndex>> = browse.observeGenres().stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
+    val songCount: StateFlow<Int> = inView { browse.observeSongCount(it) }.stateIn(viewModelScope, SharingStarted.Eagerly, 0)
+    val genreList: StateFlow<List<GenreIndex>> = inView { browse.observeGenres(it) }.stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
 
-    fun genre(key: String): Flow<GenreIndex?> = browse.observeGenre(key)
-    fun genreAlbumPages(key: String): Flow<PagingData<AlbumIndex>> = Pager(paging) { browse.genreAlbums(key) }.flow
+    /**
+     * The scopes a detail page shows: the library view's, or, when the album, artist or genre has
+     * no songs there (e.g. opened from a song of the other source), all those it has.
+     */
+    @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
+    private fun <T> detail(present: Flow<List<Int>>, block: (List<Int>) -> Flow<T>): Flow<T> =
+        combine(viewScopes, present) { view, has -> view.filter { it in has }.ifEmpty { has.distinct().sorted().ifEmpty { view } } }
+            .distinctUntilChanged().flatMapLatest(block)
 
-    fun album(key: String): Flow<AlbumIndex?> = browse.observeAlbum(key)
+    fun genre(key: String): Flow<GenreIndex?> = detail(browse.observeGenreScopes(key)) { browse.observeGenre(key, it) }
+    @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
+    fun genreAlbumPages(key: String): Flow<PagingData<AlbumIndex>> =
+        detail(browse.observeGenreScopes(key)) { s -> Pager(paging) { browse.genreAlbums(key, s) }.flow }
+
+    fun album(key: String): Flow<AlbumIndex?> = detail(browse.observeAlbumScopes(key)) { browse.observeAlbum(key, it) }
 
     /** The album's songs in album order; only those of [genreKey] when given. */
     fun albumTracks(key: String, genreKey: String? = null): Flow<List<Track>> =
-        (if (genreKey == null) browse.observeAlbumTracks(key) else browse.observeAlbumTracksInGenre(key, genreKey))
-            .map { it.sortedWith(albumTrackOrder) }
+        detail(browse.observeAlbumScopes(key)) { s ->
+            if (genreKey == null) browse.observeAlbumTracks(key, s) else browse.observeAlbumTracksInGenre(key, genreKey, s)
+        }.map { it.sortedWith(albumTrackOrder) }
 
-    fun artist(name: String): Flow<ArtistIndex?> = browse.observeArtist(name)
-    fun artistAlbums(name: String): Flow<List<AlbumIndex>> = browse.observeArtistAlbums(name)
-    fun artistTracks(name: String): Flow<List<Track>> = browse.observeArtistTracks(name)
-    fun artistTop(name: String): Flow<List<TrackPlays>> = browse.observeArtistTop(name, ARTIST_TOP_SONGS)
+    fun artist(name: String): Flow<ArtistIndex?> = detail(browse.observeArtistScopes(name)) { browse.observeArtist(name, it) }
+    fun artistAlbums(name: String): Flow<List<AlbumIndex>> = detail(browse.observeArtistScopes(name)) { browse.observeArtistAlbums(name, it) }
+    fun artistTracks(name: String): Flow<List<Track>> =
+        detail(browse.observeArtistScopes(name)) { browse.observeArtistTracks(name, it) }
+    fun artistTop(name: String): Flow<List<TrackPlays>> =
+        detail(browse.observeArtistScopes(name)) { browse.observeArtistTop(name, ARTIST_TOP_SONGS, it) }
 
     /** A queue for the Songs tab: [QUEUE_LIMIT] songs from position [index] on. */
-    suspend fun songsFrom(index: Int): List<Track> = browse.songsFrom(index, QUEUE_LIMIT)
-    suspend fun randomSongs(): List<Track> = browse.randomSongs(QUEUE_LIMIT)
-    suspend fun genreTracks(key: String, shuffle: Boolean): List<Track> =
-        if (shuffle) browse.randomGenreTracks(key, QUEUE_LIMIT) else browse.genreTracks(key, QUEUE_LIMIT)
+    suspend fun songsFrom(index: Int): List<Track> = browse.songsFrom(index, QUEUE_LIMIT, viewScopes.value)
+    suspend fun randomSongs(): List<Track> = browse.randomSongs(QUEUE_LIMIT, viewScopes.value)
+    suspend fun genreTracks(key: String, shuffle: Boolean): List<Track> {
+        val scopes = genreScopes(key)
+        return if (shuffle) browse.randomGenreTracks(key, QUEUE_LIMIT, scopes) else browse.genreTracks(key, QUEUE_LIMIT, scopes)
+    }
+
+    private suspend fun genreScopes(key: String): List<Int> =
+        detail(browse.observeGenreScopes(key)) { flowOf(it) }.first()
 
     // ---- Discover ----
 
@@ -535,6 +648,52 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
         browse.observeArtistPlayCounts(SUGGESTED_ARTISTS + 50), followedArtists,
     ) { counts, followed -> counts.map { it.name }.filter { it !in followed }.take(SUGGESTED_ARTISTS) }
         .stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
+
+    // ---- Subsonic / Navidrome server ----
+
+    private val subsonic = container.subsonic
+    val subsonicState = subsonic.state
+
+    fun connectSubsonic(address: String, username: String, password: String) =
+        viewModelScope.launch { subsonic.connect(address, username, password) }
+
+    fun checkSubsonic() = viewModelScope.launch { subsonic.check() }
+
+    /** Signs out and removes the server's songs from the library (plays and favourites stay). */
+    val reportServerPlays = subsonic.reportServerPlays
+    val reportOtherPlays = subsonic.reportOtherPlays
+    fun setReportServerPlays(on: Boolean) = subsonic.setReportServerPlays(on)
+    fun setReportOtherPlays(on: Boolean) = subsonic.setReportOtherPlays(on)
+    val pendingServerPlays = container.serverPlays.pending.stateIn(viewModelScope, SharingStarted.Eagerly, 0)
+
+    val starOtherFavourites = subsonic.starOtherFavourites
+    val loveServerStars = subsonic.loveServerStars
+    fun setStarOtherFavourites(on: Boolean) {
+        subsonic.setStarOtherFavourites(on)
+        container.serverCollections.syncNow()
+    }
+    fun setLoveServerStars(on: Boolean) = subsonic.setLoveServerStars(on)
+    val collectionsSync = container.serverCollections.status
+    fun syncCollections() = container.serverCollections.syncNow()
+
+    /** Navidrome songs downloaded to the phone (offered for deletion when disconnecting). */
+    val serverDownloads: StateFlow<Int> = database.tracks().observeDownloadedCount(Track.SOURCE_SUBSONIC)
+        .stateIn(viewModelScope, SharingStarted.Eagerly, 0)
+
+    fun disconnectSubsonic(deleteDownloads: Boolean) = viewModelScope.launch {
+        if (deleteDownloads) downloader.deleteAll(Track.SOURCE_SUBSONIC)
+        container.serverPlays.clear()
+        container.serverCollections.forget()
+        container.serverLibrary.removeAll()
+        subsonic.disconnect()
+    }
+
+    private val serverLibrary = container.serverLibrary
+    val serverSync = serverLibrary.status
+    fun syncServer() = serverLibrary.sync(force = true)
+    val serverSyncMode = settings.serverSyncMode
+    fun setServerSyncMode(mode: DriveSyncMode) = settings.setServerSyncMode(mode)
+    val lastServerSync = settings.lastServerSync
 
     // ---- Last.fm ----
 
@@ -563,6 +722,10 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
         .flatMapLatest { user -> if (user == null) flowOf(null) else importer.counts(user) }
         .stateIn(viewModelScope, SharingStarted.Eagerly, null)
 
+    val autoSync = container.autoSync.state
+    fun setAutoSync(on: Boolean) = container.autoSync.setEnabled(on)
+    fun syncEverything() = container.autoSync.syncNow()
+
     fun importScrobbles(everything: Boolean) = importer.import(everything)
     fun importLoved() = importer.importLoved()
 
@@ -587,6 +750,8 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
         const val RECENT_ALBUMS = 10
         /** Distinct recently played songs read for Recently Played and the recent albums. */
         const val RECENT_LOOKUP = 300
+        /** Mixes are made again after two days. */
+        const val MIX_LIFETIME_MS = 48 * 60 * 60 * 1000L
         const val MOST_PLAYED_LOOKUP = 200
         const val TRACKS_CHANGED_DEBOUNCE_MS = 500L
         const val SUGGESTED_ARTISTS = 8
@@ -600,4 +765,17 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
         const val SEARCH_SONGS = 100
         const val PICKER_LIMIT = 500
     }
+}
+
+/**
+ * Each song once on album and artist pages when several sources are shown: the user's own copy
+ * (device, Drive) wherever there is one, Navidrome's only for songs they haven't got (e.g. bonus
+ * tracks). "The same song" as everywhere else: artist and title, notes like "(Remastered)" ignored,
+ * live and demo versions apart. Order is kept.
+ */
+internal fun preferOwnCopies(tracks: List<Track>): List<Track> {
+    if (tracks.none { it.source == Track.SOURCE_SUBSONIC } || tracks.all { it.source == Track.SOURCE_SUBSONIC }) return tracks
+    fun key(t: Track) = TrackMatcher.looseArtist(t.albumArtist ?: t.artist ?: "") + "\u0001" + TrackMatcher.looseTitle(t.title)
+    val own = tracks.filter { it.source != Track.SOURCE_SUBSONIC }.mapTo(HashSet(), ::key)
+    return tracks.filter { it.source != Track.SOURCE_SUBSONIC || key(it) !in own }
 }

@@ -15,6 +15,9 @@ import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.datasource.DefaultDataSource
+import androidx.media3.datasource.ResolvingDataSource
+import androidx.media3.datasource.DataSourceBitmapLoader
+import androidx.media3.session.CacheBitmapLoader
 import androidx.media3.datasource.okhttp.OkHttpDataSource
 import androidx.media3.exoplayer.DefaultLoadControl
 import androidx.media3.exoplayer.ExoPlayer
@@ -90,6 +93,7 @@ class PlaybackService : MediaLibraryService(), CastHost {
         private var counted = false
         private var startedAt = 0L
         private var scrobbled = false
+        private var reportedToServer = false
 
         override fun onEvents(player: Player, events: Player.Events) {
             // The paused phone player keeps reporting while Sonos plays; only follow the active one.
@@ -141,6 +145,7 @@ class PlaybackService : MediaLibraryService(), CastHost {
             listenedMs = 0
             counted = false
             scrobbled = false
+            reportedToServer = false
             startedAt = System.currentTimeMillis()
             val entry = PlayHistory(trackId = trackIdOf(id), playedAt = startedAt)
             container.scrobbler.nowPlaying(trackIdOf(id))
@@ -164,6 +169,11 @@ class PlaybackService : MediaLibraryService(), CastHost {
         private fun threshold() = if (durationMs > 0) durationMs / 2 else UNKNOWN_LENGTH_THRESHOLD_MS
 
         private fun persist() {
+            // A counted play also goes to the Subsonic server, when the user chose so (once per play).
+            if (counted && !reportedToServer) {
+                reportedToServer = true
+                mediaId?.let { container.serverPlays.played(trackIdOf(it), startedAt) }
+            }
             val row = rowId ?: return
             val ms = listened()
             val isCounted = counted
@@ -177,8 +187,14 @@ class PlaybackService : MediaLibraryService(), CastHost {
     override fun onCreate() {
         super.onCreate()
 
-        // content:// goes to ContentDataSource; https (Drive) goes through OkHttp with the OAuth interceptor.
-        val dataSourceFactory = DefaultDataSource.Factory(this, OkHttpDataSource.Factory(container.driveHttp))
+        // content:// goes to ContentDataSource; https (Drive) goes through OkHttp with the OAuth interceptor;
+        // server songs ("subsonic:<id>") get a freshly signed stream URL as they're opened.
+        val urls = container.subsonicUrls
+        val dataSourceFactory = ResolvingDataSource.Factory(
+            DefaultDataSource.Factory(this, OkHttpDataSource.Factory(container.driveHttp)),
+        ) { spec ->
+            urls.resolve(spec.uri.toString())?.let { spec.withUri(android.net.Uri.parse(it)) } ?: spec
+        }
 
         player = ExoPlayer.Builder(this)
             .setRenderersFactory(
@@ -235,6 +251,8 @@ class PlaybackService : MediaLibraryService(), CastHost {
         )
         session = MediaLibrarySession.Builder(this, player, LibraryCallback())
             .setSessionActivity(sessionActivity)
+            // Notification and lock-screen covers load through the same sources, server covers included.
+            .setBitmapLoader(CacheBitmapLoader(DataSourceBitmapLoader.Builder(this).setDataSourceFactory(dataSourceFactory).build()))
             .build()
 
         scope.launch { restoreQueue() }
@@ -479,9 +497,9 @@ class PlaybackService : MediaLibraryService(), CastHost {
                     browsableItem(SONGS, "Songs", type = MediaMetadata.MEDIA_TYPE_FOLDER_MIXED),
                     browsableItem(ALBUMS, "Albums", type = MediaMetadata.MEDIA_TYPE_FOLDER_ALBUMS),
                 )
-                parentId == SONGS -> return@future pageResult(browse.songsFrom(page * pageSize, pageSize).map { it.toMediaItem() }, params)
+                parentId == SONGS -> return@future pageResult(browse.songsFrom(page * pageSize, pageSize, CAR_SCOPES).map { it.toMediaItem() }, params)
                 parentId == ALBUMS -> return@future pageResult(
-                    browse.albumsFrom(page * pageSize, pageSize).map { a ->
+                    browse.albumsFrom(page * pageSize, pageSize, CAR_SCOPES).map { a ->
                         browsableItem(ALBUM_PREFIX + a.key, a.title, a.artist, a.artworkUri, MediaMetadata.MEDIA_TYPE_ALBUM)
                     },
                     params,
@@ -552,7 +570,7 @@ class PlaybackService : MediaLibraryService(), CastHost {
                     albumTracks(id.removePrefix(ALBUM_TRACK_PREFIX).substringBeforeLast(SEP))
                 } else if (controller.packageName != packageName) {
                     // The library A–Z from the tapped song on, like the Songs tab.
-                    dao.get(trackId)?.let { browse.songsFromTitle(it.indexTitle, it.id, CONTEXT_LIMIT) }
+                    dao.get(trackId)?.let { browse.songsFromTitle(it.indexTitle, it.id, CONTEXT_LIMIT, listOf(it.scope)) }
                 } else null
                 val index = context?.indexOfFirst { it.id == trackId } ?: -1
                 if (context != null && index >= 0) {
@@ -581,9 +599,9 @@ class PlaybackService : MediaLibraryService(), CastHost {
         LibraryResult.ofItemList(ImmutableList.copyOf(items), params)
 
     private suspend fun albumTracks(albumKey: String): List<Track> =
-        browse.tracksOfAlbums(listOf(albumKey)).sortedWith(albumTrackOrder)
+        browse.tracksOfAlbums(listOf(albumKey), CAR_SCOPES).sortedWith(albumTrackOrder)
 
-    private suspend fun search(query: String): List<Track> = SongSearch.find(browse, query, SEARCH_LIMIT)
+    private suspend fun search(query: String): List<Track> = SongSearch.find(browse, query, SEARCH_LIMIT, CAR_SCOPES)
 
     private object Futures {
         fun <T> immediate(value: T): ListenableFuture<T> = com.google.common.util.concurrent.Futures.immediateFuture(value)
@@ -596,6 +614,8 @@ class PlaybackService : MediaLibraryService(), CastHost {
         private const val SEARCH_LIMIT = 200
         private const val TRACKER_TICK_MS = 5_000L
         private const val UNKNOWN_LENGTH_THRESHOLD_MS = 30_000L
+        /** Android Auto and other media browsers list every source. */
+        private val CAR_SCOPES = Track.SCOPES
         private const val ROOT = "root"
         private const val SONGS = "songs"
         private const val ALBUMS = "albums"

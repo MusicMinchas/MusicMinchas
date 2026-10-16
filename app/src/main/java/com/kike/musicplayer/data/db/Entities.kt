@@ -15,11 +15,11 @@ import androidx.room.PrimaryKey
     tableName = "tracks",
     indices = [
         Index("source"), Index("metadataState"), Index("indexAlbum"), Index("indexArtist"), Index("indexGenre"),
-        Index("indexTitle"),
+        Index("indexTitle"), Index("scope", "indexTitle"),
     ],
 )
 data class Track(
-    /** "saf:<document uri>" or "drive:<file id>". */
+    /** "saf:<document uri>", "drive:<file id>" or "subsonic:<song id>". */
     @PrimaryKey val id: String,
     val source: String,
     /** What ExoPlayer opens: a content:// URI or the Drive download URL. */
@@ -62,6 +62,8 @@ data class Track(
     @ColumnInfo(defaultValue = "") val indexGenre: String = "",
     /** The title for sorting the Songs tab (lower case, no accents); empty while not indexed or unplayable. */
     @ColumnInfo(defaultValue = "") val indexTitle: String = "",
+    /** [scopeOf] the source, for listing each source on its own (kept right by LibraryIndexer). */
+    @ColumnInfo(defaultValue = "0") val scope: Int = SCOPE_LOCAL,
 ) {
     val displayArtist: String get() = artist ?: albumArtist ?: "Unknown artist"
     val albumKey: String get() = albumKeyOf(album, albumArtist ?: artist)
@@ -71,6 +73,25 @@ data class Track(
         const val SOURCE_MEDIASTORE = "mediastore"
         const val SOURCE_SAF = "saf"
         const val SOURCE_DRIVE = "drive"
+        /** A Subsonic / Navidrome server: id "subsonic:<song id>", uri "subsonic:<song id>". */
+        const val SOURCE_SUBSONIC = "subsonic"
+
+        /**
+         * Where a song comes from, for switching each source on or off in the library: folders on
+         * the phone, Google Drive, the Subsonic server. Set by LibraryIndexer from [source].
+         */
+        const val SCOPE_LOCAL = 0
+        const val SCOPE_SERVER = 1
+        const val SCOPE_DRIVE = 2
+        val SCOPES = listOf(SCOPE_LOCAL, SCOPE_DRIVE, SCOPE_SERVER)
+        /** The user's own files (the server's songs can't play yet). */
+        val OWN_SCOPES = listOf(SCOPE_LOCAL, SCOPE_DRIVE)
+
+        fun scopeOf(source: String) = when (source) {
+            SOURCE_SUBSONIC -> SCOPE_SERVER
+            SOURCE_DRIVE -> SCOPE_DRIVE
+            else -> SCOPE_LOCAL
+        }
 
         const val NOT_DOWNLOADED = 0
         const val DOWNLOAD_QUEUED = 1
@@ -91,6 +112,9 @@ data class Track(
             "${album.orEmpty().trim().lowercase()}\u001F${artist.orEmpty().trim().lowercase()}"
     }
 }
+
+/** Streamed from Google Drive or the server unless downloaded; can be downloaded to the phone. */
+val Track.isRemote: Boolean get() = source == Track.SOURCE_DRIVE || source == Track.SOURCE_SUBSONIC
 
 @Entity(tableName = "queue_items")
 data class QueueItem(
@@ -147,6 +171,17 @@ data class LastFmOutboxItem(
 }
 
 /**
+ * A play waiting to be reported to the Subsonic server (its play count and "recently played"),
+ * kept until the server has it. [songId] is the server's song id; [time] the play's start (ms).
+ */
+@Entity(tableName = "server_outbox")
+data class ServerOutboxItem(
+    @PrimaryKey(autoGenerate = true) val id: Long = 0,
+    val songId: String,
+    val time: Long,
+)
+
+/**
  * A scrobble imported from Last.fm, one per user and second ([uts]). [trackId] is the library song
  * it matched (then it was also added as a play), or null while the song isn't in the library.
  */
@@ -187,6 +222,12 @@ data class UserPlaylist(
     @PrimaryKey(autoGenerate = true) val id: Long = 0,
     val name: String,
     val createdAt: Long,
+    /** The same playlist on the Subsonic server, once synced. */
+    val serverId: String? = null,
+    /** The server's "changed" time at the last sync: a different one means it was edited there. */
+    val serverChanged: String? = null,
+    /** Fingerprint of name and songs at the last sync: a different one means it was edited here. */
+    val syncedHash: String? = null,
 )
 
 /** A song in a user playlist, at [position] (0-based); by track id, so it survives rescans. */
@@ -275,10 +316,14 @@ data class DiscoverItem(
     }
 }
 
-/** An album for the Albums tab, kept by LibraryIndexer from the songs with this [key]. */
-@Entity(tableName = "album_index", indices = [Index("sortKey"), Index("artist")])
+/**
+ * An album for the Albums tab, kept by LibraryIndexer from the songs with this [key] in one
+ * [scope] (the user's own music or the server's), so each can be listed alone or both together.
+ */
+@Entity(tableName = "album_index", primaryKeys = ["key", "scope"], indices = [Index("sortKey"), Index("artist")])
 data class AlbumIndex(
-    @PrimaryKey val key: String,
+    val key: String,
+    @ColumnInfo(defaultValue = "0") val scope: Int = Track.SCOPE_LOCAL,
     val title: String,
     val artist: String,
     val year: Int?,
@@ -290,18 +335,20 @@ data class AlbumIndex(
 )
 
 /** An artist for the Artists tab: the songs whose album artist (else artist) is [name]. */
-@Entity(tableName = "artist_index", indices = [Index("sortKey")])
+@Entity(tableName = "artist_index", primaryKeys = ["name", "scope"], indices = [Index("sortKey")])
 data class ArtistIndex(
-    @PrimaryKey val name: String,
+    val name: String,
+    @ColumnInfo(defaultValue = "0") val scope: Int = Track.SCOPE_LOCAL,
     val trackCount: Int,
     val albumCount: Int,
     val sortKey: String,
 )
 
 /** A genre for the Genres tab; [key] is lower-cased, [name] the most common spelling. */
-@Entity(tableName = "genre_index", indices = [Index("sortKey")])
+@Entity(tableName = "genre_index", primaryKeys = ["key", "scope"], indices = [Index("sortKey")])
 data class GenreIndex(
-    @PrimaryKey val key: String,
+    val key: String,
+    @ColumnInfo(defaultValue = "0") val scope: Int = Track.SCOPE_LOCAL,
     val name: String,
     val songCount: Int,
     val artistCount: Int,
@@ -333,7 +380,12 @@ data class IndexDirty(
  */
 @Fts4(tokenizer = FtsOptions.TOKENIZER_UNICODE61)
 @Entity(tableName = "tracks_fts")
-data class TrackFts(val title: String)
+data class TrackFts(
+    val title: String,
+    /** Artist and album artist, so "metallica one" finds One by Metallica. */
+    val artist: String,
+    val album: String,
+)
 
 @Fts4(tokenizer = FtsOptions.TOKENIZER_UNICODE61)
 @Entity(tableName = "album_fts")

@@ -3,6 +3,7 @@ package com.kike.musicplayer.recommend
 import com.kike.musicplayer.data.db.ArtistInfo
 import com.kike.musicplayer.data.db.PlayHistory
 import com.kike.musicplayer.data.db.Track
+import com.kike.musicplayer.data.lastfm.TrackMatcher
 import java.util.Locale
 import java.util.Random
 
@@ -48,6 +49,8 @@ class Recommender(
     private val now: Long = System.currentTimeMillis(),
     /** Track ids of the favourite songs. */
     private val favourites: Set<String> = emptySet(),
+    /** Songs mixes may include (the sources switched on); the rest of [tracks] only shows the taste. */
+    private val pickable: (Track) -> Boolean = { true },
 ) {
     private val stats = ListeningStats(history, now)
     private val day = now / ListeningStats.DAY_MS
@@ -55,17 +58,31 @@ class Recommender(
     /** Something to go on: plays or favourites. */
     private val hasTaste = stats.hasHistory || favourites.isNotEmpty()
 
-    private val usable = tracks.filter { it.durationMs >= 0 && (it.id in favourites || !stats.isDisliked(it.id)) }
+    /** Every known song not disliked: played and favourite songs of any source tell the taste. */
+    private val all = tracks.filter { it.durationMs >= 0 && (it.id in favourites || !stats.isDisliked(it.id)) }
+    /**
+     * What mixes are made of. A server song the user also has (same artist and title on the phone
+     * or Drive, among the picked sources) is left out: their own copy plays offline and has its cover.
+     */
+    private val usable = all.filter(pickable).let { picked ->
+        val own = picked.filter { it.source != Track.SOURCE_SUBSONIC }.mapTo(HashSet(), ::songKey)
+        if (own.isEmpty()) picked else picked.filter { it.source != Track.SOURCE_SUBSONIC || songKey(it) !in own }
+    }
+
+    /** The same song in any copy: artist and title, ignoring case, accents and punctuation. */
+    private fun songKey(t: Track) =
+        TrackMatcher.basic(t.albumArtist ?: t.artist ?: "") + "\u0001" + TrackMatcher.basic(t.title)
 
     /** How much a song counts towards its artist, genre and decade: recent plays, all plays, favourite. */
     private fun weight(t: Track) =
         (stats.recentWeight[t.id] ?: 0.0) + 0.1 * (stats.plays[t.id] ?: 0) + if (t.id in favourites) FAVOURITE_WEIGHT else 0.0
     private val byArtist: Map<String, List<Track>> = usable.groupBy { artistKey(it) }
+    private val allByArtist: Map<String, List<Track>> = all.groupBy { artistKey(it) }
 
     /** How much the user listens to each artist; with no history yet, how much of it is in the library. */
     private val artistAffinity: Map<String, Double> = run {
         val fromPlays = HashMap<String, Double>()
-        for (t in usable) {
+        for (t in all) {
             val w = weight(t)
             if (w > 0) fromPlays.merge(artistKey(t), w, Double::plus)
         }
@@ -102,7 +119,7 @@ class Recommender(
                 similar.getValue(artistKey(t)) + 0.5 * novelty(t) + 0.3 * affinity(t)
             }
             val fromSeed = pick(byArtist[seed].orEmpty(), 6, perArtist = 6, random) { t -> novelty(t) }
-            val name = byArtist[seed]?.firstOrNull()?.let { displayArtist(it) } ?: seed
+            val name = allByArtist[seed]?.firstOrNull()?.let { displayArtist(it) } ?: seed
             Mix(
                 id = "because:$seed",
                 title = "Because you listened to $name",
@@ -116,7 +133,10 @@ class Recommender(
     private fun genreMixes(): List<Mix> {
         // Grouped by each track's genre: the file's tag, else the artist's top MusicBrainz tag.
         val byGenre = usable.groupBy { genreKey(it) }.filterKeys { it != null }.mapKeys { it.key!! }
-        val score = byGenre.mapValues { (_, list) -> if (hasTaste) list.sumOf(::weight) else list.size.toDouble() }
+        // Taste from every source, songs from the chosen ones.
+        val score: Map<String, Double> = if (hasTaste) all.groupBy { genreKey(it) }.filterKeys { it in byGenre }
+            .mapKeys { it.key!! }.mapValues { (_, list) -> list.sumOf(::weight) }
+        else byGenre.mapValues { (_, list) -> list.size.toDouble() }
         return score.entries.filter { it.value > 0 && (byGenre[it.key]?.size ?: 0) >= MIN_POOL }
             .sortedByDescending { it.value }.take(3)
             .map { (key, _) ->
@@ -135,8 +155,10 @@ class Recommender(
 
     /** The decades the user plays most (or the library's biggest). */
     private fun decadeMixes(): List<Mix> {
-        val inDecade = usable.filter { (it.year ?: 0) in 1900..2100 }.groupBy { it.year!! / 10 * 10 }
-        val score = inDecade.mapValues { (_, list) -> if (hasTaste) list.sumOf(::weight) else list.size.toDouble() }
+        fun decades(list: List<Track>) = list.filter { (it.year ?: 0) in 1900..2100 }.groupBy { it.year!! / 10 * 10 }
+        val inDecade = decades(usable)
+        val score = if (hasTaste) decades(all).filterKeys { it in inDecade }.mapValues { (_, list) -> list.sumOf(::weight) }
+        else inDecade.mapValues { (_, list) -> list.size.toDouble() }
         return score.entries.filter { (inDecade[it.key]?.size ?: 0) >= MIN_POOL }
             .sortedByDescending { it.value }.take(2)
             .map { (decade, _) ->
@@ -203,7 +225,7 @@ class Recommender(
     /** MusicBrainz tags of an artist, or its own file genres (most used first) when MusicBrainz has none. */
     private fun tagsOf(artistKey: String) = effectiveTags.getOrPut(artistKey) {
         artistTags[artistKey].orEmpty().ifEmpty {
-            byArtist[artistKey].orEmpty().mapNotNull { it.genre?.lowercase(Locale.ROOT) }
+            allByArtist[artistKey].orEmpty().mapNotNull { it.genre?.lowercase(Locale.ROOT) }
                 .groupingBy { it }.eachCount().entries.sortedByDescending { it.value }.map { it.key }
         }
     }

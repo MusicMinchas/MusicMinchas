@@ -393,26 +393,32 @@ private fun ArtworkBackdrop(uri: Any?) {
     )
 }
 
-/** A thin track with a round thumb that grows while held (seek bar, speaker volume). */
+/** A thin track with a round thumb that grows while held (seek bar, speaker volume, settings). */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun DotSlider(
+internal fun DotSlider(
     value: Float,
     onValueChange: (Float) -> Unit,
     onValueChangeFinished: () -> Unit,
     modifier: Modifier = Modifier,
     enabled: Boolean = true,
+    valueRange: ClosedFloatingPointRange<Float> = 0f..1f,
+    steps: Int = 0,
+    /** The unfilled part of the track; on a card it needs more contrast than the default. */
+    inactiveTrackColor: Color? = null,
 ) {
     val interaction = remember { MutableInteractionSource() }
     val pressed by interaction.collectIsPressedAsState()
     val dragged by interaction.collectIsDraggedAsState()
     val thumbSize by animateDpAsState(if (pressed || dragged) 20.dp else 12.dp, label = "thumb")
-    val colors = SliderDefaults.colors()
+    val colors = inactiveTrackColor?.let { SliderDefaults.colors(inactiveTrackColor = it) } ?: SliderDefaults.colors()
     Slider(
         value = value,
         onValueChange = onValueChange,
         onValueChangeFinished = onValueChangeFinished,
         enabled = enabled,
+        valueRange = valueRange,
+        steps = steps,
         interactionSource = interaction,
         modifier = modifier.height(28.dp),
         thumb = {
@@ -427,6 +433,7 @@ private fun DotSlider(
                 colors = colors,
                 thumbTrackGapSize = 0.dp,
                 drawStopIndicator = null,
+                drawTick = { _, _ -> },
             )
         },
     )

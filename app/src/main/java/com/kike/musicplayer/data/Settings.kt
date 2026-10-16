@@ -78,7 +78,48 @@ class Settings(context: Context, name: String = "settings") {
         _driveFolders.value = folders.sortedBy { it.name.lowercase() }
     }
 
-    private val _concertCountry = MutableStateFlow(prefs.getString(KEY_CONCERT_COUNTRY, null) ?: "BE")
+    private val _hiddenScopes = MutableStateFlow(
+        prefs.getStringSet(KEY_HIDDEN_SCOPES, emptySet())!!.mapNotNull { it.toIntOrNull() }.toSet()
+    )
+    /** Sources (Track scopes) switched off in the library; a source added later starts switched on. */
+    val hiddenScopes: StateFlow<Set<Int>> = _hiddenScopes.asStateFlow()
+
+    fun setHiddenScopes(scopes: Set<Int>) {
+        prefs.edit { putStringSet(KEY_HIDDEN_SCOPES, scopes.mapTo(HashSet()) { it.toString() }) }
+        _hiddenScopes.value = scopes
+    }
+
+    private val _serverSyncMode = MutableStateFlow(
+        runCatching { DriveSyncMode.valueOf(prefs.getString(KEY_SERVER_SYNC_MODE, null) ?: "") }.getOrDefault(DriveSyncMode.DAILY)
+    )
+    /** When the app lists the server's songs again by itself. */
+    val serverSyncMode: StateFlow<DriveSyncMode> = _serverSyncMode.asStateFlow()
+
+    fun setServerSyncMode(mode: DriveSyncMode) {
+        prefs.edit { putString(KEY_SERVER_SYNC_MODE, mode.name) }
+        _serverSyncMode.value = mode
+    }
+
+    private val _lastServerSync = MutableStateFlow(prefs.getLong(KEY_LAST_SERVER_SYNC, 0L))
+    /** Time of the last complete server sync (0 = never). */
+    val lastServerSync: StateFlow<Long> = _lastServerSync.asStateFlow()
+
+    fun setLastServerSync(time: Long) {
+        prefs.edit { putLong(KEY_LAST_SERVER_SYNC, time) }
+        _lastServerSync.value = time
+    }
+
+    /** LibraryIndexer.VERSION the library was last indexed with (1 = database version 17/18's). */
+    var indexVersion: Int
+        get() = prefs.getInt(KEY_INDEX_VERSION, 1)
+        set(value) = prefs.edit { putInt(KEY_INDEX_VERSION, value) }
+
+    /** The server's last library scan when it was last synced: unchanged means nothing to sync. */
+    var serverScanSynced: String?
+        get() = prefs.getString(KEY_SERVER_SCAN, null)
+        set(value) = prefs.edit { putString(KEY_SERVER_SCAN, value) }
+
+    private val _concertCountry =MutableStateFlow(prefs.getString(KEY_CONCERT_COUNTRY, null) ?: "BE")
     /** ISO country code whose concerts the Discover tab lists. */
     val concertCountry: StateFlow<String> = _concertCountry.asStateFlow()
 
@@ -99,6 +140,11 @@ class Settings(context: Context, name: String = "settings") {
 
     private companion object {
         const val KEY_SAF = "saf_folders"
+        const val KEY_HIDDEN_SCOPES = "hidden_scopes"
+        const val KEY_INDEX_VERSION = "index_version"
+        const val KEY_SERVER_SYNC_MODE = "server_sync_mode"
+        const val KEY_LAST_SERVER_SYNC = "server_last_sync"
+        const val KEY_SERVER_SCAN = "server_scan_synced"
         const val KEY_CONCERT_COUNTRY = "concert_country"
         const val KEY_DISCOVER_REFRESHED = "discover_refreshed_at"
         const val KEY_ONLINE = "online_metadata"

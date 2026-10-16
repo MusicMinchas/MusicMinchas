@@ -14,6 +14,7 @@ import java.text.Normalizer
  * picks one. Last resorts, both within the same artist: on the same album, a library title equal to
  * the scrobble's once its trailing subtitle is dropped ("Uah lúa (Folla do Visgo)"); then a nearly
  * identical spelling ("Olla meu irmau" / "Olla meu irmao"), with the same live/remix/demo markers.
+ * The user's own copy of a song (device, Drive) is preferred over the server's.
  */
 class TrackMatcher(tracks: List<Track>) {
     private val byMbid = HashMap<String, Track>()
@@ -22,7 +23,8 @@ class TrackMatcher(tracks: List<Track>) {
     private val byArtist = HashMap<String, MutableList<Track>>()
 
     init {
-        for (t in tracks) {
+        // Own copies first, so they come first in every list below.
+        for (t in tracks.sortedBy { it.fromServer }) {
             if (t.durationMs < 0) continue // unplayable (DRM)
             t.mbRecordingId?.let { byMbid.putIfAbsent(it, t) }
             for (artist in listOfNotNull(t.artist, t.albumArtist).distinct()) {
@@ -36,10 +38,17 @@ class TrackMatcher(tracks: List<Track>) {
     fun match(artist: String, title: String, album: String?, mbid: String?): Track? {
         mbid?.let { byMbid[it] }?.let { return it }
         val wanted = album?.let(::basic)
-        val candidates = exact[key(basic(artist), basic(title))]
-            ?: loose[key(looseArtist(artist), looseTitle(title))]
-            ?: return lastResort(artist, title, wanted)
-        return candidates.firstOrNull { wanted != null && it.album?.let(::basic) == wanted } ?: candidates.first()
+        val exactHits = exact[key(basic(artist), basic(title))].orEmpty()
+        val looseHits = loose[key(looseArtist(artist), looseTitle(title))].orEmpty()
+        if (exactHits.isEmpty() && looseHits.isEmpty()) return lastResort(artist, title, wanted)
+        val onAlbum = { t: Track -> wanted != null && t.album?.let(::basic) == wanted }
+        // The user's own copy of the same song beats a server file whose title only matches more
+        // exactly ("Fade To Black (Remastered)" is their "Fade to Black"); within each, the exact
+        // title, then the scrobble's album.
+        for (hits in listOf(exactHits.filter { !it.fromServer }, looseHits.filter { !it.fromServer }, exactHits, looseHits)) {
+            if (hits.isNotEmpty()) return hits.firstOrNull(onAlbum) ?: hits.first()
+        }
+        return null
     }
 
     private fun lastResort(artist: String, title: String, album: String?): Track? {
@@ -58,11 +67,16 @@ class TrackMatcher(tracks: List<Track>) {
             .filter { markers(basic(it.title)) == markers }
             .map { it to similarity(wanted, compact(it.title)) }
             .filter { it.second >= FUZZY_SIMILARITY }
-            .sortedWith(compareByDescending<Pair<Track, Double>> { it.second }.thenByDescending { it.first.album?.let(::basic) == album })
+            .sortedWith(
+                compareBy<Pair<Track, Double>> { it.first.fromServer }.thenByDescending { it.second }
+                    .thenByDescending { it.first.album?.let(::basic) == album }
+            )
             .firstOrNull()?.first
     }
 
     companion object {
+        private val Track.fromServer get() = source == Track.SOURCE_SUBSONIC
+
         /**
          * A matcher over just the library songs that can match these scrobbles: those by one of
          * their artists (however spelled) or with one of their MusicBrainz recording IDs, so a

@@ -5,6 +5,7 @@ import coil3.ImageLoader
 import coil3.PlatformContext
 import coil3.SingletonImageLoader
 import coil3.network.okhttp.OkHttpNetworkFetcherFactory
+import com.kike.musicplayer.data.AutoSync
 import com.kike.musicplayer.data.LibraryIndexer
 import com.kike.musicplayer.data.LibraryRepository
 import com.kike.musicplayer.data.Settings
@@ -20,11 +21,20 @@ import com.kike.musicplayer.data.drive.DriveAuth
 import com.kike.musicplayer.data.drive.DriveAuthInterceptor
 import com.kike.musicplayer.data.drive.DriveLibrary
 import com.kike.musicplayer.data.local.LocalLibrary
+import com.kike.musicplayer.data.subsonic.SubsonicAccount
+import com.kike.musicplayer.data.subsonic.SubsonicClient
+import com.kike.musicplayer.data.subsonic.SubsonicCoverMapper
+import com.kike.musicplayer.data.subsonic.SubsonicLibrary
+import com.kike.musicplayer.data.subsonic.SubsonicUrls
+import com.kike.musicplayer.data.subsonic.ServerPlays
+import com.kike.musicplayer.data.subsonic.ServerMatch
+import com.kike.musicplayer.data.subsonic.ServerCollections
 import com.kike.musicplayer.data.metadata.CoverArtApi
 import com.kike.musicplayer.data.metadata.MetadataEnricher
 import com.kike.musicplayer.data.lyrics.LyricsRepository
 import com.kike.musicplayer.data.metadata.ArtistImages
 import com.kike.musicplayer.data.metadata.MusicBrainzApi
+import com.kike.musicplayer.recommend.SavedMixes
 import com.kike.musicplayer.sonos.CastManager
 import com.kike.musicplayer.sonos.TrackServer
 import com.squareup.moshi.Moshi
@@ -50,7 +60,12 @@ class MusicApp : Application(), SingletonImageLoader.Factory {
 
     override fun newImageLoader(context: PlatformContext): ImageLoader =
         ImageLoader.Builder(context)
-            .components { add(OkHttpNetworkFetcherFactory(callFactory = { container.baseHttp })) }
+            .components {
+                val covers = SubsonicCoverMapper(container.subsonic)
+                add(covers)
+                add(SubsonicCoverMapper.ForUri(covers))
+                add(OkHttpNetworkFetcherFactory(callFactory = { container.baseHttp }))
+            }
             .build()
 }
 
@@ -114,29 +129,56 @@ class AppContainer(app: Application) {
         database.discover(), database.artistInfo(), settings, metadataHttp, moshi, BuildConfig.TICKETMASTER_KEY, appScope,
     )
 
+    /** The Home mixes as last made. */
+    val savedMixes = SavedMixes(app, "mixes$suffix")
+
     /** Album, artist and genre summaries for paging large libraries. */
-    val indexer = LibraryIndexer(database, appScope).also { it.start() }
+    val indexer = LibraryIndexer(database, appScope).also { indexer ->
+        indexer.start(settings.indexVersion) { settings.indexVersion = it }
+    }
 
     val enricher = MetadataEnricher(app, database.tracks(), settings, driveAuth, driveScanHttp, database.artistInfo(), musicBrainz, coverArt)
+
+    /** Subsonic / Navidrome server sign-in. */
+    val subsonic = SubsonicAccount(app, SubsonicClient(baseHttp, moshi), "subsonic$suffix")
+    val serverLibrary = SubsonicLibrary(subsonic, database, settings, appScope)
+    /** Signed URLs for server songs and covers, made when they're opened. */
+    val subsonicUrls = SubsonicUrls(subsonic)
+    /** Plays reported to the server, as the user chose (off by default). */
+    private val serverMatch = ServerMatch(database)
+    val serverPlays = ServerPlays(subsonic, database, serverMatch, appScope).also { it.flush() }
 
     /** Lets Sonos fetch tracks from the phone while casting. */
     val trackServer = TrackServer(
         app, database.tracks(),
         // Sonos reads ahead in bursts and then pauses for minutes; a normal read timeout would drop the relay.
         driveHttp.newBuilder().readTimeout(10, TimeUnit.MINUTES).build(),
+        subsonicUrls,
     )
     val castManager = CastManager(app, appScope)
 
-    val downloader = Downloader(app, database.tracks(), driveHttp, appScope).also { it.verify() }
+    val downloader = Downloader(app, database.tracks(), driveHttp, subsonicUrls, appScope).also { it.verify() }
 
     val lastFm = LastFm(app, LastFmClient(baseHttp, moshi, BuildConfig.LASTFM_API_KEY, BuildConfig.LASTFM_SECRET), "lastfm$suffix")
+
     val scrobbler = Scrobbler(lastFm, database.lastFmOutbox(), database.tracks(), appScope).also { scrobbler ->
         lastFm.onConnected = scrobbler::flush
         scrobbler.flush() // whatever was left unsent last time
     }
+    /** Favourites ↔ stars and playlists, both ways. */
+    val serverCollections = ServerCollections(
+        app, subsonic, database, serverMatch, scrobbler, songsSynced = { settings.lastServerSync.value > 0 }, scope = appScope,
+        prefsName = "subsonic-sync$suffix",
+    ).also { collections ->
+        serverLibrary.onSynced = collections::syncNow
+        collections.start()
+    }
     val scrobbleImporter = ScrobbleImporter(
         lastFm, database.lastFmScrobbles(), database.history(), database.tracks(), database.favourites(), scrobbler, appScope,
     )
+
+    /** Listening history, favourites, playlists and loved tracks synced in one go, daily when switched on. */
+    val autoSync = AutoSync(app, lastFm, scrobbleImporter, subsonic, serverCollections, appScope, "autosync$suffix").also { it.start() }
 
     val library = LibraryRepository(
         dao = database.tracks(),
