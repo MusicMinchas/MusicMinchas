@@ -68,48 +68,63 @@ class LibraryIndexer(private val db: AppDatabase, private val scope: CoroutineSc
         }
     }
 
-    /** Indexes everything queued; returns when the queue is empty. */
+    /**
+     * Indexes everything queued; returns when the queue is empty. First every queued song gets its
+     * keys (batch by batch), then each album, artist and genre they touch is summarised once: a big
+     * queue (a whole server library, songs in no particular order) would otherwise rebuild the same
+     * album in many batches. Songs leave the queue only once their summaries are rebuilt, so an
+     * interrupted run is simply redone.
+     */
     suspend fun runQueue() = mutex.withLock {
         withContext(Dispatchers.IO) {
             _busy.value = true
             try {
-                var total = 0
                 Bench.time("index queue") {
                     val tags = artistTagMap(db.artistInfo().all())
                     while (true) {
-                        val batch = dao.dirty(BATCH)
-                        if (batch.isEmpty()) break
                         val albums = HashSet<String>()
                         val artists = HashSet<String>()
                         val genres = HashSet<String>()
-                        for (d in batch) {
-                            d.oldAlbum?.let(albums::add)
-                            d.oldArtist?.let(artists::add)
-                            d.oldGenre?.let(genres::add)
-                        }
-                        db.withTransaction {
-                            for (ids in batch.mapNotNull { it.trackId }.distinct().chunked(CHUNK)) {
-                                for (t in dao.tracks(ids)) {
-                                    val (album, artist, genre) = keysOf(t, tags)
-                                    val title = if (album.isEmpty()) "" else sortText(t.title)
-                                    val scope = Track.scopeOf(t.source)
-                                    if (album != t.indexAlbum || artist != t.indexArtist || genre != t.indexGenre || title != t.indexTitle || scope != t.scope) {
-                                        dao.setIndex(t.id, album, artist, genre, title, scope)
-                                    }
-                                    albums += album
-                                    artists += artist
-                                    genres += genre
+                        var lastSeq = 0L
+                        var total = 0
+                        Bench.time("index keys") {
+                            while (true) {
+                                val batch = dao.dirty(lastSeq, BATCH)
+                                if (batch.isEmpty()) break
+                                for (d in batch) {
+                                    d.oldAlbum?.let(albums::add)
+                                    d.oldArtist?.let(artists::add)
+                                    d.oldGenre?.let(genres::add)
                                 }
+                                db.withTransaction {
+                                    for (ids in batch.mapNotNull { it.trackId }.distinct().chunked(CHUNK)) {
+                                        for (t in dao.tracks(ids)) {
+                                            val (album, artist, genre) = keysOf(t, tags)
+                                            val title = if (album.isEmpty()) "" else sortText(t.title)
+                                            val scope = Track.scopeOf(t.source)
+                                            if (album != t.indexAlbum || artist != t.indexArtist || genre != t.indexGenre || title != t.indexTitle || scope != t.scope) {
+                                                dao.setIndex(t.id, album, artist, genre, title, scope)
+                                            }
+                                            albums += album
+                                            artists += artist
+                                            genres += genre
+                                        }
+                                    }
+                                }
+                                lastSeq = batch.last().seq
+                                total += batch.size
                             }
+                        }
+                        if (total == 0) break
+                        Bench.time("index summaries (${albums.size} albums, ${artists.size} artists, ${genres.size} genres)") {
                             refreshAlbums(albums - "")
                             refreshArtists(artists - "")
                             refreshGenres(genres - "")
-                            dao.clearDirty(batch.last().seq)
                         }
-                        total += batch.size
+                        dao.clearDirty(lastSeq)
+                        Bench.log("indexed $total queued songs")
                     }
                 }
-                if (total > 0) Bench.log("indexed $total queued songs")
             } finally {
                 _busy.value = false
             }
@@ -119,7 +134,7 @@ class LibraryIndexer(private val db: AppDatabase, private val scope: CoroutineSc
     // Each summary is kept per scope (own music, server); a key's rows in a scope it has no songs in go.
 
     private suspend fun refreshAlbums(keys: Set<String>) {
-        for (chunk in keys.chunked(CHUNK)) {
+        for (chunk in keys.chunked(CHUNK)) db.withTransaction {
             val byAlbum = dao.tracksOfAlbums(chunk).groupBy { it.scope to it.indexAlbum }
             for (scope in SCOPES) {
                 val gone = chunk.filter { (scope to it) !in byAlbum }
@@ -130,7 +145,7 @@ class LibraryIndexer(private val db: AppDatabase, private val scope: CoroutineSc
     }
 
     private suspend fun refreshArtists(names: Set<String>) {
-        for (chunk in names.chunked(CHUNK)) {
+        for (chunk in names.chunked(CHUNK)) db.withTransaction {
             val counts = dao.artistCounts(chunk)
             for (scope in SCOPES) {
                 val present = counts.filter { it.scope == scope }.mapTo(HashSet()) { it.name }
@@ -142,7 +157,7 @@ class LibraryIndexer(private val db: AppDatabase, private val scope: CoroutineSc
     }
 
     private suspend fun refreshGenres(keys: Set<String>) {
-        for (chunk in keys.chunked(CHUNK)) {
+        for (chunk in keys.chunked(CHUNK)) db.withTransaction {
             val counts = dao.genreCounts(chunk)
             for (scope in SCOPES) {
                 val present = counts.filter { it.scope == scope }.mapTo(HashSet()) { it.key }
@@ -213,7 +228,7 @@ class LibraryIndexer(private val db: AppDatabase, private val scope: CoroutineSc
         }
 
         /** Raised when [sortText] or the keys change, so everything is indexed again once. */
-        const val VERSION = 3
+        const val VERSION = 5
 
         fun genreName(key: String, spelling: String?): String = when {
             key == UNKNOWN_GENRE -> "Unknown genre"
