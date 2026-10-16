@@ -26,6 +26,7 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilledIconButton
 import androidx.compose.material3.FilterChip
@@ -49,6 +50,7 @@ import java.time.format.TextStyle
 import java.util.Locale
 
 /** Home: the Recently Played tile, Replay / Favourite Songs / Most Played cards, generated mixes, recently played albums. */
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun HomeTab(
     libraryVm: LibraryViewModel,
@@ -64,84 +66,88 @@ fun HomeTab(
     val mixes by libraryVm.mixes.collectAsState()
     val replay by libraryVm.replay.collectAsState()
 
-    LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(vertical = 16.dp)) {
-        item {
-            Column(Modifier.padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                val recent = playlists.recentTracks
-                PlaylistTile(
-                    title = "Recently Played",
-                    subtitle = if (recent.isEmpty()) "Nothing played yet" else "${recent.size} songs",
-                    covers = recent.mapNotNull { it.artworkUri }.distinct().take(4),
-                    onOpen = onOpenRecentTracks,
-                    onPlay = if (recent.isEmpty()) null else ({ playerVm.playTracks(recent, 0) }),
-                )
+    val refreshing by libraryVm.mixesRefreshing.collectAsState()
+    // Pull down for new mixes; otherwise they stay as made (see LibraryViewModel.mixes).
+    PullToRefreshBox(isRefreshing = refreshing, onRefresh = libraryVm::refreshMixes, modifier = Modifier.fillMaxSize()) {
+        LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(vertical = 16.dp)) {
+            item {
+                Column(Modifier.padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    val recent = playlists.recentTracks
+                    PlaylistTile(
+                        title = "Recently Played",
+                        subtitle = if (recent.isEmpty()) "Nothing played yet" else "${recent.size} songs",
+                        covers = recent.mapNotNull { it.artworkUri }.distinct().take(4),
+                        onOpen = onOpenRecentTracks,
+                        onPlay = if (recent.isEmpty()) null else ({ playerVm.playTracks(recent, 0) }),
+                    )
+                }
             }
-        }
-        // Replay, Favourite Songs and Most Played as cards like the mixes, side by side.
-        item {
-            val r = replay
-            val top = r?.topTracks.orEmpty().map { it.item }
-            val favourites = playlists.favourites
-            val most = playlists.mostPlayed.map { it.item }
-            Row(
-                Modifier.horizontalScroll(rememberScrollState()).padding(start = 16.dp, end = 16.dp, top = 16.dp),
-                horizontalArrangement = Arrangement.spacedBy(12.dp),
-            ) {
-                CollectionCard(
-                    title = "Replay ${r?.period?.year ?: ""}".trim(),
-                    subtitle = if (r == null || r.plays == 0) "Your most played" else "${r.plays} plays",
-                    tracks = top, onOpen = onOpenReplay,
-                    onPlay = { playerVm.playTracks(top, 0) },
-                    modifier = Modifier.width(MIX_CARD_WIDTH),
-                )
-                CollectionCard(
-                    title = "Favourite Songs",
-                    subtitle = if (favourites.isEmpty()) "Tap the heart on a song" else count(favourites.size, "song"),
-                    tracks = favourites, onOpen = onOpenFavourites,
-                    onPlay = { playerVm.playTracks(favourites, 0) },
-                    modifier = Modifier.width(MIX_CARD_WIDTH),
-                )
-                CollectionCard(
-                    title = "Most Played",
-                    subtitle = if (most.isEmpty()) "Nothing played yet" else count(most.size, "song"),
-                    tracks = most, onOpen = onOpenMostPlayed,
-                    onPlay = { playerVm.playTracks(most, 0) },
-                    modifier = Modifier.width(MIX_CARD_WIDTH),
-                )
+            // Replay, Favourite Songs and Most Played as cards like the mixes, side by side.
+            item {
+                val r = replay
+                val top = r?.topTracks.orEmpty().map { it.item }
+                val favourites = playlists.favourites
+                val most = playlists.mostPlayed.map { it.item }
+                Row(
+                    Modifier.horizontalScroll(rememberScrollState()).padding(start = 16.dp, end = 16.dp, top = 16.dp),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                ) {
+                    CollectionCard(
+                        title = "Replay ${r?.period?.year ?: ""}".trim(),
+                        subtitle = if (r == null || r.plays == 0) "Your most played" else "${r.plays} plays",
+                        tracks = top, onOpen = onOpenReplay,
+                        onPlay = { playerVm.playTracks(top, 0) },
+                        modifier = Modifier.width(MIX_CARD_WIDTH),
+                    )
+                    CollectionCard(
+                        title = "Favourite Songs",
+                        subtitle = if (favourites.isEmpty()) "Tap the heart on a song" else count(favourites.size, "song"),
+                        tracks = favourites, onOpen = onOpenFavourites,
+                        onPlay = { playerVm.playTracks(favourites, 0) },
+                        modifier = Modifier.width(MIX_CARD_WIDTH),
+                    )
+                    CollectionCard(
+                        title = "Most Played",
+                        subtitle = if (most.isEmpty()) "Nothing played yet" else count(most.size, "song"),
+                        tracks = most, onOpen = onOpenMostPlayed,
+                        onPlay = { playerVm.playTracks(most, 0) },
+                        modifier = Modifier.width(MIX_CARD_WIDTH),
+                    )
+                }
             }
-        }
-        item { SectionTitle("Made for you") }
-        item {
-            if (mixes.isEmpty()) {
-                Text(
-                    "Mixes appear once genres have been fetched for your artists (Sources › online lookup) " +
-                        "and grow better as you listen.",
-                    Modifier.padding(horizontal = 16.dp),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            } else {
-                LazyRow(contentPadding = PaddingValues(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                    items(mixes, key = { it.id }) { mix ->
-                        CollectionCard(
-                            mix.title, mix.subtitle, mix.tracks,
-                            onOpen = { onOpenMix(mix.id) }, onPlay = { playerVm.playTracks(mix.tracks, 0) },
-                            modifier = Modifier.width(MIX_CARD_WIDTH),
-                        )
+            item { SectionTitle("Made for you") }
+            item {
+                if (mixes.isEmpty()) {
+                    Text(
+                        "Mixes appear once genres have been fetched for your artists (Sources › online lookup) " +
+                            "and grow better as you listen.",
+                        Modifier.padding(horizontal = 16.dp),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                } else {
+                    LazyRow(contentPadding = PaddingValues(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                        items(mixes, key = { it.id }) { mix ->
+                            CollectionCard(
+                                mix.title, mix.subtitle, mix.tracks,
+                                onOpen = { onOpenMix(mix.id) }, onPlay = { playerVm.playTracks(mix.tracks, 0) },
+                                modifier = Modifier.width(MIX_CARD_WIDTH),
+                            )
+                        }
                     }
                 }
             }
-        }
-        if (playlists.recentAlbums.isNotEmpty()) {
-            item { SectionTitle("Recently played albums") }
-            item {
-                LazyRow(contentPadding = PaddingValues(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                    items(playlists.recentAlbums, key = { it.key }) { album ->
-                        Column(Modifier.width(120.dp).clickable { onOpenAlbum(album.key) }) {
-                            Artwork(album.artworkUri, Modifier.fillMaxWidth().aspectRatio(1f))
-                            Text(album.title, maxLines = 1, overflow = TextOverflow.Ellipsis,
-                                style = MaterialTheme.typography.bodyMedium, modifier = Modifier.padding(top = 4.dp))
-                            ArtistAlbumText(album.artist, listOf(album.artist))
+            if (playlists.recentAlbums.isNotEmpty()) {
+                item { SectionTitle("Recently played albums") }
+                item {
+                    LazyRow(contentPadding = PaddingValues(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                        items(playlists.recentAlbums, key = { it.key }) { album ->
+                            Column(Modifier.width(120.dp).clickable { onOpenAlbum(album.key) }) {
+                                Artwork(album.artworkUri, Modifier.fillMaxWidth().aspectRatio(1f))
+                                Text(album.title, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                                    style = MaterialTheme.typography.bodyMedium, modifier = Modifier.padding(top = 4.dp))
+                                ArtistAlbumText(album.artist, listOf(album.artist))
+                            }
                         }
                     }
                 }

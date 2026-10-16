@@ -30,6 +30,7 @@ import com.kike.musicplayer.data.metadata.MetadataEnricher
 import com.kike.musicplayer.data.lyrics.LyricsRepository
 import com.kike.musicplayer.data.metadata.ArtistImages
 import com.kike.musicplayer.data.metadata.MusicBrainzApi
+import com.kike.musicplayer.recommend.SavedMixes
 import com.kike.musicplayer.sonos.CastManager
 import com.kike.musicplayer.sonos.TrackServer
 import com.squareup.moshi.Moshi
@@ -56,7 +57,9 @@ class MusicApp : Application(), SingletonImageLoader.Factory {
     override fun newImageLoader(context: PlatformContext): ImageLoader =
         ImageLoader.Builder(context)
             .components {
-                add(SubsonicCoverMapper(container.subsonic))
+                val covers = SubsonicCoverMapper(container.subsonic)
+                add(covers)
+                add(SubsonicCoverMapper.ForUri(covers))
                 add(OkHttpNetworkFetcherFactory(callFactory = { container.baseHttp }))
             }
             .build()
@@ -121,6 +124,9 @@ class AppContainer(app: Application) {
     val discover = DiscoverRepository(
         database.discover(), database.artistInfo(), settings, metadataHttp, moshi, BuildConfig.TICKETMASTER_KEY, appScope,
     )
+
+    /** The Home mixes as last made. */
+    val savedMixes = SavedMixes(app, "mixes$suffix")
 
     /** Album, artist and genre summaries for paging large libraries. */
     val indexer = LibraryIndexer(database, appScope).also { indexer ->

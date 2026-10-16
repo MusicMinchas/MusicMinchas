@@ -14,6 +14,8 @@ import com.kike.musicplayer.data.db.getByIds
 import com.kike.musicplayer.data.db.Favourite
 import com.kike.musicplayer.data.db.PlayHistory
 import com.kike.musicplayer.recommend.MixCandidates
+import com.kike.musicplayer.recommend.SavedMix
+import com.kike.musicplayer.recommend.SavedMixSet
 import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.filter
@@ -122,13 +124,6 @@ data class Playlists(
     val mostPlayed: List<Ranked<Track>> = emptyList(),
     /** Favourite songs, most recently added first. */
     val favourites: List<Track> = emptyList(),
-)
-
-private data class MixInput(
-    val history: List<PlayHistory>,
-    val tags: Map<String, List<String>>,
-    val favourites: List<Favourite>,
-    val scopes: List<Int>,
 )
 
 /** A user playlist with its songs (those still in the library), in order. */
@@ -241,25 +236,62 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
+    private val savedMixes = container.savedMixes
+    private val mixRequests = MutableStateFlow(0)
+    private var mixRequestsDone = 0
+
+    private val _mixesRefreshing = MutableStateFlow(false)
+    /** True while new mixes are being made after a pull to refresh. */
+    val mixesRefreshing: StateFlow<Boolean> = _mixesRefreshing.asStateFlow()
+
+    /** Makes new mixes now (pull to refresh on Home). */
+    fun refreshMixes() {
+        _mixesRefreshing.value = true
+        mixRequests.value++
+    }
+
     /**
      * Generated mixes for the Home tab: made of songs from the sources switched on in the library
-     * menu, while plays and favourites from every source show the taste.
+     * menu, while plays and favourites from every source show the taste. Once made they're kept
+     * (saved, so also across restarts) and only their songs' details follow library changes; new
+     * ones are made on a pull to refresh, after [MIX_LIFETIME_MS], or when the sources change.
      */
     @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
-    val mixes: StateFlow<List<Mix>> = combine(history, artistTags, favouriteRows, tracksChanged, viewScopes) { h, tags, f, _, scopes ->
-        MixInput(h, tags, f, scopes)
-    }
-        .mapLatest { (history, tags, favourites, scopes) ->
+    val mixes: StateFlow<List<Mix>> = combine(viewScopes, mixRequests, tracksChanged) { scopes, requests, _ -> scopes to requests }
+        .mapLatest { (scopes, requests) ->
             // Recommendations are a nice-to-have: a bug there must never take the app down.
             runCatching {
-                val favouriteIds = favourites.mapTo(HashSet()) { it.trackId }
-                val candidates = MixCandidates.load(database, history, favouriteIds, scopes)
-                Bench.time("mixes from ${candidates.size} songs") {
-                    Recommender(candidates, history, tags, favourites = favouriteIds, pickable = { it.scope in scopes }).mixes()
+                val saved = savedMixes.load()
+                val asked = requests > mixRequestsDone
+                val fresh = saved != null && saved.scopes == scopes && System.currentTimeMillis() - saved.madeAt < MIX_LIFETIME_MS
+                if (!asked && fresh) return@runCatching savedMixesWithTracks(saved!!)
+                val made = makeMixes(scopes)
+                // Nothing made yet (e.g. the library is still loading): try again on the next change.
+                if (made.isNotEmpty()) {
+                    savedMixes.save(SavedMixSet(System.currentTimeMillis(), scopes, made.map { m -> SavedMix(m.id, m.title, m.subtitle, m.tracks.map { it.id }) }))
                 }
+                mixRequestsDone = requests
+                made
             }.onFailure { Log.w(TAG, "Recommender failed", it) }.getOrDefault(emptyList())
+                .also { _mixesRefreshing.value = false }
         }
         .flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
+
+    private suspend fun makeMixes(scopes: List<Int>): List<Mix> {
+        val history = history.first()
+        val favouriteIds = favouriteRows.first().mapTo(HashSet()) { it.trackId }
+        val candidates = MixCandidates.load(database, history, favouriteIds, scopes)
+        return Bench.time("mixes from ${candidates.size} songs") {
+            Recommender(candidates, history, artistTags.first(), favourites = favouriteIds, pickable = { it.scope in scopes }).mixes()
+        }
+    }
+
+    /** The saved mixes with their songs as they are now (songs gone from the library are left out). */
+    private suspend fun savedMixesWithTracks(saved: SavedMixSet): List<Mix> {
+        val byId = database.tracks().getByIds(saved.mixes.flatMapTo(HashSet()) { it.trackIds }).associateBy { it.id }
+        return saved.mixes.map { m -> Mix(m.id, m.title, m.subtitle, m.trackIds.mapNotNull { byId[it] }.filter { it.durationMs >= 0 }) }
+            .filter { it.tracks.isNotEmpty() }
+    }
 
     private val replayPeriod = MutableStateFlow<ReplayPeriod?>(null)
 
@@ -687,6 +719,8 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
         const val RECENT_ALBUMS = 10
         /** Distinct recently played songs read for Recently Played and the recent albums. */
         const val RECENT_LOOKUP = 300
+        /** Mixes are made again after two days. */
+        const val MIX_LIFETIME_MS = 48 * 60 * 60 * 1000L
         const val MOST_PLAYED_LOOKUP = 200
         const val TRACKS_CHANGED_DEBOUNCE_MS = 500L
         const val SUGGESTED_ARTISTS = 8

@@ -16,6 +16,15 @@ class SubsonicCoverMapper(private val account: SubsonicAccount) : Mapper<String,
         return coverUrl(account.client, login, id)
     }
 
+    /**
+     * The same for covers given as an Android Uri: the player screens take them from the playing
+     * song's media metadata (MediaMetadata.artworkUri), not from the library row.
+     */
+    class ForUri(private val strings: SubsonicCoverMapper) : Mapper<android.net.Uri, String> {
+        override fun map(data: android.net.Uri, options: Options): String? =
+            if (data.scheme == "subsonic") strings.map(data.toString(), options) else null
+    }
+
     companion object {
         /** Big enough for Now Playing; the server scales and caches it. */
         private const val SIZE = 800

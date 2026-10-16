@@ -65,6 +65,11 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import coil3.compose.SubcomposeAsyncImage
 import com.kike.musicplayer.data.db.Track
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.graphics.vector.path
+import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.graphics.PathFillType
+import androidx.compose.material.icons.filled.Folder
 import com.kike.musicplayer.data.db.isRemote
 
 @Composable
@@ -253,8 +258,49 @@ private fun DownloadStatus(track: Track, progress: DownloadProgress?) {
             } else {
                 Icon(Icons.Default.Downloading, "Waiting to download", Modifier.size(16.dp), tint = tint)
             }
-        else -> Icon(Icons.Default.Cloud, "Google Drive", Modifier.size(16.dp), tint = tint)
+        else -> Icon(sourceIcon(track.source), sourceName(track.source), Modifier.size(16.dp), tint = tint)
     }
+}
+
+/** Where a song comes from, at a glance: a folder (this device), a cloud (Google Drive), a submarine (Subsonic server). */
+fun sourceIcon(source: String): ImageVector = when (source) {
+    Track.SOURCE_DRIVE -> Icons.Default.Cloud
+    Track.SOURCE_SUBSONIC -> SubmarineIcon
+    else -> Icons.Default.Folder
+}
+
+fun sourceName(source: String): String = when (source) {
+    Track.SOURCE_DRIVE -> "Google Drive"
+    Track.SOURCE_SUBSONIC -> "Navidrome / Subsonic server"
+    else -> "On this device"
+}
+
+/** A small submarine (Subsonic), drawn on the 24-unit grid of the Material icons. */
+val SubmarineIcon: ImageVector by lazy {
+    ImageVector.Builder("Submarine", 24.dp, 24.dp, 24f, 24f).apply {
+        // Hull with three portholes cut out.
+        path(fill = SolidColor(Color.Black), pathFillType = PathFillType.EvenOdd) {
+            moveTo(7f, 11f); lineTo(18f, 11f)
+            arcTo(4f, 4f, 0f, isMoreThanHalf = false, isPositiveArc = true, x1 = 18f, y1 = 19f)
+            lineTo(7f, 19f)
+            arcTo(4f, 4f, 0f, isMoreThanHalf = false, isPositiveArc = true, x1 = 7f, y1 = 11f)
+            close()
+            for (x in listOf(9f, 12.5f, 16f)) {
+                moveTo(x + 1.1f, 15f)
+                arcTo(1.1f, 1.1f, 0f, isMoreThanHalf = true, isPositiveArc = true, x1 = x - 1.1f, y1 = 15f)
+                arcTo(1.1f, 1.1f, 0f, isMoreThanHalf = true, isPositiveArc = true, x1 = x + 1.1f, y1 = 15f)
+                close()
+            }
+        }
+        // Conning tower, periscope and propeller.
+        path(fill = SolidColor(Color.Black)) {
+            moveTo(10f, 11f); lineTo(10f, 8.5f); quadTo(10f, 7.5f, 11f, 7.5f); lineTo(14f, 7.5f)
+            quadTo(15f, 7.5f, 15f, 8.5f); lineTo(15f, 11f); close()
+            moveTo(12f, 7.5f); lineTo(12f, 4f); lineTo(14.5f, 4f); lineTo(14.5f, 5.3f); lineTo(13.3f, 5.3f); lineTo(13.3f, 7.5f); close()
+            moveTo(1f, 12.5f); lineTo(2.3f, 12.5f); lineTo(2.3f, 17.5f); lineTo(1f, 17.5f); close()
+            moveTo(2.3f, 14.4f); lineTo(3.5f, 14.4f); lineTo(3.5f, 15.6f); lineTo(2.3f, 15.6f); close()
+        }
+    }.build()
 }
 
 @OptIn(ExperimentalFoundationApi::class)
@@ -327,7 +373,7 @@ fun TrackRow(
         if (showStatus && track.id in favourites.ids) {
             Icon(Icons.Default.Favorite, "Favourite", Modifier.padding(end = 6.dp).size(16.dp), tint = FAVOURITE_RED)
         }
-        if (showStatus && track.isRemote) DownloadStatus(track, downloads.progress)
+        if (showStatus) DownloadStatus(track, downloads.progress)
         Box {
             IconButton(onClick = { menu = true }) { Icon(Icons.Default.MoreVert, "More") }
             DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
