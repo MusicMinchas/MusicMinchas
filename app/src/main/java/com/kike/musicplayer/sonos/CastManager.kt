@@ -2,6 +2,7 @@ package com.kike.musicplayer.sonos
 
 import android.content.Context
 import android.util.Log
+import androidx.core.content.edit
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -19,6 +20,9 @@ interface CastHost {
 
 /** Speaker discovery and cast state, shared by the UI and the playback service. */
 class CastManager(private val context: Context, private val scope: CoroutineScope) {
+    /** Speakers found before: asked first, so the list appears without searching the network. */
+    private val prefs = context.getSharedPreferences("sonos", Context.MODE_PRIVATE)
+
     private val _groups = MutableStateFlow<List<SonosGroup>>(emptyList())
     val groups: StateFlow<List<SonosGroup>> = _groups.asStateFlow()
 
@@ -42,10 +46,14 @@ class CastManager(private val context: Context, private val scope: CoroutineScop
             _discovering.value = true
             try {
                 val found = withContext(Dispatchers.IO) {
-                    val ips = Sonos.discoverSpeakerIps(context)
-                    // Any speaker knows the whole topology; try them until one answers.
-                    ips.firstNotNullOfOrNull { ip -> runCatching { Sonos.groups(ip) }.getOrNull() }.orEmpty()
+                    // Any speaker knows the whole topology: ask one found last time first (a few
+                    // ms), and only search the network (3 s) when none of them answers.
+                    val known = prefs.getStringSet(KEY_IPS, emptySet()).orEmpty()
+                    known.firstNotNullOfOrNull { ip -> runCatching { Sonos.groups(ip) }.getOrNull()?.takeIf { it.isNotEmpty() } }
+                        ?: Sonos.discoverSpeakerIps(context)
+                            .firstNotNullOfOrNull { ip -> runCatching { Sonos.groups(ip) }.getOrNull() }.orEmpty()
                 }
+                if (found.isNotEmpty()) prefs.edit { putStringSet(KEY_IPS, found.mapTo(HashSet()) { it.coordinatorIp }) }
                 _groups.value = found
                 if (found.isEmpty()) _message.value = "No Sonos speakers found on this Wi-Fi network"
             } catch (e: Exception) {
@@ -83,5 +91,6 @@ class CastManager(private val context: Context, private val scope: CoroutineScop
 
     private companion object {
         const val TAG = "CastManager"
+        const val KEY_IPS = "speaker_ips"
     }
 }

@@ -8,6 +8,7 @@ import android.util.Log
 import com.kike.musicplayer.data.db.Track
 import com.kike.musicplayer.data.subsonic.SubsonicUrls
 import com.kike.musicplayer.data.db.TrackDao
+import com.kike.musicplayer.data.db.getByIds
 import kotlinx.coroutines.runBlocking
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -130,6 +131,9 @@ class TrackServer(
             else -> null
         }
         if (remote != null) {
+            // Sonos probes a file in many small pieces before playing (start, then the index at the
+            // end); fetching each from Drive would cost about a second. Serve those from blocks.
+            if (method == "GET" && serveFromBlocks(out, track, remote, mime, range)) return
             val builder = Request.Builder().url(remote)
             // HEAD: ask Drive for one byte, which still reports the total size in Content-Range.
             if (method == "HEAD") builder.header("Range", "bytes=0-0") else range?.let { builder.header("Range", it) }
@@ -157,6 +161,92 @@ class TrackServer(
                 }
             }
         }
+    }
+
+    /**
+     * Answers a small closed range ("bytes=a-b", within one [BLOCK]), or an open one ("bytes=a-")
+     * within the file's last block, from a cached block of the remote file, fetching the block once.
+     * Returns false for anything else (streamed as is).
+     */
+    private fun serveFromBlocks(out: OutputStream, track: Track, remote: String, mime: String, range: String?): Boolean {
+        val match = range?.let { CLOSED_RANGE.matchEntire(it.trim()) }
+        // "From here to the end" inside the file's last block (Sonos reading a file's index): also from the block.
+        val open = if (match == null) range?.let { OPEN_RANGE.matchEntire(it.trim()) } ?: return false else null
+        val start = (match ?: open)!!.groupValues[1].toLong()
+        val size = track.sizeBytes
+        val end = when {
+            match != null -> match.groupValues[2].toLong()
+            size != null && start / BLOCK == (size - 1) / BLOCK -> size - 1
+            else -> return false
+        }
+        if (end < start || start / BLOCK != end / BLOCK) return false
+        val index = start / BLOCK
+        val key = "${track.id}#$index"
+        val (block, total) = synchronized(blockLocks.computeIfAbsent(key) { Any() }) {
+            blocks.get(key) ?: fetchBlock(remote, index)?.also { blocks.put(key, it) } ?: return false
+        }
+        val from = (start - index * BLOCK).toInt()
+        if (from >= block.size) return false
+        if (open != null && index * BLOCK + block.size != total) return false // the file isn't as the library says
+        val to = minOf(end - index * BLOCK, block.size - 1L).toInt()
+        writeHead(out, 206, mime, (to - from + 1).toLong(), "bytes $start-${index * BLOCK + to}/$total")
+        out.write(block, from, to - from + 1)
+        out.flush()
+        return true
+    }
+
+    /**
+     * Fetches, in parallel and before Sonos asks, the blocks it reads first from a Drive or Navidrome
+     * song: the start, and the end where many files keep their index. Each Drive fetch takes about a
+     * second, and Sonos asks for them one after the other.
+     */
+    fun prefetch(trackIds: List<String>) {
+        Thread {
+            val tracks = runBlocking { dao.getByIds(trackIds.toSet()) }
+            for (track in tracks) {
+                if (track.localUri != null) continue
+                val remote = when (track.source) {
+                    Track.SOURCE_DRIVE -> track.uri
+                    Track.SOURCE_SUBSONIC -> serverUrls.resolve(track.uri)
+                    else -> null
+                } ?: continue
+                val size = track.sizeBytes ?: continue
+                val last = (size - 1) / BLOCK
+                for (index in listOf(0L, last, last - 1).filter { it >= 0 }.distinct()) {
+                    Thread {
+                        val key = "${track.id}#$index"
+                        runCatching {
+                            synchronized(blockLocks.computeIfAbsent(key) { Any() }) {
+                                if (blocks.get(key) == null) fetchBlock(remote, index)?.let { blocks.put(key, it) }
+                            }
+                        }.onFailure { Log.i(TAG, "Prefetch of ${track.title} failed: $it") }
+                    }.start()
+                }
+            }
+        }.start()
+    }
+
+    /** Block [index] of the remote file and the file's total size, or null if it can't be fetched. */
+    private fun fetchBlock(remote: String, index: Long): Pair<ByteArray, Long>? {
+        val request = Request.Builder().url(remote).header("Range", "bytes=${index * BLOCK}-${(index + 1) * BLOCK - 1}").build()
+        return driveHttp.newCall(request).execute().use { response ->
+            if (response.code != 206) return null
+            val total = response.header("Content-Range")?.substringAfter('/')?.toLongOrNull() ?: return null
+            response.body.bytes() to total
+        }
+    }
+
+    private val blocks = BlockCache(MAX_BLOCKS)
+    private val blockLocks = java.util.concurrent.ConcurrentHashMap<String, Any>()
+
+    /** The blocks used last, least recently used dropped first. */
+    private class BlockCache(private val max: Int) {
+        private val map = object : LinkedHashMap<String, Pair<ByteArray, Long>>(16, 0.75f, true) {
+            override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, Pair<ByteArray, Long>>) = size > max
+        }
+
+        @Synchronized fun get(key: String) = map[key]
+        @Synchronized fun put(key: String, value: Pair<ByteArray, Long>) { map[key] = value }
     }
 
     private fun serveArt(out: OutputStream, method: String, trackId: String?) {
@@ -215,6 +305,12 @@ class TrackServer(
     private companion object {
         const val TAG = "TrackServer"
         const val PREFERRED_PORT = 8765
+        /** Sonos probes in 6 KB pieces; one block covers dozens of them. */
+        const val BLOCK = 512 * 1024L
+        /** 8 MB at most: a few files' starts and ends. */
+        const val MAX_BLOCKS = 16
+        val CLOSED_RANGE = Regex("""bytes=(\d+)-(\d+)""")
+        val OPEN_RANGE = Regex("""bytes=(\d+)-""")
 
         fun encode(id: String): String =
             Base64.encodeToString(id.toByteArray(), Base64.URL_SAFE or Base64.NO_PADDING or Base64.NO_WRAP)

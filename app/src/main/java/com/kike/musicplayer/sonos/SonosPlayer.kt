@@ -158,7 +158,11 @@ class SonosPlayer(
         val startPosition = positionMs
         loadJob = scope.launch {
             try {
-                loadQueue(snapshot, start, startPosition) { started.set(Unit) }
+                val t0 = android.os.SystemClock.elapsedRealtime()
+                loadQueue(snapshot, start, startPosition) {
+                    com.kike.musicplayer.Bench.log("cast: playing after ${android.os.SystemClock.elapsedRealtime() - t0} ms (${snapshot.size} in queue)")
+                    started.set(Unit)
+                }
             } catch (e: CancellationException) {
                 started.set(Unit)
                 throw e
@@ -174,6 +178,8 @@ class SonosPlayer(
     /** Fills the Sonos queue: tracks from [start] on first (and starts playing), then the ones before it. */
     private suspend fun loadQueue(snapshot: List<Entry>, start: Int, startPositionMs: Long, onStarted: () -> Unit) {
         val base = server.baseUrl() ?: throw IOException("the phone has no Wi-Fi address")
+        // The first two songs' first pieces, before Sonos asks for them one by one.
+        server.prefetch(snapshot.drop(start).take(2).map { trackIdOf(it.item) })
         val tracks = withContext(Dispatchers.IO) { dao.getByIds(snapshot.map { trackIdOf(it.item) }).associateBy { it.id } }
         fun item(e: Entry) = tracks[trackIdOf(e.item)]?.let { queueItem(base, e.id, it) }
 
@@ -617,7 +623,11 @@ class SonosPlayer(
                 continue
             }
             foreignPolls = 0
-            entries.indexOfFirst { it.id == entryId }.takeIf { it >= 0 }?.let { currentIndex = it }
+            entries.indexOfFirst { it.id == entryId }.takeIf { it >= 0 }?.let { index ->
+                // A new song: get the next one's first pieces ready, so moving on is quick too.
+                if (index != currentIndex) entries.getOrNull(index + 1)?.let { server.prefetch(listOf(trackIdOf(it.item))) }
+                currentIndex = index
+            }
             positionMs = p.relTimeMs
             positionAt = SystemClock.elapsedRealtime()
             when (p.transportState) {
