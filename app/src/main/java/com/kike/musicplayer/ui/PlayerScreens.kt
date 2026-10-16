@@ -91,6 +91,18 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.material3.TopAppBarDefaults
 import coil3.compose.AsyncImage
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.tween
+import androidx.compose.ui.graphics.lerp
+import androidx.compose.ui.graphics.luminance
+import androidx.compose.ui.platform.LocalContext
+import coil3.SingletonImageLoader
+import coil3.request.ImageRequest
+import coil3.request.SuccessResult
+import coil3.request.allowHardware
+import coil3.toBitmap
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -158,10 +170,11 @@ fun NowPlayingScreen(
     if (showCast) CastSheet(playerVm) { showCast = false }
     val onFlip = { if (s.current != null) showLyrics = !showLyrics }
     Box(Modifier.fillMaxSize()) {
-        // Further down with the full cover, so its colours carry on under the title.
-        ArtworkBackdrop(meta?.artworkUri, reach = if (fullCover) 1f else 0.85f)
+        if (!fullCover) ArtworkBackdrop(meta?.artworkUri)
         if (fullCover) {
             BoxWithConstraints(Modifier.fillMaxSize()) {
+                // The cover's bottom colour carries on below it and fades into the page.
+                EdgeColorBackdrop(meta?.artworkUri, coverFraction = maxWidth / maxHeight)
                 val top = contentPadding.calculateTopPadding()
                 // Where the title is in the normal layout: close bar, cover (page width plus the bleed), gap.
                 val titleTop = top + CLOSE_BAR + maxWidth - 48.dp + COVER_BLEED * 2 + TITLE_GAP
@@ -217,7 +230,7 @@ fun NowPlayingScreen(
     }
 }
 
-/** The cover edge to edge, fading out at the bottom into the blurred backdrop. */
+/** The cover edge to edge, fading out at the bottom into [EdgeColorBackdrop]. */
 @Composable
 private fun FadingCover(uri: Any?) {
     Artwork(
@@ -233,6 +246,52 @@ private fun FadingCover(uri: Any?) {
             },
         shape = RectangleShape,
     )
+}
+
+/**
+ * Behind the full-width cover: the colour along the cover's bottom edge, solid down to the cover's
+ * end ([coverFraction] of the height) and fading into the page by the seek bar. Toned towards the
+ * page colour so the title stays readable on it, and eased from song to song.
+ */
+@Composable
+private fun EdgeColorBackdrop(uri: Any?, coverFraction: Float) {
+    val page = MaterialTheme.colorScheme.background
+    val edge = rememberBottomEdgeColor(uri)
+    // Dark page: the colour a little darker; light page: well lightened, for the dark text.
+    val tone = edge?.let { lerp(it, page, if (page.luminance() < 0.5f) 0.35f else 0.6f) } ?: page
+    val color by animateColorAsState(tone, tween(600), label = "edge colour")
+    Box(
+        Modifier.fillMaxSize().background(
+            Brush.verticalGradient(
+                0f to color,
+                coverFraction to color,
+                (coverFraction + 0.3f).coerceAtMost(1f) to page,
+            ),
+        ),
+    )
+}
+
+/** The average colour of the bottom tenth of [uri]'s image, read from a small copy; null until loaded. */
+@Composable
+private fun rememberBottomEdgeColor(uri: Any?): Color? {
+    val context = LocalContext.current
+    var color by remember(uri) { mutableStateOf<Color?>(null) }
+    LaunchedEffect(uri) {
+        if (uri == null) return@LaunchedEffect
+        val request = ImageRequest.Builder(context).data(uri).size(48).allowHardware(false).build()
+        val bitmap = (SingletonImageLoader.get(context).execute(request) as? SuccessResult)?.image?.toBitmap()
+            ?: return@LaunchedEffect
+        color = withContext(Dispatchers.Default) {
+            val rows = (bitmap.height / 10).coerceAtLeast(1)
+            var r = 0L; var g = 0L; var b = 0L; var n = 0
+            for (y in bitmap.height - rows until bitmap.height) for (x in 0 until bitmap.width) {
+                val p = bitmap.getPixel(x, y)
+                r += (p shr 16) and 0xFF; g += (p shr 8) and 0xFF; b += p and 0xFF; n++
+            }
+            Color((r / n).toInt(), (g / n).toInt(), (b / n).toInt())
+        }
+    }
+    return color
 }
 
 /**
@@ -449,7 +508,7 @@ private fun CastRow(icon: ImageVector, label: String, selected: Boolean, onClick
  * the top to fully transparent before the transport controls.
  */
 @Composable
-private fun ArtworkBackdrop(uri: Any?, reach: Float = 0.85f) {
+private fun ArtworkBackdrop(uri: Any?) {
     if (uri == null) return
     AsyncImage(
         model = uri,
@@ -458,7 +517,7 @@ private fun ArtworkBackdrop(uri: Any?, reach: Float = 0.85f) {
         alignment = Alignment.TopCenter,
         modifier = Modifier
             .fillMaxWidth()
-            .fillMaxHeight(reach)
+            .fillMaxHeight(0.85f)
             .blur(20.dp) // no-op before Android 12
             // Offscreen so the gradient below can mask this layer's alpha (DstIn keeps the image
             // only where the mask is opaque).
