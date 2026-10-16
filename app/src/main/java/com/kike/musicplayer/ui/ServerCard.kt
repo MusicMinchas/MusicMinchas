@@ -83,6 +83,7 @@ internal fun ServerCard(vm: LibraryViewModel) {
                 )
             }
             ServerSyncControls(vm)
+            CollectionsSyncInfo(vm)
             PlayReports(vm)
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
                 OutlinedButton(onClick = { vm.checkSubsonic() }, enabled = !state.busy) { Text("Check connection") }
@@ -162,6 +163,34 @@ private fun ServerSyncControls(vm: LibraryViewModel) {
         style = MaterialTheme.typography.bodySmall,
         color = MaterialTheme.colorScheme.onSurfaceVariant,
     )
+    HorizontalDivider(Modifier.padding(vertical = 4.dp))
+}
+
+/** Favourites ↔ stars and playlists, synced both ways: how it last went. */
+@Composable
+private fun CollectionsSyncInfo(vm: LibraryViewModel) {
+    val sync by vm.collectionsSync.collectAsState()
+    Text("Favourites & playlists", style = MaterialTheme.typography.labelLarge)
+    Text(
+        "Favourites of server songs are its starred songs, and your playlists are its playlists: changes on " +
+            "either side go to the other. Songs from this device or Drive go into server playlists as its copy " +
+            "of the same song.",
+        style = MaterialTheme.typography.bodySmall,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+    )
+    sync.message?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error) }
+    if (sync.at > 0) {
+        Text(
+            "Synced ${relativeTime(sync.at)}" +
+                (sync.lastChanges?.let { ". Last changes (${relativeTime(sync.lastChangesAt)}): $it" } ?: ". Nothing to change so far"),
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.primary,
+        )
+    }
+    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        OutlinedButton(onClick = vm::syncCollections, enabled = !sync.running) { Text("Sync favourites & playlists") }
+        if (sync.running) CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp)
+    }
     HorizontalDivider(Modifier.padding(vertical = 4.dp))
 }
 

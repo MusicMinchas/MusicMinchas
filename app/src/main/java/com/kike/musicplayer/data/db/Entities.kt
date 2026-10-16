@@ -222,6 +222,12 @@ data class UserPlaylist(
     @PrimaryKey(autoGenerate = true) val id: Long = 0,
     val name: String,
     val createdAt: Long,
+    /** The same playlist on the Subsonic server, once synced. */
+    val serverId: String? = null,
+    /** The server's "changed" time at the last sync: a different one means it was edited there. */
+    val serverChanged: String? = null,
+    /** Fingerprint of name and songs at the last sync: a different one means it was edited here. */
+    val syncedHash: String? = null,
 )
 
 /** A song in a user playlist, at [position] (0-based); by track id, so it survives rescans. */

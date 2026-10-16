@@ -4,6 +4,7 @@ import com.squareup.moshi.Json
 import com.squareup.moshi.Moshi
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import okhttp3.FormBody
 import okhttp3.HttpUrl
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import okhttp3.OkHttpClient
@@ -42,8 +43,20 @@ class SubsonicClient(private val http: OkHttpClient, private val moshi: Moshi) {
 
     /** Calls [endpoint] and returns the inner response; throws [SubsonicException] for an API error. */
     suspend fun call(login: SubsonicLogin, endpoint: String, params: Map<String, String> = emptyMap()): SubsonicResponse =
+        call(login, endpoint, params.toList())
+
+    /**
+     * [call] with parameters that may repeat (e.g. one songId per song). With [post] they go in a
+     * form body instead of the URL (OpenSubsonic formPost), for long lists; the sign-in stays in the URL.
+     */
+    suspend fun call(login: SubsonicLogin, endpoint: String, params: List<Pair<String, String>>, post: Boolean = false): SubsonicResponse =
         withContext(Dispatchers.IO) {
-            val request = Request.Builder().url(url(login, endpoint, params)).header("User-Agent", USER_AGENT).build()
+            val request = if (post) {
+                val form = FormBody.Builder().apply { params.forEach { (k, v) -> add(k, v) } }.build()
+                Request.Builder().url(url(login, endpoint)).post(form)
+            } else {
+                Request.Builder().url(url(login, endpoint, params))
+            }.header("User-Agent", USER_AGENT).build()
             http.newCall(request).execute().use { response ->
                 if (response.code == 404) throw IOException("No Subsonic server at this address")
                 if (!response.isSuccessful) throw IOException("Server answered HTTP ${response.code}")
@@ -63,6 +76,44 @@ class SubsonicClient(private val http: OkHttpClient, private val moshi: Moshi) {
 
     suspend fun scanStatus(login: SubsonicLogin): ScanStatusJson? = call(login, "getScanStatus").scanStatus
 
+    /** The songs the user starred (favourites on the server). */
+    suspend fun starredSongs(login: SubsonicLogin): List<SongJson> = call(login, "getStarred2").starred2?.song.orEmpty()
+
+    suspend fun star(login: SubsonicLogin, songIds: List<String>) {
+        if (songIds.isNotEmpty()) call(login, "star", songIds.map { "id" to it }, post = songIds.size > MANY)
+    }
+
+    suspend fun unstar(login: SubsonicLogin, songIds: List<String>) {
+        if (songIds.isNotEmpty()) call(login, "unstar", songIds.map { "id" to it }, post = songIds.size > MANY)
+    }
+
+    /** The playlists the user can see (their own and others' public ones), without songs. */
+    suspend fun playlists(login: SubsonicLogin): List<PlaylistJson> = call(login, "getPlaylists").playlists?.playlist.orEmpty()
+
+    /** A playlist with its songs. */
+    suspend fun playlist(login: SubsonicLogin, id: String): PlaylistJson =
+        call(login, "getPlaylist", mapOf("id" to id)).playlist ?: throw IOException("No playlist ")
+
+    /**
+     * Creates a playlist of [songIds], or with [playlistId] replaces that playlist's songs
+     * (Subsonic 1.14+). Returns the playlist.
+     */
+    suspend fun savePlaylist(login: SubsonicLogin, playlistId: String?, name: String?, songIds: List<String>): PlaylistJson? {
+        val params = buildList {
+            if (playlistId != null) add("playlistId" to playlistId) else add("name" to (name ?: "Playlist"))
+            songIds.forEach { add("songId" to it) }
+        }
+        return call(login, "createPlaylist", params, post = songIds.size > MANY).playlist
+    }
+
+    suspend fun renamePlaylist(login: SubsonicLogin, playlistId: String, name: String) {
+        call(login, "updatePlaylist", mapOf("playlistId" to playlistId, "name" to name))
+    }
+
+    suspend fun deletePlaylist(login: SubsonicLogin, playlistId: String) {
+        call(login, "deletePlaylist", mapOf("id" to playlistId))
+    }
+
     /** A page of all songs: an empty search3 query lists the whole library on Navidrome. */
     suspend fun songs(login: SubsonicLogin, offset: Int, count: Int): List<SongJson> = call(
         login, "search3",
@@ -73,7 +124,10 @@ class SubsonicClient(private val http: OkHttpClient, private val moshi: Moshi) {
      * The signed URL of [endpoint], also usable for streaming and cover art. A [salt] of its own
      * gives the same URL every time (for images, so they can be cached); else each one is new.
      */
-    fun url(login: SubsonicLogin, endpoint: String, params: Map<String, String> = emptyMap(), salt: String? = null): HttpUrl {
+    fun url(login: SubsonicLogin, endpoint: String, params: Map<String, String> = emptyMap(), salt: String? = null): HttpUrl =
+        url(login, endpoint, params.toList(), salt)
+
+    fun url(login: SubsonicLogin, endpoint: String, params: List<Pair<String, String>>, salt: String? = null): HttpUrl {
         val base = login.baseUrl.toHttpUrlOrNull() ?: throw IOException("Not a valid server address")
         return base.newBuilder().addPathSegment("rest").addPathSegment("$endpoint.view").apply {
             addQueryParameter("u", login.username)
@@ -98,6 +152,8 @@ class SubsonicClient(private val http: OkHttpClient, private val moshi: Moshi) {
         const val API_VERSION = "1.16.1"
         const val CLIENT = "MusicMinchas"
         private const val USER_AGENT = "MusicMinchas (personal Android app)"
+        /** Longer lists go in a POST body: a URL with hundreds of ids gets too long. */
+        private const val MANY = 100
 
         fun md5(text: String): String =
             MessageDigest.getInstance("MD5").digest(text.toByteArray(Charsets.UTF_8)).toHex()
@@ -132,6 +188,9 @@ class SubsonicResponse(
     val musicFolders: MusicFoldersJson?,
     val scanStatus: ScanStatusJson?,
     val searchResult3: SearchResult3Json?,
+    val starred2: Starred2Json?,
+    val playlists: PlaylistsJson?,
+    val playlist: PlaylistJson?,
 )
 
 class ErrorJson(val code: Int, val message: String?)
@@ -140,6 +199,20 @@ class MusicFolderJson(val id: String, val name: String?)
 /** [count] is the number of songs on Navidrome (not part of the original API, so it may be missing). */
 class ScanStatusJson(val scanning: Boolean?, val count: Long?, val folderCount: Long?, val lastScan: String?)
 class SearchResult3Json(val song: List<SongJson>?)
+class Starred2Json(val song: List<SongJson>?)
+class PlaylistsJson(val playlist: List<PlaylistJson>?)
+
+/** A playlist; [entry] (its songs) only from getPlaylist. [changed] is ISO 8601, when it last changed. */
+class PlaylistJson(
+    val id: String,
+    val name: String?,
+    val owner: String?,
+    val songCount: Int?,
+    val changed: String?,
+    /** OpenSubsonic: smart playlists can't be edited. */
+    val readonly: Boolean?,
+    val entry: List<SongJson>?,
+)
 
 class SongJson(
     val id: String,

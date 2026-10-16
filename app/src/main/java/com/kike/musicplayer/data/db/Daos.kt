@@ -327,6 +327,16 @@ interface PlaylistDao {
     @Query("SELECT COUNT(*) FROM playlists")
     suspend fun count(): Int
 
+    @Query("SELECT * FROM playlists ORDER BY id")
+    suspend fun all(): List<UserPlaylist>
+
+    @Query("SELECT * FROM playlists WHERE id = :playlistId")
+    suspend fun get(playlistId: Long): UserPlaylist?
+
+    /** Records the playlist's server counterpart and its state at this sync. */
+    @Query("UPDATE playlists SET serverId = :serverId, serverChanged = :serverChanged, syncedHash = :syncedHash WHERE id = :playlistId")
+    suspend fun setSynced(playlistId: Long, serverId: String?, serverChanged: String?, syncedHash: String?)
+
     @Insert
     suspend fun insertPlaylist(playlist: UserPlaylist): Long
 
@@ -404,6 +414,10 @@ interface FavouriteDao {
 
     @Query("DELETE FROM favourites WHERE trackId = :trackId")
     suspend fun delete(trackId: String)
+
+    /** Favourites that are songs on the Subsonic server. */
+    @Query("SELECT trackId FROM favourites WHERE trackId LIKE 'subsonic:%'")
+    suspend fun serverTrackIds(): List<String>
 }
 
 @Dao
@@ -733,8 +747,10 @@ interface BrowseDao {
 
     // Search box: [match] is a full-text query from SearchText.match.
     @Query(
-        "SELECT tracks.* FROM tracks JOIN tracks_fts ON tracks.rowid = tracks_fts.docid " +
-            "WHERE tracks_fts MATCH :match AND tracks.indexTitle <> '' AND tracks.scope IN (:scopes) ORDER BY tracks.indexTitle LIMIT :limit"
+        // The full-text match once, as a subquery: joined, SQLite may walk every song of one source in title order
+        // and run the match per song (minutes on a large server library).
+        "SELECT * FROM tracks WHERE rowid IN (SELECT docid FROM tracks_fts WHERE tracks_fts MATCH :match) " +
+            "AND indexTitle <> '' AND scope IN (:scopes) ORDER BY indexTitle LIMIT :limit"
     )
     suspend fun searchSongs(match: String, limit: Int, scopes: List<Int>): List<Track>
 

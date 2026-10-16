@@ -48,6 +48,9 @@ class SubsonicLibrary(
     private val dao = db.tracks()
     private var job: Job? = null
 
+    /** Called after each sync of the songs (e.g. to sync favourites and playlists, which may use new songs). */
+    var onSynced: (() -> Unit)? = null
+
     private val _status = MutableStateFlow(ServerSync())
     val status: StateFlow<ServerSync> = _status.asStateFlow()
 
@@ -72,12 +75,14 @@ class SubsonicLibrary(
                 if (!force && scan?.lastScan != null && scan.lastScan == settings.serverScanSynced && dao.countSource(Track.SOURCE_SUBSONIC) > 0) {
                     settings.setLastServerSync(System.currentTimeMillis())
                     _status.value = ServerSync(message = "Up to date: nothing changed on the server")
+                    onSynced?.invoke()
                     return@launch
                 }
                 val result = Bench.time("server sync") { syncAll(login, scan?.count) }
                 settings.serverScanSynced = scan?.lastScan
                 settings.setLastServerSync(System.currentTimeMillis())
                 _status.value = ServerSync(message = result)
+                onSynced?.invoke()
             } catch (e: Exception) {
                 Log.w(TAG, "Server sync failed", e)
                 _status.value = ServerSync(message = "Sync failed: ${e.message ?: e.javaClass.simpleName}", failed = true)

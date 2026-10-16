@@ -26,6 +26,8 @@ import com.kike.musicplayer.data.subsonic.SubsonicCoverMapper
 import com.kike.musicplayer.data.subsonic.SubsonicLibrary
 import com.kike.musicplayer.data.subsonic.SubsonicUrls
 import com.kike.musicplayer.data.subsonic.ServerPlays
+import com.kike.musicplayer.data.subsonic.ServerMatch
+import com.kike.musicplayer.data.subsonic.ServerCollections
 import com.kike.musicplayer.data.metadata.CoverArtApi
 import com.kike.musicplayer.data.metadata.MetadataEnricher
 import com.kike.musicplayer.data.lyrics.LyricsRepository
@@ -142,7 +144,13 @@ class AppContainer(app: Application) {
     /** Signed URLs for server songs and covers, made when they're opened. */
     val subsonicUrls = SubsonicUrls(subsonic)
     /** Plays reported to the server, as the user chose (off by default). */
-    val serverPlays = ServerPlays(subsonic, database, appScope).also { it.flush() }
+    private val serverMatch = ServerMatch(database)
+    val serverPlays = ServerPlays(subsonic, database, serverMatch, appScope).also { it.flush() }
+    /** Favourites ↔ stars and playlists, both ways. */
+    val serverCollections = ServerCollections(app, subsonic, database, serverMatch, appScope, "subsonic-sync$suffix").also { collections ->
+        serverLibrary.onSynced = collections::syncNow
+        collections.start()
+    }
 
     /** Lets Sonos fetch tracks from the phone while casting. */
     val trackServer = TrackServer(

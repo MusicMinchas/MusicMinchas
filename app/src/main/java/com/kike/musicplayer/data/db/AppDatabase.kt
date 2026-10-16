@@ -11,7 +11,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
     entities = [Track::class, QueueItem::class, SessionState::class, PlayHistory::class, ArtistInfo::class, Favourite::class, LastFmOutboxItem::class, LastFmScrobble::class, ReplacedTrack::class, ArtistImage::class, StoredLyrics::class, UserPlaylist::class, PlaylistTrack::class, FollowedArtist::class, DiscoverItem::class,
         AlbumIndex::class, ArtistIndex::class, GenreIndex::class, IndexDirty::class,
         TrackFts::class, AlbumFts::class, ArtistFts::class, ServerOutboxItem::class],
-    version = 20,
+    version = 21,
 )
 abstract class AppDatabase : RoomDatabase() {
     abstract fun tracks(): TrackDao
@@ -267,6 +267,15 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        /** Playlists linked to the server's, for syncing them both ways. */
+        private val MIGRATION_20_21 = object : Migration(20, 21) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                for (column in listOf("serverId", "serverChanged", "syncedHash")) {
+                    db.execSQL("ALTER TABLE `playlists` ADD COLUMN `$column` TEXT")
+                }
+            }
+        }
+
         /** Plays waiting to be reported to the Subsonic server. */
         private val MIGRATION_19_20 = object : Migration(19, 20) {
             override fun migrate(db: SupportSQLiteDatabase) {
@@ -326,7 +335,7 @@ abstract class AppDatabase : RoomDatabase() {
 
         fun create(context: Context, name: String = "music.db"): AppDatabase =
             Room.databaseBuilder(context, AppDatabase::class.java, name)
-                .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11, MIGRATION_11_12, MIGRATION_12_13, MIGRATION_13_14, MIGRATION_14_15, MIGRATION_15_16, MIGRATION_16_17, MIGRATION_17_18, MIGRATION_18_19, MIGRATION_19_20)
+                .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11, MIGRATION_11_12, MIGRATION_12_13, MIGRATION_13_14, MIGRATION_14_15, MIGRATION_15_16, MIGRATION_16_17, MIGRATION_17_18, MIGRATION_18_19, MIGRATION_19_20, MIGRATION_20_21)
                 .addCallback(object : Callback() {
                     override fun onOpen(db: SupportSQLiteDatabase) = createIndexTriggers(db)
                 })

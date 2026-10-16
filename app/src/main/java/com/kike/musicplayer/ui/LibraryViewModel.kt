@@ -664,8 +664,12 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
     fun setReportOtherPlays(on: Boolean) = subsonic.setReportOtherPlays(on)
     val pendingServerPlays = container.serverPlays.pending.stateIn(viewModelScope, SharingStarted.Eagerly, 0)
 
+    val collectionsSync = container.serverCollections.status
+    fun syncCollections() = container.serverCollections.syncNow()
+
     fun disconnectSubsonic() = viewModelScope.launch {
         container.serverPlays.clear()
+        container.serverCollections.forget()
         container.serverLibrary.removeAll()
         subsonic.disconnect()
     }
