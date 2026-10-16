@@ -380,6 +380,10 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
     val unplayableCount = repo.unplayableCount.stateIn(viewModelScope, SharingStarted.Eagerly, 0)
     val safFolders = settings.safFolders
     val onlineMetadata = settings.onlineMetadata
+    val darkMode = settings.darkMode
+    val fullScreenCover = settings.fullScreenCover
+    fun setDarkMode(enabled: Boolean) = settings.setDarkMode(enabled)
+    fun setFullScreenCover(enabled: Boolean) = settings.setFullScreenCover(enabled)
     val driveAccount = driveAuth.account
     val driveNeedsReconnect = driveAuth.needsReconnect
 

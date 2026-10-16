@@ -27,6 +27,7 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
+import androidx.activity.SystemBarStyle
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.IntentSenderRequest
 import androidx.activity.result.contract.ActivityResultContracts
@@ -78,7 +79,10 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
-        setContent { MusicPlayerTheme { App() } }
+        setContent {
+            val dark by libraryVm.darkMode.collectAsState()
+            MusicPlayerTheme(dark) { App() }
+        }
         handleLastFmCallback(intent)
     }
 
@@ -147,6 +151,16 @@ class MainActivity : ComponentActivity() {
         val mixes by libraryVm.mixes.collectAsState()
         val userPlaylists by libraryVm.userPlaylists.collectAsState()
         val showMini = screen !is Screen.NowPlaying && screen !is Screen.Queue && screen !is Screen.DriveFolders
+        val dark by libraryVm.darkMode.collectAsState()
+        val fullCover by libraryVm.fullScreenCover.collectAsState()
+        // Status bar icons: light on the dark theme and on a full-screen cover, dark otherwise.
+        val lightIcons = dark || (screen is Screen.NowPlaying && fullCover)
+        LaunchedEffect(lightIcons, dark) {
+            enableEdgeToEdge(
+                statusBarStyle = SystemBarStyle.auto(android.graphics.Color.TRANSPARENT, android.graphics.Color.TRANSPARENT) { lightIcons },
+                navigationBarStyle = SystemBarStyle.auto(android.graphics.Color.TRANSPARENT, android.graphics.Color.TRANSPARENT) { dark },
+            )
+        }
 
         val favouriteIds by playerVm.favourites.collectAsState()
         val downloadProgress by libraryVm.downloadProgress.collectAsState()
@@ -202,7 +216,7 @@ class MainActivity : ComponentActivity() {
                             screen.name, libraryVm, playerVm,
                             onOpenAlbum = { push(Screen.AlbumDetail(it)) }, onBack = ::pop, contentPadding = padding,
                         )
-                        Screen.NowPlaying -> NowPlayingScreen(playerVm, ::pop, { push(Screen.Queue) }, padding)
+                        Screen.NowPlaying -> NowPlayingScreen(playerVm, ::pop, { push(Screen.Queue) }, padding, fullCover)
                         Screen.Queue -> QueueScreen(playerVm, ::pop, padding)
                         Screen.DriveFolders -> DriveFolderPickerScreen(libraryVm, ::pop, padding)
                         Screen.RecentTracks -> TrackListScreen("Recently Played", playlists.recentTracks, playerVm, ::pop, padding)

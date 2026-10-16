@@ -63,6 +63,9 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.layout.ColumnScope
+import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.material.icons.filled.Cast
 import androidx.compose.material.icons.filled.CastConnected
 import androidx.compose.material.icons.filled.Speaker
@@ -135,10 +138,15 @@ private fun PlayPauseIcon(s: PlayerUiState, onClick: () -> Unit) {
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun NowPlayingScreen(playerVm: PlayerViewModel, onBack: () -> Unit, onOpenQueue: () -> Unit, contentPadding: PaddingValues) {
+fun NowPlayingScreen(
+    playerVm: PlayerViewModel,
+    onBack: () -> Unit,
+    onOpenQueue: () -> Unit,
+    contentPadding: PaddingValues,
+    /** Appearance › Full screen cover art: the cover across the whole width, under the status bar. */
+    fullCover: Boolean = false,
+) {
     val s by playerVm.state.collectAsState()
-    val castTo by playerVm.castActive.collectAsState()
-    val favourites by playerVm.favourites.collectAsState()
     var showCast by remember { mutableStateOf(false) }
     var showLyrics by rememberSaveable { mutableStateOf(false) }
     val lyrics by playerVm.lyrics.collectAsState()
@@ -147,136 +155,209 @@ fun NowPlayingScreen(playerVm: PlayerViewModel, onBack: () -> Unit, onOpenQueue:
     LaunchedEffect(showLyrics, s.current?.mediaId) {
         if (showLyrics) s.current?.mediaId?.let(playerVm::loadLyrics)
     }
-    val trackId = s.current?.mediaId?.let(PlaybackService::trackIdOf)
     if (showCast) CastSheet(playerVm) { showCast = false }
+    val onFlip = { if (s.current != null) showLyrics = !showLyrics }
     Box(Modifier.fillMaxSize()) {
         ArtworkBackdrop(meta?.artworkUri)
-        Column(Modifier.fillMaxSize().padding(contentPadding)) {
-            // Just the close arrow: a slim bar leaves the cover more room.
-            Box(Modifier.fillMaxWidth().height(40.dp).padding(start = 4.dp), contentAlignment = Alignment.CenterStart) {
-                IconButton(onClick = onBack) { Icon(Icons.Default.KeyboardArrowDown, "Close") }
+        if (fullCover) {
+            BoxWithConstraints(Modifier.fillMaxSize()) {
+                val top = contentPadding.calculateTopPadding()
+                val coverSize = maxWidth
+                Box(Modifier.fillMaxWidth().aspectRatio(1f)) {
+                    FlipCard(
+                        flipped = showLyrics,
+                        onFlip = onFlip,
+                        front = { FadingCover(meta?.artworkUri) },
+                        back = { Box(Modifier.padding(top = top)) { LyricsPanel(lyrics, s.positionMs, playerVm::seekTo) } },
+                        modifier = Modifier.fillMaxSize(),
+                    )
+                    // A light shade at the top keeps the status bar and the close arrow readable on any cover.
+                    Box(
+                        Modifier.fillMaxWidth().height(top + 56.dp)
+                            .background(Brush.verticalGradient(0f to Color.Black.copy(alpha = 0.45f), 1f to Color.Transparent)),
+                    )
+                    IconButton(onClick = onBack, modifier = Modifier.padding(top = top, start = 4.dp)) {
+                        Icon(Icons.Default.KeyboardArrowDown, "Close", tint = Color.White)
+                    }
+                }
+                Column(
+                    Modifier.fillMaxSize().padding(bottom = contentPadding.calculateBottomPadding()).padding(horizontal = 24.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                ) {
+                    // The title starts on the faded bottom of the cover.
+                    Spacer(Modifier.height(coverSize - FULL_COVER_OVERLAP))
+                    NowPlayingDetails(s, playerVm, showLyrics, { showLyrics = !showLyrics }, { showCast = true }, onOpenQueue, heartOffset = 12.dp)
+                }
             }
-            Column(
-                Modifier.fillMaxSize().padding(horizontal = 24.dp),
-                horizontalAlignment = Alignment.CenterHorizontally,
-            ) {
-                FlipCard(
-                    flipped = showLyrics,
-                    onFlip = { if (s.current != null) showLyrics = !showLyrics },
-                    front = { Artwork(meta?.artworkUri, Modifier.fillMaxSize(), shape = RoundedCornerShape(12.dp)) },
-                    back = { LyricsPanel(lyrics, s.positionMs, playerVm::seekTo) },
-                    // A little wider than the rest of the page.
-                    modifier = Modifier.bleed(COVER_BLEED).fillMaxWidth().aspectRatio(1f),
-                )
-                Spacer(Modifier.height(22.dp))
-                // Title centred; the heart sits at the cover's right edge.
-                Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
-                    Text(
-                        meta?.title?.toString() ?: "Nothing playing", style = MaterialTheme.typography.headlineSmall,
-                        maxLines = 2, overflow = TextOverflow.Ellipsis, textAlign = TextAlign.Center,
-                        modifier = Modifier.padding(horizontal = 40.dp),
-                    )
-                    if (trackId != null) {
-                        val favourite = trackId in favourites
-                        IconButton(
-                            onClick = { playerVm.toggleFavourite(trackId) },
-                            // The icon's edge, not the touch target's, lines up with the cover.
-                            modifier = Modifier.align(Alignment.CenterEnd).offset(x = 12.dp + COVER_BLEED),
-                        ) {
-                            Icon(
-                                if (favourite) Icons.Default.Favorite else Icons.Default.FavoriteBorder,
-                                if (favourite) "Remove from Favourites" else "Add to Favourites",
-                                tint = if (favourite) FAVOURITE_RED else MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
-                        }
-                    }
+        } else {
+            Column(Modifier.fillMaxSize().padding(contentPadding)) {
+                // Just the close arrow: a slim bar leaves the cover more room.
+                Box(Modifier.fillMaxWidth().height(40.dp).padding(start = 4.dp), contentAlignment = Alignment.CenterStart) {
+                    IconButton(onClick = onBack) { Icon(Icons.Default.KeyboardArrowDown, "Close") }
                 }
-                val track = trackId?.let(LocalNavigation.current.track)
-                ArtistAlbumText(
-                    meta?.artist?.toString(), listOf(track?.artist, track?.albumArtist),
-                    meta?.albumTitle?.toString(), track?.albumKey,
-                    style = MaterialTheme.typography.bodyLarge, textAlign = TextAlign.Center,
-                )
-                val group = castTo
-                if (group != null) {
-                    TextButton(onClick = { showCast = true }) {
-                        Icon(Icons.Default.Speaker, null, Modifier.size(18.dp))
-                        Spacer(Modifier.width(6.dp))
-                        Text("Playing on ${group.name}", style = MaterialTheme.typography.labelLarge)
-                    }
-                } else s.formatInfo?.let {
-                    Text(it, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary,
-                        modifier = Modifier.padding(top = 4.dp))
-                }
-                // Spare height goes here, so the controls below keep the same spacing whether the
-                // title takes one line or two.
-                Spacer(Modifier.weight(1f))
-                SeekBar(s, playerVm::seekTo)
-                Row(
-                    Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceEvenly,
-                    verticalAlignment = Alignment.CenterVertically,
+                Column(
+                    Modifier.fillMaxSize().padding(horizontal = 24.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
                 ) {
-                    IconButton(onClick = { playerVm.toggleShuffle() }) {
-                        Icon(Icons.Default.Shuffle, "Shuffle",
-                            tint = if (s.shuffle) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant)
-                    }
-                    IconButton(onClick = { playerVm.previous() }) { Icon(Icons.Default.SkipPrevious, "Previous", Modifier.size(36.dp)) }
-                    FilledIconButton(onClick = playerVm::togglePlay, modifier = Modifier.size(64.dp)) {
-                        if (s.isBuffering && !s.isPlaying) CircularProgressIndicator(Modifier.size(28.dp), strokeWidth = 3.dp)
-                        else Icon(if (s.isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
-                            if (s.isPlaying) "Pause" else "Play", Modifier.size(36.dp))
-                    }
-                    IconButton(onClick = { playerVm.next() }) { Icon(Icons.Default.SkipNext, "Next", Modifier.size(36.dp)) }
-                    IconButton(onClick = { playerVm.cycleRepeat() }) {
-                        Icon(
-                            if (s.repeatMode == Player.REPEAT_MODE_ONE) Icons.Default.RepeatOne else Icons.Default.Repeat,
-                            "Repeat",
-                            tint = if (s.repeatMode != Player.REPEAT_MODE_OFF) MaterialTheme.colorScheme.primary
-                            else MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    }
-                }
-                s.remoteVolume?.let { volume -> RemoteVolume(volume, playerVm::setRemoteVolume) }
-                s.error?.let {
-                    Text("Playback error: $it", color = MaterialTheme.colorScheme.error,
-                        style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(top = 8.dp))
-                }
-                // Lyrics · Cast · Queue, within thumb reach under the playback controls.
-                Row(
-                    // Tighter while casting: the speaker volume row needs the room.
-                    Modifier.fillMaxWidth().padding(top = if (s.remoteVolume != null) 0.dp else 16.dp, bottom = if (s.remoteVolume != null) 0.dp else 8.dp),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    IconButton(onClick = { showLyrics = !showLyrics }, enabled = s.current != null) {
-                        Icon(
-                            Icons.Default.Lyrics, if (showLyrics) "Hide lyrics" else "Lyrics",
-                            tint = if (showLyrics) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    }
-                    IconButton(onClick = { showCast = true }) {
-                        if (castTo != null) Icon(Icons.Default.CastConnected, "Playing on ${castTo!!.name}", tint = MaterialTheme.colorScheme.primary)
-                        else Icon(Icons.Default.Cast, "Play on a speaker", tint = MaterialTheme.colorScheme.onSurfaceVariant)
-                    }
-                    IconButton(onClick = onOpenQueue) {
-                        Icon(Icons.AutoMirrored.Filled.QueueMusic, "Queue", tint = MaterialTheme.colorScheme.onSurfaceVariant)
-                    }
-                }
-                s.upNext.firstOrNull()?.let { next ->
-                    // A slim line rather than a full-height button, so it fits under the big cover.
-                    Text(
-                        "Up next: ${next.item.mediaMetadata.title}", maxLines = 1, overflow = TextOverflow.Ellipsis,
-                        color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.labelLarge,
-                        modifier = Modifier.clip(RoundedCornerShape(8.dp)).clickable(onClick = onOpenQueue)
-                            .padding(horizontal = 12.dp, vertical = 6.dp),
+                    FlipCard(
+                        flipped = showLyrics,
+                        onFlip = onFlip,
+                        front = { Artwork(meta?.artworkUri, Modifier.fillMaxSize(), shape = RoundedCornerShape(12.dp)) },
+                        back = { LyricsPanel(lyrics, s.positionMs, playerVm::seekTo) },
+                        // A little wider than the rest of the page.
+                        modifier = Modifier.bleed(COVER_BLEED).fillMaxWidth().aspectRatio(1f),
                     )
+                    Spacer(Modifier.height(22.dp))
+                    NowPlayingDetails(s, playerVm, showLyrics, { showLyrics = !showLyrics }, { showCast = true }, onOpenQueue, heartOffset = 12.dp + COVER_BLEED)
                 }
             }
         }
     }
 }
 
+/** The cover edge to edge, fading out at the bottom into the blurred backdrop. */
+@Composable
+private fun FadingCover(uri: Any?) {
+    Artwork(
+        uri,
+        Modifier.fillMaxSize()
+            .graphicsLayer(compositingStrategy = CompositingStrategy.Offscreen)
+            .drawWithContent {
+                drawContent()
+                drawRect(
+                    brush = Brush.verticalGradient(0.6f to Color.Black, 1f to Color.Transparent),
+                    blendMode = BlendMode.DstIn,
+                )
+            },
+        shape = RectangleShape,
+    )
+}
+
+/**
+ * Below the cover: title with the heart ([heartOffset] past the right edge), artist and album,
+ * format or speaker, then (at the bottom) seek bar, controls, lyrics / cast / queue and up next.
+ */
+@Composable
+private fun ColumnScope.NowPlayingDetails(
+    s: PlayerUiState,
+    playerVm: PlayerViewModel,
+    showLyrics: Boolean,
+    onToggleLyrics: () -> Unit,
+    onShowCast: () -> Unit,
+    onOpenQueue: () -> Unit,
+    heartOffset: Dp,
+) {
+    val castTo by playerVm.castActive.collectAsState()
+    val favourites by playerVm.favourites.collectAsState()
+    val meta = s.current?.mediaMetadata
+    val trackId = s.current?.mediaId?.let(PlaybackService::trackIdOf)
+    // Title centred; the heart sits at the cover's right edge.
+    Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
+        Text(
+            meta?.title?.toString() ?: "Nothing playing", style = MaterialTheme.typography.headlineSmall,
+            maxLines = 2, overflow = TextOverflow.Ellipsis, textAlign = TextAlign.Center,
+            modifier = Modifier.padding(horizontal = 40.dp),
+        )
+        if (trackId != null) {
+            val favourite = trackId in favourites
+            IconButton(
+                onClick = { playerVm.toggleFavourite(trackId) },
+                // The icon's edge, not the touch target's, lines up with the cover.
+                modifier = Modifier.align(Alignment.CenterEnd).offset(x = heartOffset),
+            ) {
+                Icon(
+                    if (favourite) Icons.Default.Favorite else Icons.Default.FavoriteBorder,
+                    if (favourite) "Remove from Favourites" else "Add to Favourites",
+                    tint = if (favourite) FAVOURITE_RED else MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        }
+    }
+    val track = trackId?.let(LocalNavigation.current.track)
+    ArtistAlbumText(
+        meta?.artist?.toString(), listOf(track?.artist, track?.albumArtist),
+        meta?.albumTitle?.toString(), track?.albumKey,
+        style = MaterialTheme.typography.bodyLarge, textAlign = TextAlign.Center,
+    )
+    val group = castTo
+    if (group != null) {
+        TextButton(onClick = onShowCast) {
+            Icon(Icons.Default.Speaker, null, Modifier.size(18.dp))
+            Spacer(Modifier.width(6.dp))
+            Text("Playing on ${group.name}", style = MaterialTheme.typography.labelLarge)
+        }
+    } else s.formatInfo?.let {
+        Text(it, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary,
+            modifier = Modifier.padding(top = 4.dp))
+    }
+    // Spare height goes here, so the controls below keep the same spacing whether the
+    // title takes one line or two.
+    Spacer(Modifier.weight(1f))
+    SeekBar(s, playerVm::seekTo)
+    Row(
+        Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.SpaceEvenly,
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        IconButton(onClick = { playerVm.toggleShuffle() }) {
+            Icon(Icons.Default.Shuffle, "Shuffle",
+                tint = if (s.shuffle) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+        IconButton(onClick = { playerVm.previous() }) { Icon(Icons.Default.SkipPrevious, "Previous", Modifier.size(36.dp)) }
+        FilledIconButton(onClick = playerVm::togglePlay, modifier = Modifier.size(64.dp)) {
+            if (s.isBuffering && !s.isPlaying) CircularProgressIndicator(Modifier.size(28.dp), strokeWidth = 3.dp)
+            else Icon(if (s.isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
+                if (s.isPlaying) "Pause" else "Play", Modifier.size(36.dp))
+        }
+        IconButton(onClick = { playerVm.next() }) { Icon(Icons.Default.SkipNext, "Next", Modifier.size(36.dp)) }
+        IconButton(onClick = { playerVm.cycleRepeat() }) {
+            Icon(
+                if (s.repeatMode == Player.REPEAT_MODE_ONE) Icons.Default.RepeatOne else Icons.Default.Repeat,
+                "Repeat",
+                tint = if (s.repeatMode != Player.REPEAT_MODE_OFF) MaterialTheme.colorScheme.primary
+                else MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+    }
+    s.remoteVolume?.let { volume -> RemoteVolume(volume, playerVm::setRemoteVolume) }
+    s.error?.let {
+        Text("Playback error: $it", color = MaterialTheme.colorScheme.error,
+            style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(top = 8.dp))
+    }
+    // Lyrics · Cast · Queue, within thumb reach under the playback controls.
+    Row(
+        // Tighter while casting: the speaker volume row needs the room.
+        Modifier.fillMaxWidth().padding(top = if (s.remoteVolume != null) 0.dp else 16.dp, bottom = if (s.remoteVolume != null) 0.dp else 8.dp),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        IconButton(onClick = onToggleLyrics, enabled = s.current != null) {
+            Icon(
+                Icons.Default.Lyrics, if (showLyrics) "Hide lyrics" else "Lyrics",
+                tint = if (showLyrics) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        IconButton(onClick = onShowCast) {
+            if (castTo != null) Icon(Icons.Default.CastConnected, "Playing on ${castTo!!.name}", tint = MaterialTheme.colorScheme.primary)
+            else Icon(Icons.Default.Cast, "Play on a speaker", tint = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+        IconButton(onClick = onOpenQueue) {
+            Icon(Icons.AutoMirrored.Filled.QueueMusic, "Queue", tint = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+    }
+    s.upNext.firstOrNull()?.let { next ->
+        // A slim line rather than a full-height button, so it fits under the big cover.
+        Text(
+            "Up next: ${next.item.mediaMetadata.title}", maxLines = 1, overflow = TextOverflow.Ellipsis,
+            color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.labelLarge,
+            modifier = Modifier.clip(RoundedCornerShape(8.dp)).clickable(onClick = onOpenQueue)
+                .padding(horizontal = 12.dp, vertical = 6.dp),
+        )
+    }
+}
+
+/** How far the title reaches up into the full-width cover's fade. */
+private val FULL_COVER_OVERLAP = 56.dp
 
 /** How far the Now Playing cover reaches past the page margin on each side. */
 private val COVER_BLEED = 10.dp

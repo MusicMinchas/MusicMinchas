@@ -138,6 +138,24 @@ class Settings(context: Context, name: String = "settings") {
         _onlineMetadata.value = enabled
     }
 
+    private val _darkMode = MutableStateFlow(prefs.getBoolean(KEY_DARK_MODE, false))
+    /** Appearance: the black and red theme instead of the light one. */
+    val darkMode: StateFlow<Boolean> = _darkMode.asStateFlow()
+
+    fun setDarkMode(enabled: Boolean) {
+        prefs.edit { putBoolean(KEY_DARK_MODE, enabled) }
+        _darkMode.value = enabled
+    }
+
+    private val _fullScreenCover = MutableStateFlow(prefs.getBoolean(KEY_FULL_COVER, false))
+    /** Appearance: Now Playing's cover across the whole width, up to the top of the screen. */
+    val fullScreenCover: StateFlow<Boolean> = _fullScreenCover.asStateFlow()
+
+    fun setFullScreenCover(enabled: Boolean) {
+        prefs.edit { putBoolean(KEY_FULL_COVER, enabled) }
+        _fullScreenCover.value = enabled
+    }
+
     private companion object {
         const val KEY_SAF = "saf_folders"
         const val KEY_HIDDEN_SCOPES = "hidden_scopes"
@@ -148,6 +166,8 @@ class Settings(context: Context, name: String = "settings") {
         const val KEY_CONCERT_COUNTRY = "concert_country"
         const val KEY_DISCOVER_REFRESHED = "discover_refreshed_at"
         const val KEY_ONLINE = "online_metadata"
+        const val KEY_DARK_MODE = "dark_mode"
+        const val KEY_FULL_COVER = "full_screen_cover"
         const val KEY_SYNC_MODE = "drive_sync_mode"
         const val KEY_LAST_SYNC = "drive_last_sync"
         const val KEY_DRIVE = "drive_connected"
