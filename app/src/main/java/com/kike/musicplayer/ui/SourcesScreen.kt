@@ -171,6 +171,39 @@ fun SourcesScreen(
                 )
                 OutlinedButton(onClick = { vm.retryMetadata() }) { Text("Retry songs with missing info") }
             }
+
+            SyncCard(vm)
+        }
+    }
+}
+
+/** One switch (and a button) instead of importing and syncing in each service's card. */
+@Composable
+private fun SyncCard(vm: LibraryViewModel) {
+    val sync by vm.autoSync.collectAsState()
+    SourceCard(
+        "Sync",
+        "One switch instead of importing and syncing in each card: Last.fm \"Import new\" and loved tracks, then " +
+            "Navidrome's favourites and playlists, for the services that are connected.",
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(
+                "Sync Listening History, Favourites, Playlists and Loved tracks across MusicMinchas and connected " +
+                    "services like Last.fm and Navidrome (if connected) every 24 hours",
+                Modifier.weight(1f),
+                style = MaterialTheme.typography.bodyMedium,
+            )
+            Switch(checked = sync.enabled, onCheckedChange = vm::setAutoSync, modifier = Modifier.padding(start = 8.dp))
+        }
+        if (sync.lastRun > 0) {
+            Text("Last synced ${relativeTime(sync.lastRun)}", style = MaterialTheme.typography.labelMedium)
+            sync.summary?.let {
+                Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+        }
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+            OutlinedButton(onClick = vm::syncEverything, enabled = !sync.running) { Text("Sync everything now") }
+            if (sync.running) CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp)
         }
     }
 }

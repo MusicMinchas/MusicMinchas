@@ -83,6 +83,9 @@ class ServerCollections(
         scope.launch { sync() }
     }
 
+    /** [syncNow], returning when done (the automatic daily sync waits for it). */
+    suspend fun syncAndWait() = sync()
+
     /** Signed out of the server: forget the sync state, so a later sign-in starts afresh. */
     fun forget() {
         prefs.edit { clear() }

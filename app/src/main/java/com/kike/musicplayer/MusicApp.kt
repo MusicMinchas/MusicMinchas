@@ -5,6 +5,7 @@ import coil3.ImageLoader
 import coil3.PlatformContext
 import coil3.SingletonImageLoader
 import coil3.network.okhttp.OkHttpNetworkFetcherFactory
+import com.kike.musicplayer.data.AutoSync
 import com.kike.musicplayer.data.LibraryIndexer
 import com.kike.musicplayer.data.LibraryRepository
 import com.kike.musicplayer.data.Settings
@@ -175,6 +176,9 @@ class AppContainer(app: Application) {
     val scrobbleImporter = ScrobbleImporter(
         lastFm, database.lastFmScrobbles(), database.history(), database.tracks(), database.favourites(), scrobbler, appScope,
     )
+
+    /** Listening history, favourites, playlists and loved tracks synced in one go, daily when switched on. */
+    val autoSync = AutoSync(app, lastFm, scrobbleImporter, subsonic, serverCollections, appScope, "autosync$suffix").also { it.start() }
 
     val library = LibraryRepository(
         dao = database.tracks(),

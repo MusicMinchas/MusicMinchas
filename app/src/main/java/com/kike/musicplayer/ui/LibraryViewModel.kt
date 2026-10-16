@@ -720,6 +720,10 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
         .flatMapLatest { user -> if (user == null) flowOf(null) else importer.counts(user) }
         .stateIn(viewModelScope, SharingStarted.Eagerly, null)
 
+    val autoSync = container.autoSync.state
+    fun setAutoSync(on: Boolean) = container.autoSync.setEnabled(on)
+    fun syncEverything() = container.autoSync.syncNow()
+
     fun importScrobbles(everything: Boolean) = importer.import(everything)
     fun importLoved() = importer.importLoved()
 

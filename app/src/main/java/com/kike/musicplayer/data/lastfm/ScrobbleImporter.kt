@@ -9,6 +9,7 @@ import com.kike.musicplayer.data.db.LastFmScrobbleDao
 import com.kike.musicplayer.data.db.PlayHistory
 import com.kike.musicplayer.data.db.TrackDao
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -46,11 +47,26 @@ class ScrobbleImporter(
 
     fun counts(user: String) = scrobbles.observeCounts(user)
 
-    /** Downloads scrobbles (all of them when [everything], else only those newer than the last import). */
-    fun import(everything: Boolean) {
-        val user = lastFm.state.value.user ?: return
-        if (mutex.isLocked) return
-        scope.launch {
+    /** [import], after whatever import or rematch is running, returning when done (the daily sync). */
+    suspend fun importAndWait(everything: Boolean) {
+        while (mutex.isLocked) delay(WAIT_MS)
+        import(everything)?.join()
+    }
+
+    /** [importLoved], after whatever is running, returning when done. */
+    suspend fun importLovedAndWait() {
+        while (mutex.isLocked) delay(WAIT_MS)
+        importLoved()?.join()
+    }
+
+    /**
+     * Downloads scrobbles (all of them when [everything], else only those newer than the last import).
+     * Returns the running import (null when not connected or one is already running).
+     */
+    fun import(everything: Boolean): Job? {
+        val user = lastFm.state.value.user ?: return null
+        if (mutex.isLocked) return null
+        return scope.launch {
             mutex.withLock {
                 _status.value = ImportStatus(running = true, text = "Connecting to Last.fm…")
                 val result = runCatching {
@@ -98,10 +114,10 @@ class ScrobbleImporter(
      * they were loved. Loves/unloves still waiting to be sent go first, so a song just removed from
      * the favourites doesn't come straight back.
      */
-    fun importLoved() {
-        val user = lastFm.state.value.user ?: return
-        if (mutex.isLocked) return
-        scope.launch {
+    fun importLoved(): Job? {
+        val user = lastFm.state.value.user ?: return null
+        if (mutex.isLocked) return null
+        return scope.launch {
             mutex.withLock {
                 _status.value = ImportStatus(running = true, text = "Downloading loved tracks…", loved = true)
                 val result = runCatching {
@@ -280,6 +296,7 @@ class ScrobbleImporter(
     private companion object {
         const val TAG = "ScrobbleImporter"
         const val PAGE_SIZE = 200
+        const val WAIT_MS = 500L
         const val REQUEST_INTERVAL_MS = 250L
         const val RETRIES = 4
         const val RETRY_DELAY_MS = 3_000L
