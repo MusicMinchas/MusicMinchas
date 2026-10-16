@@ -14,6 +14,7 @@ import com.kike.musicplayer.data.db.getByIds
 import com.kike.musicplayer.data.db.Favourite
 import com.kike.musicplayer.data.db.PlayHistory
 import com.kike.musicplayer.recommend.MixCandidates
+import com.kike.musicplayer.data.lastfm.TrackMatcher
 import com.kike.musicplayer.recommend.SavedMix
 import com.kike.musicplayer.recommend.SavedMixSet
 import kotlinx.coroutines.flow.drop
@@ -605,11 +606,12 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
     fun albumTracks(key: String, genreKey: String? = null): Flow<List<Track>> =
         detail(browse.observeAlbumScopes(key)) { s ->
             if (genreKey == null) browse.observeAlbumTracks(key, s) else browse.observeAlbumTracksInGenre(key, genreKey, s)
-        }.map { it.sortedWith(albumTrackOrder) }
+        }.map { preferOwnCopies(it).sortedWith(albumTrackOrder) }
 
     fun artist(name: String): Flow<ArtistIndex?> = detail(browse.observeArtistScopes(name)) { browse.observeArtist(name, it) }
     fun artistAlbums(name: String): Flow<List<AlbumIndex>> = detail(browse.observeArtistScopes(name)) { browse.observeArtistAlbums(name, it) }
-    fun artistTracks(name: String): Flow<List<Track>> = detail(browse.observeArtistScopes(name)) { browse.observeArtistTracks(name, it) }
+    fun artistTracks(name: String): Flow<List<Track>> =
+        detail(browse.observeArtistScopes(name)) { browse.observeArtistTracks(name, it) }.map(::preferOwnCopies)
     fun artistTop(name: String): Flow<List<TrackPlays>> =
         detail(browse.observeArtistScopes(name)) { browse.observeArtistTop(name, ARTIST_TOP_SONGS, it) }
 
@@ -763,4 +765,17 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
         const val SEARCH_SONGS = 100
         const val PICKER_LIMIT = 500
     }
+}
+
+/**
+ * Each song once on album and artist pages when several sources are shown: the user's own copy
+ * (device, Drive) wherever there is one, Navidrome's only for songs they haven't got (e.g. bonus
+ * tracks). "The same song" as everywhere else: artist and title, notes like "(Remastered)" ignored,
+ * live and demo versions apart. Order is kept.
+ */
+internal fun preferOwnCopies(tracks: List<Track>): List<Track> {
+    if (tracks.none { it.source == Track.SOURCE_SUBSONIC } || tracks.all { it.source == Track.SOURCE_SUBSONIC }) return tracks
+    fun key(t: Track) = TrackMatcher.looseArtist(t.albumArtist ?: t.artist ?: "") + "\u0001" + TrackMatcher.looseTitle(t.title)
+    val own = tracks.filter { it.source != Track.SOURCE_SUBSONIC }.mapTo(HashSet(), ::key)
+    return tracks.filter { it.source != Track.SOURCE_SUBSONIC || key(it) !in own }
 }
