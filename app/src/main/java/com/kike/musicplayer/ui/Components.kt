@@ -71,6 +71,10 @@ import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.PathFillType
 import androidx.compose.material.icons.filled.Folder
 import com.kike.musicplayer.data.db.isRemote
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.material3.FilterChip
+import androidx.compose.foundation.layout.Arrangement
 
 @Composable
 fun Artwork(uri: Any?, modifier: Modifier = Modifier, size: Dp? = null, shape: Shape = RoundedCornerShape(6.dp)) {
@@ -260,6 +264,46 @@ private fun DownloadStatus(track: Track, progress: DownloadProgress?) {
             }
         else -> Icon(sourceIcon(track.source), sourceName(track.source), Modifier.size(16.dp), tint = tint)
     }
+}
+
+/**
+ * On an album or artist page with songs from several sources: All (each song once, the user's own
+ * copy first) or one source's copies, with how many songs each has. Nothing with one source only.
+ */
+@Composable
+fun SourceChips(all: List<Track>, selected: Int?, onSelect: (Int?) -> Unit, modifier: Modifier = Modifier) {
+    val byScope = all.groupingBy { it.scope }.eachCount()
+    if (byScope.size < 2) return
+    Row(
+        modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = 16.dp),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        FilterChip(selected = selected == null, onClick = { onSelect(null) }, label = { Text("All (${preferOwnCopies(all).size})") })
+        for (scope in Track.SCOPES.filter { it in byScope }) {
+            FilterChip(
+                selected = selected == scope,
+                onClick = { onSelect(scope) },
+                label = { Text("${scopeLabel(scope)} (${byScope[scope]})") },
+                leadingIcon = { Icon(scopeIcon(scope), null, Modifier.size(18.dp)) },
+            )
+        }
+    }
+}
+
+/** [all] as [SourceChips] shows it: each song once, or one source's songs (All when that source has none). */
+fun songsFromSource(all: List<Track>, scope: Int?): List<Track> =
+    if (scope == null || all.none { it.scope == scope }) preferOwnCopies(all) else all.filter { it.scope == scope }
+
+fun scopeLabel(scope: Int): String = when (scope) {
+    Track.SCOPE_DRIVE -> "GDrive"
+    Track.SCOPE_SERVER -> "Navidrome"
+    else -> "Local"
+}
+
+fun scopeIcon(scope: Int): ImageVector = when (scope) {
+    Track.SCOPE_DRIVE -> Icons.Default.Cloud
+    Track.SCOPE_SERVER -> SubmarineIcon
+    else -> Icons.Default.Folder
 }
 
 /** Where a song comes from, at a glance: a folder (this device), a cloud (Google Drive), a submarine (Subsonic server). */

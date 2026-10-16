@@ -43,6 +43,9 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.produceState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -72,13 +75,20 @@ fun ArtistScreen(
     val player by playerVm.state.collectAsState()
     val artistOrNull by remember(name) { libraryVm.artist(name) }.collectAsState(null)
     val albums by remember(name) { libraryVm.artistAlbums(name) }.collectAsState(emptyList())
-    val tracks by remember(name) { libraryVm.artistTracks(name) }.collectAsState(emptyList())
-    val topPlays by remember(name) { libraryVm.artistTop(name) }.collectAsState(emptyList())
+    val allTracks by remember(name) { libraryVm.artistTracks(name) }.collectAsState(emptyList())
+    val allTop by remember(name) { libraryVm.artistTop(name) }.collectAsState(emptyList())
+    // Songs from several sources: all of them once (own copy first), or one source's.
+    var source by rememberSaveable(name) { mutableStateOf<Int?>(null) }
+    val tracks = remember(allTracks, source) { songsFromSource(allTracks, source) }
+    val shownIds = remember(tracks) { tracks.mapTo(HashSet()) { it.id } }
+    val shownAlbums = remember(tracks) { tracks.mapTo(HashSet()) { it.indexAlbum } }
+    val topPlays = allTop.filter { it.track.id in shownIds }
     val followed by libraryVm.followedArtists.collectAsState()
     val image by produceState<String?>(null, name) { value = libraryVm.artistImage(name) }
     // Edge to edge: the photo goes under the status bar.
     Box(Modifier.fillMaxSize().padding(bottom = contentPadding.calculateBottomPadding())) {
         val artist = artistOrNull ?: return@Box
+        val albums = albums.filter { it.key in shownAlbums }
         val top = topPlays.map { it.track }
         val playCounts = topPlays.associate { it.track.id to it.plays }
         val listState = rememberLazyListState()
@@ -97,6 +107,7 @@ fun ArtistScreen(
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
+            item { SourceChips(allTracks, source, { source = it }, Modifier.padding(top = 8.dp)) }
             item {
                 Row(
                     Modifier.fillMaxWidth().padding(vertical = 12.dp),

@@ -606,12 +606,12 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
     fun albumTracks(key: String, genreKey: String? = null): Flow<List<Track>> =
         detail(browse.observeAlbumScopes(key)) { s ->
             if (genreKey == null) browse.observeAlbumTracks(key, s) else browse.observeAlbumTracksInGenre(key, genreKey, s)
-        }.map { preferOwnCopies(it).sortedWith(albumTrackOrder) }
+        }.map { it.sortedWith(albumTrackOrder) }
 
     fun artist(name: String): Flow<ArtistIndex?> = detail(browse.observeArtistScopes(name)) { browse.observeArtist(name, it) }
     fun artistAlbums(name: String): Flow<List<AlbumIndex>> = detail(browse.observeArtistScopes(name)) { browse.observeArtistAlbums(name, it) }
     fun artistTracks(name: String): Flow<List<Track>> =
-        detail(browse.observeArtistScopes(name)) { browse.observeArtistTracks(name, it) }.map(::preferOwnCopies)
+        detail(browse.observeArtistScopes(name)) { browse.observeArtistTracks(name, it) }
     fun artistTop(name: String): Flow<List<TrackPlays>> =
         detail(browse.observeArtistScopes(name)) { browse.observeArtistTop(name, ARTIST_TOP_SONGS, it) }
 

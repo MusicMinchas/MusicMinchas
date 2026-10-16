@@ -463,7 +463,10 @@ fun AlbumScreen(
 ) {
     val player by playerVm.state.collectAsState()
     val albumOrNull by remember(albumKey) { libraryVm.album(albumKey) }.collectAsState(null)
-    val tracks by remember(albumKey, genreKey) { libraryVm.albumTracks(albumKey, genreKey) }.collectAsState(emptyList())
+    val allTracks by remember(albumKey, genreKey) { libraryVm.albumTracks(albumKey, genreKey) }.collectAsState(emptyList())
+    // The album in several sources: each song once (own copy first), or one source's copy.
+    var source by rememberSaveable(albumKey) { mutableStateOf<Int?>(null) }
+    val tracks = remember(allTracks, source) { songsFromSource(allTracks, source) }
     val genre by remember(genreKey) { genreKey?.let { libraryVm.genre(it) } ?: flowOf(null) }.collectAsState(null)
     Column(Modifier.fillMaxSize().padding(contentPadding)) {
         TopAppBar(
@@ -499,6 +502,7 @@ fun AlbumScreen(
                     }
                 }
             }
+            item { SourceChips(allTracks, source, { source = it }, Modifier.padding(bottom = 4.dp)) }
             item {
                 PlayShuffleRow(
                     onPlay = { playerVm.playTracks(tracks, 0) },
