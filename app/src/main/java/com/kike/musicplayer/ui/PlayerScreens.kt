@@ -175,6 +175,9 @@ fun NowPlayingScreen(
             BoxWithConstraints(Modifier.fillMaxSize()) {
                 // The cover's bottom colour carries on below it and fades into the page.
                 EdgeColorBackdrop(meta?.artworkUri, coverFraction = maxWidth * FULL_COVER_HEIGHT / maxHeight)
+                // Between the two, a soft blurred copy reaching a little below the cover, so the
+                // picture goes sharp -> blurred -> plain colour without an edge.
+                BlurredCoverTail(meta?.artworkUri, Modifier.fillMaxWidth().height(maxWidth * FULL_COVER_HEIGHT * 1.25f))
                 val top = contentPadding.calculateTopPadding()
                 // Where the title is in the normal layout: close bar, cover (page width plus the bleed), gap.
                 val titleTop = top + CLOSE_BAR + maxWidth - 48.dp + COVER_BLEED * 2 + TITLE_GAP
@@ -241,13 +244,42 @@ private fun FadingCover(uri: Any?) {
             .drawWithContent {
                 drawContent()
                 drawRect(
-                    brush = Brush.verticalGradient(0.7f to Color.Black, 1f to Color.Transparent),
+                    brush = Brush.verticalGradient(*smoothFadeOut(from = 0.62f)),
                     blendMode = BlendMode.DstIn,
                 )
             },
         shape = RectangleShape,
     )
 }
+
+/** The cover heavily blurred, fading out smoothly towards its bottom. */
+@Composable
+private fun BlurredCoverTail(uri: Any?, modifier: Modifier) {
+    if (uri == null) return
+    AsyncImage(
+        model = uri,
+        contentDescription = null,
+        contentScale = ContentScale.Crop,
+        alignment = Alignment.TopCenter,
+        modifier = modifier
+            .blur(40.dp)
+            .graphicsLayer(compositingStrategy = CompositingStrategy.Offscreen)
+            .drawWithContent {
+                drawContent()
+                drawRect(brush = Brush.verticalGradient(*smoothFadeOut(from = 0.55f)), blendMode = BlendMode.DstIn)
+            },
+    )
+}
+
+/**
+ * Mask stops: opaque down to [from], then fading to nothing along an S-curve (smoothstep), which
+ * leaves no visible line where a straight fade starts or ends.
+ */
+private fun smoothFadeOut(from: Float): Array<Pair<Float, Color>> =
+    (listOf(0f to Color.Black) + (0..10).map { i ->
+        val t = i / 10f
+        (from + (1f - from) * t) to Color.Black.copy(alpha = 1f - t * t * (3f - 2f * t))
+    }).toTypedArray()
 
 /**
  * Behind the full-width cover: the colour along the cover's bottom edge, solid down to the cover's
