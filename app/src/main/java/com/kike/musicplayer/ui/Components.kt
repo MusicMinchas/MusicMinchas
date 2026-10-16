@@ -268,8 +268,8 @@ private fun DownloadStatus(track: Track, progress: DownloadProgress?) {
 
 /**
  * On an album or artist page with songs from several sources: Merged (each song once, the user's
- * own copy first, the default), All (every copy from every source) or one source's copies, with how
- * many songs each has. Nothing with one source only.
+ * own copy first, the default) or one source's copies, with how many songs each has. Nothing with
+ * one source only.
  */
 @Composable
 fun SourceChips(all: List<Track>, selected: Int?, onSelect: (Int?) -> Unit, modifier: Modifier = Modifier) {
@@ -280,7 +280,6 @@ fun SourceChips(all: List<Track>, selected: Int?, onSelect: (Int?) -> Unit, modi
         horizontalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         FilterChip(selected = selected == null, onClick = { onSelect(null) }, label = { Text("Merged (${preferOwnCopies(all).size})") })
-        FilterChip(selected = selected == ALL_SOURCES, onClick = { onSelect(ALL_SOURCES) }, label = { Text("All (${all.size})") })
         for (scope in Track.SCOPES.filter { it in byScope }) {
             FilterChip(
                 selected = selected == scope,
@@ -292,12 +291,8 @@ fun SourceChips(all: List<Track>, selected: Int?, onSelect: (Int?) -> Unit, modi
     }
 }
 
-/** [SourceChips]' "All": every copy. */
-const val ALL_SOURCES = -1
-
-/** [all] as [SourceChips] shows it: merged (null), every copy ([ALL_SOURCES]) or one source's (merged when it has none). */
+/** [all] as [SourceChips] shows it: merged (null) or one source's songs (merged when it has none). */
 fun songsFromSource(all: List<Track>, scope: Int?): List<Track> = when {
-    scope == ALL_SOURCES -> all
     scope == null || all.none { it.scope == scope } -> preferOwnCopies(all)
     else -> all.filter { it.scope == scope }
 }
