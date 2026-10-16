@@ -33,8 +33,8 @@ android {
         applicationId = "com.kike.musicplayer"
         minSdk = 30
         targetSdk = 36
-        versionCode = 59
-        versionName = "1.29-beta11"
+        versionCode = 60
+        versionName = "1.29-beta12"
         buildConfigField("String", "LASTFM_API_KEY", "\"${lastFmProps.getProperty("apiKey", "")}\"")
         buildConfigField("String", "LASTFM_SECRET", "\"${lastFmProps.getProperty("sharedSecret", "")}\"")
         buildConfigField("String", "TICKETMASTER_KEY", "\"${ticketmasterProps.getProperty("apiKey", "")}\"")
