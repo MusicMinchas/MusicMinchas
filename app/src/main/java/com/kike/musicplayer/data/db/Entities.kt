@@ -116,6 +116,16 @@ data class Track(
 /** Streamed from Google Drive or the server unless downloaded; can be downloaded to the phone. */
 val Track.isRemote: Boolean get() = source == Track.SOURCE_DRIVE || source == Track.SOURCE_SUBSONIC
 
+/**
+ * Up to [max] covers of these songs, one per album, in list order. Each file has its own extracted
+ * art URI, so songs of one album would otherwise fill a cover strip; songs without an album tag
+ * count on their own.
+ */
+fun List<Track>.albumCovers(max: Int = 4): List<String> =
+    asSequence().filter { it.artworkUri != null }
+        .distinctBy { if (it.album.isNullOrBlank()) it.artworkUri else it.albumKey }
+        .mapNotNull { it.artworkUri }.distinct().take(max).toList()
+
 @Entity(tableName = "queue_items")
 data class QueueItem(
     @PrimaryKey val position: Int,

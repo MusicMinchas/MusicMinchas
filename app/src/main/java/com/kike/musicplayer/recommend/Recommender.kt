@@ -3,6 +3,7 @@ package com.kike.musicplayer.recommend
 import com.kike.musicplayer.data.db.ArtistInfo
 import com.kike.musicplayer.data.db.PlayHistory
 import com.kike.musicplayer.data.db.Track
+import com.kike.musicplayer.data.db.albumCovers
 import com.kike.musicplayer.data.lastfm.TrackMatcher
 import java.util.Locale
 import java.util.Random
@@ -25,7 +26,7 @@ fun effectiveGenreKey(t: Track, artistTags: Map<String, List<String>>): String? 
 
 /** A generated playlist on the Home tab. [id] is stable for a given mix kind and seed (artist, genre...). */
 data class Mix(val id: String, val title: String, val subtitle: String, val tracks: List<Track>) {
-    val covers: List<String> get() = tracks.mapNotNull { it.artworkUri }.distinct().take(4)
+    val covers: List<String> get() = tracks.albumCovers()
 }
 
 /**
