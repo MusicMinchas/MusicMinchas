@@ -87,7 +87,12 @@ fun HomeTab(
                     PlaylistTile(
                         title = "Recently Played",
                         subtitle = if (recent.isEmpty()) "Nothing played yet" else "${recent.size} songs",
-                        covers = recent.mapNotNull { it.artworkUri }.distinct().take(4),
+                        // One cover per album: each file has its own extracted art URI, so songs of
+                        // the same album would otherwise fill the strip. Songs without an album tag
+                        // count on their own.
+                        covers = recent.filter { it.artworkUri != null }
+                            .distinctBy { if (it.album.isNullOrBlank()) it.artworkUri else it.albumKey }
+                            .mapNotNull { it.artworkUri }.distinct().take(4),
                         onOpen = onOpenRecentTracks,
                         onPlay = if (recent.isEmpty()) null else ({ playerVm.playTracks(recent, 0) }),
                     )
