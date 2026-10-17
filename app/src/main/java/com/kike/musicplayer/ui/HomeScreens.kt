@@ -49,6 +49,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.kike.musicplayer.data.db.Track
+import com.kike.musicplayer.data.db.albumCovers
 import com.kike.musicplayer.recommend.Mix
 import java.time.Month
 import java.time.format.TextStyle
@@ -87,12 +88,8 @@ fun HomeTab(
                     PlaylistTile(
                         title = "Recently Played",
                         subtitle = if (recent.isEmpty()) "Nothing played yet" else "${recent.size} songs",
-                        // One cover per album: each file has its own extracted art URI, so songs of
-                        // the same album would otherwise fill the strip. Songs without an album tag
-                        // count on their own.
-                        covers = recent.filter { it.artworkUri != null }
-                            .distinctBy { if (it.album.isNullOrBlank()) it.artworkUri else it.albumKey }
-                            .mapNotNull { it.artworkUri }.distinct().take(4),
+                        // One cover per album (see albumCovers).
+                        covers = recent.albumCovers(),
                         onOpen = onOpenRecentTracks,
                         onPlay = if (recent.isEmpty()) null else ({ playerVm.playTracks(recent, 0) }),
                     )
@@ -284,7 +281,7 @@ internal fun CollectionHeader(title: String, tracks: List<Track>, subtitle: Stri
 @Composable
 internal fun CoverMosaic(tracks: List<Track>, modifier: Modifier = Modifier) {
     Box(modifier.clip(RoundedCornerShape(12.dp))) {
-        val covers = tracks.mapNotNull { it.artworkUri }.distinct().take(4)
+        val covers = tracks.albumCovers()
         if (covers.size >= 4) {
             Column {
                 for (rowCovers in covers.chunked(2)) {
