@@ -152,7 +152,7 @@ class DriveAuthInterceptor(private val auth: DriveAuth) : Interceptor {
         val response = chain.proceed(request.newBuilder().header("Authorization", "Bearer $token").build())
         if (response.code != 401) return response
         response.close()
-        val fresh = auth.tokenBlocking(forceRefresh = true) ?: return chain.proceed(request)
+        val fresh = auth.tokenBlocking(failedToken = token) ?: return chain.proceed(request)
         return chain.proceed(request.newBuilder().header("Authorization", "Bearer $fresh").build())
     }
 }

@@ -79,8 +79,8 @@ interface TrackDao {
     suspend fun getByIdsChunk(ids: List<String>): List<Track>
 
     /** Every artist / album artist spelling in the library (for matching scrobbles by artist). */
-    @Query("SELECT DISTINCT artist, albumArtist FROM tracks")
-    suspend fun artistPairs(): List<ArtistPair>
+    @Query("SELECT DISTINCT artist FROM tracks WHERE artist IS NOT NULL UNION SELECT DISTINCT albumArtist FROM tracks WHERE albumArtist IS NOT NULL")
+    suspend fun allArtistSpellings(): List<String>
 
     @Query("SELECT * FROM tracks WHERE artist IN (:names) OR albumArtist IN (:names)")
     suspend fun byArtistNamesChunk(names: List<String>): List<Track>
@@ -162,8 +162,6 @@ suspend fun TrackDao.byArtistNames(names: Collection<String>): List<Track> =
 
 suspend fun TrackDao.byRecordingIds(ids: Collection<String>): List<Track> =
     ids.chunked(500).flatMap { byRecordingIdsChunk(it) }
-
-data class ArtistPair(val artist: String?, val albumArtist: String?)
 
 data class SourceCount(val source: String, val count: Int)
 

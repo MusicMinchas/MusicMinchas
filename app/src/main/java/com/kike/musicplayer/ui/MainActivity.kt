@@ -33,7 +33,10 @@ import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.IntentSenderRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.isImeVisible
 import androidx.compose.material3.Scaffold
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
@@ -105,6 +108,7 @@ class MainActivity : ComponentActivity() {
         if (uri.scheme == "musicminchas" && uri.host == "lastfm") libraryVm.finishLastFmConnect(uri.getQueryParameter("token"))
     }
 
+    @OptIn(ExperimentalLayoutApi::class)
     @Composable
     private fun App() {
         val backStack = remember { mutableStateListOf<Screen>(Screen.Library) }
@@ -116,7 +120,7 @@ class MainActivity : ComponentActivity() {
         fun pop() {
             if (backStack.size > 1) savedStates.removeState(backStack.removeAt(backStack.lastIndex).toString())
         }
-        BackHandler(enabled = backStack.size > 1) { pop() }
+        BackHandler(enabled = backStack.size > 1 && !WindowInsets.isImeVisible) { pop() }
 
         val notificationPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) {}
         val folderPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->

@@ -38,6 +38,7 @@ class AutoSync(
     private val navidrome: SubsonicAccount,
     private val collections: ServerCollections,
     private val scope: CoroutineScope,
+    private val isCasting: () -> Boolean = { false },
     prefsName: String = "autosync",
 ) {
     private val prefs = context.getSharedPreferences(prefsName, Context.MODE_PRIVATE)
@@ -55,7 +56,7 @@ class AutoSync(
     fun start() {
         scope.launch {
             while (true) {
-                if (due()) runAll()
+                if (due() && !isCasting()) runAll()
                 delay(CHECK_EVERY_MS)
             }
         }

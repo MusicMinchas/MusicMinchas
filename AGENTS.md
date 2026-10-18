@@ -7,7 +7,7 @@ Parent workspace notes: @[Shared Android Dev Workspace](../AGENTS.md)
 
 - **Path:** `C:\Users\kike\dev\MusicPlayer` (local git repo, repo-local identity `kike` / `kikeprojo@gmail.com`, nothing pushed).
 - **Package:** `com.kike.musicplayer`
-- **Current Release:** `1.31.2` (`versionCode = 77`, Room DB `v22`, `minSdk = 30`, `targetSdk = 36`, `compileSdk = 37`). Merged to `master`, tag `v1.31.2`.
+- **Current Release:** `1.31.3` (`versionCode = 78`, Room DB `v23`, `minSdk = 30`, `targetSdk = 36`, `compileSdk = 37`). Merged to `master`, tag `v1.31.3`.
 - **Stack:** Kotlin 2.4.20, Jetpack Compose, Media3 1.11.1 `MediaLibraryService` (Android Auto browse tree), Room 2.8.5 via KSP 2.3.12 + Paging 3 (`paging-compose 3.3.6`, `room-paging`), Retrofit 3 + Moshi (reflection), Coil 3, `play-services-auth` 22 `AuthorizationClient` (`drive.readonly` + `email`), `reorderable` 3.1.0, AGP 9.4.1, Gradle 9.8.
 - **Shared Toolchain & Environment:**
   - `JAVA_HOME`: Android Studio's bundled `jbr`
@@ -111,8 +111,16 @@ Started 2026-10-08 from user-pasted spec. NEW app, explicitly independent of Son
     - Android Auto covers for `file://` (skipped for now)
     - Background `WorkManager` for daily Sync (offered)
     - Swipeable year-end Replay story (idea 7, TODO later)
-    - Last.fm bulk import remaining parts: parts 03, 04, 06, 05 A/B done; pending part 05 C2 (start 11 Oct 15:59 local, expires 25 Oct), D (13 Oct 01:59), E (14 Oct 01:59), F (631 rows) + part 16 later (750/UTC day cap, keep <=740, 3-min steps backwards from start).
+    - Last.fm bulk import remaining parts: parts 01–06, 16, and all `missing\` sub-batches (incl. 05 F + 16 missing merged, 636 rows at start `17 Oct 01:59` local) are DONE (Last.fm total `15,376`; Oct 15 UTC = 644, Oct 16 UTC = 722). Remaining main files (`2,500` rows each): `part 07.csv`–`part 11.csv` are pure iTunes library plays; `part 12.csv` (from row ~1087 onwards) through `part 15.csv` contain Apple Music Export rows (`converted_history_2026-10-01.json`, note UTF-8 BOM in CSVs) which will be imported last after fixing wrong Artist/Album/Album Artist via exact track name search (deduplicated across repeated rows).
 - 2026-10-17 RELEASE 1.31 (`93a0b78` merge, tag `v1.31`, `versionCode = 75`, DB v22; done with Claude Code): Drive sync retries, replaced covers, own titles over MusicBrainz.
 - 2026-10-17 (first Antigravity session) branch `feature/recent-tile-distinct-covers`:
   - 1.31.1 (`47d00ae`, code 76): Home Recently Played tile showed the same album 4x — `artworkUri` is a per-file extracted `file://`, so `distinct()` on URIs never collapsed an album.
   - 1.31.2 (code 77): shared `List<Track>.albumCovers(max = 4)` in `Entities.kt` (one cover per `albumKey`, untagged-album songs count on their own) used by the Home tile, `CoverMosaic` (all `CollectionCard`s, `CollectionHeader`, user playlist rows) and `Mix.covers`. Tile fix verified on device.
+- 2026-10-18 RELEASE 1.31.3 (`versionCode = 78`, Room DB `v23`, tag `v1.31.3`, `releases/MusicMinchas-1.31.3.apk`, installed):
+  - Sonos cast + Google Drive + Sync stability (`fix/cast-drive-sync-stability`):
+    1. `DriveAuth.tokenBlocking(failedToken)` caches the OAuth token in memory and serializes refreshes inside `synchronized(this)`, preventing concurrent 401 `clearToken` stampedes during cast playback + sync.
+    2. `LibraryIndexer`: incremental `refreshSummariesFor(albums, artists, genres)` updates only the dirty keys via `index_dirty` (`oldAlbum`, `oldArtist`, `oldGenre`, DB migration `22 -> 23`) instead of running `DELETE FROM album_index` + full 216k-track rebuild on small syncs.
+    3. `ScrobbleImporter` + `TrackMatcher`: `rematchForNewTracks(addedTrackIds)` only matches unmatched scrobbles against newly added artists instead of rescanning all 16k+ scrobbles on every library count change.
+    4. `TrackServer` (`sonos/`): retries transient upstream HTTP/IO failures (401 token refresh, 5xx, timeouts) with backoff before failing Sonos range requests, and skips speculative next-track prefetch while the current track's initial blocks are still being served.
+    5. `PlaybackService` + `AutoSync`: `isCastingActively()` defers background auto-sync while actively casting to Sonos.
+  - Search & Keyboard Back navigation (`LibraryScreens.kt`, `PlaylistScreens.kt`, `MainActivity.kt`): gated `BackHandler` with `!WindowInsets.isImeVisible` so swiping Back while typing dismisses the keyboard first and keeps search results on screen; wrapped library tabs in `rememberSaveableStateHolder()`.

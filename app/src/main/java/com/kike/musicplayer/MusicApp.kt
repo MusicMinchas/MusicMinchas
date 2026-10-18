@@ -141,9 +141,12 @@ class AppContainer(app: Application) {
 
     val enricher = MetadataEnricher(app, database.tracks(), settings, driveAuth, driveScanHttp, database.artistInfo(), musicBrainz, coverArt)
 
+    val castManager = CastManager(app, appScope)
+    private val isCasting = { castManager.active.value != null }
+
     /** Subsonic / Navidrome server sign-in. */
     val subsonic = SubsonicAccount(app, SubsonicClient(baseHttp, moshi), "subsonic$suffix")
-    val serverLibrary = SubsonicLibrary(subsonic, database, settings, appScope)
+    val serverLibrary = SubsonicLibrary(subsonic, database, settings, appScope, isCasting)
     /** Signed URLs for server songs and covers, made when they're opened. */
     val subsonicUrls = SubsonicUrls(subsonic)
     /** Plays reported to the server, as the user chose (off by default). */
@@ -157,7 +160,6 @@ class AppContainer(app: Application) {
         driveHttp.newBuilder().readTimeout(10, TimeUnit.MINUTES).build(),
         subsonicUrls,
     )
-    val castManager = CastManager(app, appScope)
 
     val downloader = Downloader(app, database.tracks(), driveHttp, subsonicUrls, appScope).also { it.verify() }
 
@@ -180,7 +182,7 @@ class AppContainer(app: Application) {
     )
 
     /** Listening history, favourites, playlists and loved tracks synced in one go, daily when switched on. */
-    val autoSync = AutoSync(app, lastFm, scrobbleImporter, subsonic, serverCollections, appScope, "autosync$suffix").also { it.start() }
+    val autoSync = AutoSync(app, lastFm, scrobbleImporter, subsonic, serverCollections, appScope, isCasting, "autosync$suffix").also { it.start() }
 
     val library = LibraryRepository(
         dao = database.tracks(),
@@ -192,6 +194,7 @@ class AppContainer(app: Application) {
         replacements = database.replacements(),
         downloader = downloader,
         scope = appScope,
+        isCasting = isCasting,
     )
 
     private companion object {
