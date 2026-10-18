@@ -102,7 +102,13 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.kike.musicplayer.data.db.Track
 
-@OptIn(ExperimentalMaterial3Api::class)
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.isImeVisible
+import androidx.compose.runtime.saveable.rememberSaveableStateHolder
+import androidx.compose.ui.platform.LocalFocusManager
+
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
 fun LibraryScreen(
     libraryVm: LibraryViewModel,
@@ -132,10 +138,16 @@ fun LibraryScreen(
     val progress by libraryVm.metadataProgress.collectAsState()
     val player by playerVm.state.collectAsState()
     var tab by rememberSaveable { mutableIntStateOf(0) }
+    val tabStates = rememberSaveableStateHolder()
     // Search filters; none selected means all three kinds.
     var filters by rememberSaveable { mutableStateOf(setOf<String>()) }
-    // With a search typed, Back clears it instead of leaving the app.
-    BackHandler(enabled = query.isNotEmpty()) { libraryVm.setQuery("") }
+    val focusManager = LocalFocusManager.current
+    // While the keyboard is up, let the system Back gesture dismiss the keyboard first so the full
+    // list of search results can be seen; a second Back (with the keyboard down) clears the search.
+    BackHandler(enabled = query.isNotEmpty() && !WindowInsets.isImeVisible) {
+        libraryVm.setQuery("")
+        focusManager.clearFocus()
+    }
 
     Column(Modifier.fillMaxSize().padding(contentPadding)) {
         TopAppBar(
@@ -189,21 +201,23 @@ fun LibraryScreen(
             EmptyLibrary(onOpenMusicSources)
             return@Column
         }
-        when (LIBRARY_TABS[tab]) {
-            "Home" -> HomeTab(
-                libraryVm, playerVm, onOpenReplay, onOpenMostPlayed, onOpenFavourites, onOpenRecentTracks,
-                onOpenMix, onOpenMixes, onOpenRecentAlbums, onOpenAddedAlbums, onOpenAlbum,
-            )
-            "Discover" -> DiscoverTab(libraryVm, onOpenArtist, onOpenAlbum, onOpenFollowing)
-            "Albums" -> AlbumsTab(libraryVm, onOpenAlbum)
-            "Artists" -> ArtistsTab(libraryVm, onOpenArtist)
-            "Genres" -> GenresTab(libraryVm.genreList.collectAsState().value, onOpenGenre)
-            "Songs" -> SongsTab(libraryVm, playerVm)
-            "Playlists" -> PlaylistsTab(
-                playlists, libraryVm.userPlaylists.collectAsState().value, playerVm,
-                onOpenRecentTracks, onOpenRecentAlbums, onOpenAddedAlbums, onOpenMostPlayed, onOpenFavourites, onNewPlaylist, onOpenPlaylist,
-                libraryVm::deletePlaylist, libraryVm::renamePlaylist,
-            )
+        tabStates.SaveableStateProvider(LIBRARY_TABS[tab]) {
+            when (LIBRARY_TABS[tab]) {
+                "Home" -> HomeTab(
+                    libraryVm, playerVm, onOpenReplay, onOpenMostPlayed, onOpenFavourites, onOpenRecentTracks,
+                    onOpenMix, onOpenMixes, onOpenRecentAlbums, onOpenAddedAlbums, onOpenAlbum,
+                )
+                "Discover" -> DiscoverTab(libraryVm, onOpenArtist, onOpenAlbum, onOpenFollowing)
+                "Albums" -> AlbumsTab(libraryVm, onOpenAlbum)
+                "Artists" -> ArtistsTab(libraryVm, onOpenArtist)
+                "Genres" -> GenresTab(libraryVm.genreList.collectAsState().value, onOpenGenre)
+                "Songs" -> SongsTab(libraryVm, playerVm)
+                "Playlists" -> PlaylistsTab(
+                    playlists, libraryVm.userPlaylists.collectAsState().value, playerVm,
+                    onOpenRecentTracks, onOpenRecentAlbums, onOpenAddedAlbums, onOpenMostPlayed, onOpenFavourites, onNewPlaylist, onOpenPlaylist,
+                    libraryVm::deletePlaylist, libraryVm::renamePlaylist,
+                )
+            }
         }
     }
 }

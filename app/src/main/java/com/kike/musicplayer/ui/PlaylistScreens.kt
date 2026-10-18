@@ -59,6 +59,11 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.unit.dp
+import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.isImeVisible
+import androidx.compose.ui.platform.LocalFocusManager
 import com.kike.musicplayer.data.db.Track
 
 private const val BY_SONG = "Songs"
@@ -72,7 +77,7 @@ private const val SEARCH_DELAY_MS = 150L
  * check button asks for a name and creates the playlist, or appends to [existing]. Songs already in
  * [existing] show ticked and can't be changed here.
  */
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
 fun NewPlaylistScreen(
     libraryVm: LibraryViewModel,
@@ -86,6 +91,11 @@ fun NewPlaylistScreen(
     // Selected track ids, in the order they were ticked.
     val selected = remember { mutableStateListOf<String>() }
     var naming by remember { mutableStateOf(false) }
+    val focusManager = LocalFocusManager.current
+    BackHandler(enabled = query.isNotEmpty() && !WindowInsets.isImeVisible) {
+        query = ""
+        focusManager.clearFocus()
+    }
 
     // Every song page by page; with a search, the matches from the database.
     val allSongs = libraryVm.songPages.collectAsLazyPagingItems()
