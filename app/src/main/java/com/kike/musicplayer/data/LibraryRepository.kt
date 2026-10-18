@@ -36,6 +36,7 @@ class LibraryRepository(
     private val replacements: ReplacementDao,
     private val downloader: Downloader,
     private val scope: CoroutineScope,
+    private val isCasting: () -> Boolean = { false },
 ) {
     val pendingMetadata: Flow<Int> = dao.observePendingCount()
     val unplayableCount: Flow<Int> = dao.observeUnplayableCount()
@@ -57,7 +58,7 @@ class LibraryRepository(
         refreshFolders()
         // With no Drive folders chosen yet, leave existing Drive rows alone (they keep their scanned
         // tags); the first folder the user picks prunes everything outside it.
-        if (driveAuth.account.value != null && settings.driveFolders.value.isNotEmpty() && driveSyncDue()) refreshDrive()
+        if (!isCasting() && driveAuth.account.value != null && settings.driveFolders.value.isNotEmpty() && driveSyncDue()) refreshDrive()
     }
 
     /** Whether the start-up sync should list Drive again, per the user's sync setting. */
@@ -182,8 +183,9 @@ class LibraryRepository(
                             )
                         })
                     }
-                    dao.upsertAll(merged)
-                    dao.delete(removedIds)
+                    val toUpsert = merged.filter { it != existing[it.id] }
+                    if (toUpsert.isNotEmpty()) dao.upsertAll(toUpsert)
+                    if (removedIds.isNotEmpty()) dao.delete(removedIds)
                     if (redownload) downloader.resume()
                 }
                 _lastError.value = null

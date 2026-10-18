@@ -63,10 +63,13 @@ class TrackServer(
         Log.i(TAG, "Serving on port ${socket.localPort}")
     }
 
+    private val cachedTracks = java.util.concurrent.ConcurrentHashMap<String, Track>()
+
     @Synchronized
     fun stop() {
         runCatching { server?.close() }
         server = null
+        cachedTracks.clear()
     }
 
     /** Base URL ("http://192.168.0.41:8765") reachable from the speakers, or null when not on a LAN. */
@@ -81,11 +84,20 @@ class TrackServer(
     }
 
     /** URL Sonos plays for [track]. [entryId] identifies the queue entry, so the player can map what Sonos plays back to it. */
-    fun trackUrl(base: String, entryId: Long, track: Track): String =
-        "$base/t/$token/$entryId/${encode(track.id)}.${extensionOf(track)}"
+    fun trackUrl(base: String, entryId: Long, track: Track): String {
+        cachedTracks[track.id] = track
+        return "$base/t/$token/$entryId/${encode(track.id)}.${extensionOf(track)}"
+    }
 
-    fun artUrl(base: String, track: Track): String? =
-        track.artworkUri?.let { "$base/a/$token/${encode(track.id)}" }
+    fun artUrl(base: String, track: Track): String? {
+        cachedTracks[track.id] = track
+        return track.artworkUri?.let { "$base/a/$token/${encode(track.id)}" }
+    }
+
+    private fun trackOf(trackId: String?): Track? {
+        val id = trackId ?: return null
+        return cachedTracks[id] ?: runBlocking { dao.get(id) }?.also { cachedTracks[id] = it }
+    }
 
     /** The queue entry ID in a URL made by [trackUrl], if it is one of ours. */
     fun entryIdOf(url: String?): Long? {
@@ -121,7 +133,7 @@ class TrackServer(
     }
 
     private fun serveTrack(out: OutputStream, method: String, trackId: String?, range: String?) {
-        val track = trackId?.let { runBlocking { dao.get(it) } } ?: return respondStatus(out, 404)
+        val track = trackOf(trackId) ?: return respondStatus(out, 404)
         val mime = mimeOf(track)
         // Drive and server songs not on the phone are relayed from where they live.
         val remote = when {
@@ -137,14 +149,15 @@ class TrackServer(
             val builder = Request.Builder().url(remote)
             // HEAD: ask Drive for one byte, which still reports the total size in Content-Range.
             if (method == "HEAD") builder.header("Range", "bytes=0-0") else range?.let { builder.header("Range", it) }
-            driveHttp.newCall(builder.build()).execute().use { response ->
-                if (response.code != 200 && response.code != 206) return respondStatus(out, 502)
-                val total = response.header("Content-Range")?.substringAfter('/')?.toLongOrNull()
+            val request = builder.build()
+            val response = executeRemote(request, ok200 = true) ?: return respondStatus(out, 502)
+            response.use { res ->
+                val total = res.header("Content-Range")?.substringAfter('/')?.toLongOrNull()
                 if (method == "HEAD") {
                     return writeHead(out, 200, mime, total ?: track.sizeBytes, null)
                 }
-                writeHead(out, response.code, mime, response.body.contentLength().takeIf { it >= 0 }, response.header("Content-Range"))
-                copy(response.body.byteStream(), out)
+                writeHead(out, res.code, mime, res.body.contentLength().takeIf { it >= 0 }, res.header("Content-Range"))
+                copy(res.body.byteStream(), out)
             }
         } else {
             val afd = context.contentResolver.openAssetFileDescriptor(Uri.parse(track.localUri ?: track.uri), "r")
@@ -202,7 +215,11 @@ class TrackServer(
      */
     fun prefetch(trackIds: List<String>) {
         Thread {
-            val tracks = runBlocking { dao.getByIds(trackIds.toSet()) }
+            val missing = trackIds.filter { !cachedTracks.containsKey(it) }.toSet()
+            if (missing.isNotEmpty()) {
+                runBlocking { dao.getByIds(missing) }.forEach { cachedTracks[it.id] = it }
+            }
+            val tracks = trackIds.mapNotNull { cachedTracks[it] }
             for (track in tracks) {
                 if (track.localUri != null) continue
                 val remote = when (track.source) {
@@ -229,11 +246,31 @@ class TrackServer(
     /** Block [index] of the remote file and the file's total size, or null if it can't be fetched. */
     private fun fetchBlock(remote: String, index: Long): Pair<ByteArray, Long>? {
         val request = Request.Builder().url(remote).header("Range", "bytes=${index * BLOCK}-${(index + 1) * BLOCK - 1}").build()
-        return driveHttp.newCall(request).execute().use { response ->
-            if (response.code != 206) return null
-            val total = response.header("Content-Range")?.substringAfter('/')?.toLongOrNull() ?: return null
-            response.body.bytes() to total
+        val response = executeRemote(request, ok200 = false) ?: return null
+        return response.use { res ->
+            val total = res.header("Content-Range")?.substringAfter('/')?.toLongOrNull() ?: return null
+            runCatching { res.body.bytes() to total }.getOrNull()
         }
+    }
+
+    /**
+     * Runs a remote track request with short retries on network errors or non-206 (or non-200 when
+     * [ok200] is true) responses, so a momentary Drive glitch or token refresh doesn't make Sonos
+     * drop the current track and skip ahead.
+     */
+    private fun executeRemote(request: Request, ok200: Boolean): okhttp3.Response? {
+        for (attempt in 0 until REMOTE_ATTEMPTS) {
+            if (attempt > 0) runCatching { Thread.sleep(RETRY_DELAY_MS * attempt) }
+            val res = runCatching { driveHttp.newCall(request).execute() }
+                .onFailure { Log.w(TAG, "Remote request failed (attempt ${attempt + 1}): $it") }
+                .getOrNull()
+            if (res != null && (res.code == 206 || (ok200 && res.code == 200))) return res
+            if (res != null) {
+                Log.w(TAG, "Remote request returned HTTP ${res.code} (attempt ${attempt + 1})")
+                res.close()
+            }
+        }
+        return null
     }
 
     private val blocks = BlockCache(MAX_BLOCKS)
@@ -250,7 +287,7 @@ class TrackServer(
     }
 
     private fun serveArt(out: OutputStream, method: String, trackId: String?) {
-        val art = trackId?.let { runBlocking { dao.get(it) } }?.artworkUri ?: return respondStatus(out, 404)
+        val art = trackOf(trackId)?.artworkUri ?: return respondStatus(out, 404)
         val bytes = if (art.startsWith("file:")) {
             File(Uri.parse(art).path ?: return respondStatus(out, 404)).takeIf { it.exists() }?.readBytes()
         } else {
@@ -309,6 +346,8 @@ class TrackServer(
         const val BLOCK = 512 * 1024L
         /** 8 MB at most: a few files' starts and ends. */
         const val MAX_BLOCKS = 16
+        const val REMOTE_ATTEMPTS = 3
+        const val RETRY_DELAY_MS = 500L
         val CLOSED_RANGE = Regex("""bytes=(\d+)-(\d+)""")
         val OPEN_RANGE = Regex("""bytes=(\d+)-""")
 

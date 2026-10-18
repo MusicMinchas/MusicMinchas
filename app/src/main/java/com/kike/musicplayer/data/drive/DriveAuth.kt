@@ -62,14 +62,18 @@ class DriveAuth(context: Context, private val settings: Settings) {
     /**
      * A valid access token, blocking. For background threads only (OkHttp, metadata extraction).
      * Play services refreshes it silently because the user already granted the scope.
+     *
+     * When [failedToken] is given (after a 401), only refreshes if [failedToken] is still the
+     * current token; if another thread already refreshed it, returns the new token directly.
      */
-    fun tokenBlocking(forceRefresh: Boolean = false): String? {
+    fun tokenBlocking(failedToken: String? = null): String? {
         if (!settings.driveConnected || _needsReconnect.value) return null
         synchronized(this) {
             val current = token
-            if (current != null && !forceRefresh) return current
+            if (current != null && (failedToken == null || current != failedToken)) return current
             return try {
-                if (forceRefresh && current != null) {
+                if (current != null) {
+                    token = null
                     Tasks.await(client.clearToken(ClearTokenRequest.builder().setToken(current).build()), 10, TimeUnit.SECONDS)
                 }
                 val result = Tasks.await(client.authorize(request), 20, TimeUnit.SECONDS)

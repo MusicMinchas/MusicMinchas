@@ -84,8 +84,7 @@ class TrackMatcher(tracks: List<Track>) {
          */
         suspend fun forScrobbles(dao: TrackDao, artists: Collection<String>, recordingIds: Collection<String>): TrackMatcher {
             val wanted = artists.mapTo(HashSet()) { looseArtist(it) }
-            val names = dao.artistPairs().flatMap { listOfNotNull(it.artist, it.albumArtist) }.distinct()
-                .filter { looseArtist(it) in wanted }
+            val names = dao.allArtistSpellings().filter { looseArtist(it) in wanted }
             val tracks = dao.byArtistNames(names) + dao.byRecordingIds(recordingIds)
             return TrackMatcher(tracks.distinctBy { it.id })
         }
