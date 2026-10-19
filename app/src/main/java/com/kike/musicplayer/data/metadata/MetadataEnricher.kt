@@ -16,18 +16,22 @@ import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.extractor.metadata.id3.TextInformationFrame
 import androidx.media3.inspector.MetadataRetriever
 import com.kike.musicplayer.data.Settings
+import com.kike.musicplayer.data.catalog.CatalogClient
 import com.kike.musicplayer.data.db.ArtistInfo
 import com.kike.musicplayer.data.db.ArtistInfoDao
 import com.kike.musicplayer.data.db.Track
 import com.kike.musicplayer.data.db.TrackDao
 import com.kike.musicplayer.data.drive.DriveAuth
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.guava.await
 import kotlinx.coroutines.joinAll
 import kotlinx.coroutines.launch
@@ -39,15 +43,16 @@ import retrofit2.HttpException
 import java.io.File
 import java.io.IOException
 import java.security.MessageDigest
+import java.util.Collections
 import java.util.Locale
 
 /**
  * Two-tier metadata pipeline:
  *  1. Local: embedded ID3 / Vorbis / MP4 tags and artwork via MediaMetadataRetriever, several
  *     files in parallel. Drive files are parsed by ExoPlayer's extractors, which only read the header.
- *  2. Online fallback for tracks still missing artist, album or artwork: MusicBrainz search for
- *     the MBIDs, then the Cover Art Archive for the front cover. Albums are looked up once.
- * Results are written to Room in batches, so the library list isn't rebuilt for every track.
+ *  2. Dynamic online fallback (Deezer, Apple Music, MusicBrainz / Cover Art Archive, per Settings):
+ *     missing album covers, release years, and artist genres are fetched on demand as the user
+ *     navigates Artists and Albums, rather than scanning the entire library in bulk on every sync.
  */
 /** The container parsed but holds no playable audio track (typically FairPlay DRM, "drms"). */
 class NoAudioTrackException : IOException()
@@ -60,15 +65,35 @@ class MetadataEnricher(
     private val driveAuth: DriveAuth,
     private val driveHttp: OkHttpClient,
     private val artistDao: ArtistInfoDao,
+    private val catalog: CatalogClient,
     private val musicBrainz: MusicBrainzApi,
     private val coverArt: CoverArtApi,
+    private val scope: CoroutineScope,
 ) {
     data class Progress(val stage: String, val done: Int, val total: Int)
 
-    private data class AlbumMatch(val releaseId: String, val artworkUrl: String?, val year: Int?)
+    private data class AlbumMatch(
+        val releaseId: String? = null,
+        val artworkUrl: String? = null,
+        val year: Int? = null,
+        val genre: String? = null,
+    )
 
     private val _progress = MutableStateFlow<Progress?>(null)
     val progress: StateFlow<Progress?> = _progress.asStateFlow()
+
+    /**
+     * Dynamically fetched album cover URLs by album key, shown immediately in grids while scrolling
+     * without invalidating Paging; flushed to Room after scrolling settles.
+     */
+    private val _albumCovers = MutableStateFlow<Map<String, String>>(emptyMap())
+    val albumCovers: StateFlow<Map<String, String>> = _albumCovers.asStateFlow()
+
+    private val checkedAlbums: MutableSet<String> = Collections.synchronizedSet(HashSet())
+    private val pendingAlbumMatches = LinkedHashMap<String, AlbumMatch>()
+    private val albumMutex = Mutex()
+    private val artistInfoMutex = Mutex()
+    private var flushAlbumsJob: Job? = null
 
     private val remoteDataSource = DefaultDataSource.Factory(context, OkHttpDataSource.Factory(driveHttp))
 
@@ -91,7 +116,11 @@ class MetadataEnricher(
     private val artworkDir = File(context.filesDir, "artwork").apply { mkdirs() }
     private var lastMbCall = 0L
 
-    /** Processes everything pending. Concurrent calls wait for the running pass and then re-check. */
+    /**
+     * Automatic pass after folder or Drive scans: reads embedded file tags and genres only.
+     * Online metadata and cover lookups happen dynamically as the user navigates the library,
+     * or on demand via [runOnline].
+     */
     suspend fun run() = mutex.withLock {
         withContext(Dispatchers.IO) {
             try {
@@ -105,13 +134,148 @@ class MetadataEnricher(
                 localPass()
                 removeUnusedArtwork()
                 genrePass()
-                if (settings.onlineMetadata.value) {
-                    onlinePass()
-                    artistPass()
-                }
             } finally {
                 _progress.value = null
             }
+        }
+    }
+
+    /** Manual pass triggered from Settings ("Retry songs with missing info"): runs local + online passes. */
+    suspend fun runOnline() {
+        run()
+        mutex.withLock {
+            withContext(Dispatchers.IO) {
+                try {
+                    if (settings.onlineMetadata.value) {
+                        onlinePass()
+                    }
+                } finally {
+                    _progress.value = null
+                }
+            }
+        }
+    }
+
+    /**
+     * Looks up a missing album cover (and release year / genre) dynamically using the enabled
+     * metadata providers (Deezer → Apple Music → MusicBrainz / Cover Art Archive).
+     */
+    suspend fun albumCover(key: String, title: String, artist: String, flushNow: Boolean = false): String? =
+        withContext(Dispatchers.IO) {
+            if (!settings.onlineMetadata.value || artist.startsWith("Bench Artist ") || title.isBlank() || artist.isBlank()) {
+                return@withContext _albumCovers.value[key]
+            }
+            if (key in checkedAlbums) {
+                if (flushNow) flushPendingAlbums()
+                return@withContext _albumCovers.value[key]
+            }
+            val match = albumMutex.withLock {
+                if (key in checkedAlbums) return@withLock null
+                checkedAlbums += key
+                val found = runCatching { findAlbumOnline(title, artist) }
+                    .onFailure { Log.i(TAG, "Dynamic album lookup failed for $artist - $title: $it") }
+                    .getOrNull()
+                if (found != null) {
+                    found.artworkUrl?.let { url -> _albumCovers.update { it + (key to url) } }
+                    if (found.artworkUrl != null || found.year != null || found.genre != null) {
+                        synchronized(pendingAlbumMatches) { pendingAlbumMatches[key] = found }
+                        scheduleAlbumFlush(flushNow)
+                    }
+                }
+                found
+            }
+            if (flushNow) flushPendingAlbums()
+            match?.artworkUrl ?: _albumCovers.value[key]
+        }
+
+    /** Enriches an album opened on `AlbumScreen` (cover, release year, genre) and persists immediately. */
+    suspend fun enrichAlbum(key: String, title: String, artist: String) {
+        albumCover(key, title, artist, flushNow = true)
+    }
+
+    private fun scheduleAlbumFlush(immediate: Boolean) {
+        flushAlbumsJob?.cancel()
+        flushAlbumsJob = scope.launch(Dispatchers.IO) {
+            if (!immediate) delay(ALBUM_FLUSH_DELAY_MS)
+            flushPendingAlbums()
+        }
+    }
+
+    private suspend fun flushPendingAlbums() {
+        val batch = synchronized(pendingAlbumMatches) {
+            if (pendingAlbumMatches.isEmpty()) return
+            HashMap(pendingAlbumMatches).also { pendingAlbumMatches.clear() }
+        }
+        val tracks = dao.byAlbumKeys(batch.keys.toList())
+        val updated = tracks.mapNotNull { t ->
+            if (t.scope == Track.SCOPE_SERVER) return@mapNotNull null
+            val m = batch[t.indexAlbum] ?: return@mapNotNull null
+            val newArt = t.artworkUri ?: m.artworkUrl
+            val newYear = t.year ?: m.year
+            val newGenre = t.genre ?: m.genre?.let(::normalizeGenre)
+            val newRel = t.mbReleaseId ?: m.releaseId
+            if (newArt == t.artworkUri && newYear == t.year && newGenre == t.genre && newRel == t.mbReleaseId) {
+                return@mapNotNull null
+            }
+            val next = t.copy(
+                artworkUri = newArt,
+                year = newYear,
+                genre = newGenre,
+                mbReleaseId = newRel,
+            )
+            if (next.isComplete() && next.metadataState == Track.META_LOCAL_DONE) {
+                next.copy(metadataState = Track.META_DONE)
+            } else next
+        }
+        if (updated.isNotEmpty()) {
+            dao.upsertAll(updated)
+        }
+    }
+
+    /**
+     * Dynamically fetches and caches genre tags (and MusicBrainz ID when enabled) for [artist] as
+     * the user navigates the Artists list or opens an Artist page.
+     */
+    suspend fun ensureArtistInfo(artist: String) = withContext(Dispatchers.IO) {
+        val trimmed = artist.trim()
+        if (trimmed.isEmpty() || !settings.onlineMetadata.value ||
+            trimmed.equals("Various Artists", ignoreCase = true) || trimmed.startsWith("Bench Artist ")
+        ) return@withContext
+        val key = trimmed.lowercase(Locale.ROOT)
+        val existing = artistDao.get(key)
+        if (existing != null && (existing.tags.isNotEmpty() || System.currentTimeMillis() - existing.fetchedAt < ARTIST_INFO_RETRY_MS)) {
+            return@withContext
+        }
+        artistInfoMutex.withLock {
+            val current = artistDao.get(key)
+            if (current != null && (current.tags.isNotEmpty() || System.currentTimeMillis() - current.fetchedAt < ARTIST_INFO_RETRY_MS)) {
+                return@withLock
+            }
+            val tags = LinkedHashSet<String>()
+            var mbid: String? = current?.mbid
+            val useDeezer = settings.metaDeezer.value
+            val useApple = settings.metaApple.value
+            val useMb = settings.metaMusicBrainz.value
+            if (useDeezer || useApple) {
+                tags.addAll(catalog.artistGenres(trimmed, useDeezer = useDeezer, useApple = useApple))
+            }
+            if (useMb && (tags.isEmpty() || mbid == null)) {
+                val mbArtist = runCatching {
+                    mbCall { musicBrainz.searchArtists("artist:${quote(trimmed)}").artists }
+                        .firstOrNull { (it.score ?: 0) >= MIN_SCORE && similar(it.name, trimmed) }
+                }.onFailure { Log.i(TAG, "Dynamic MB artist genre failed for $trimmed: $it") }.getOrNull()
+                if (mbArtist != null) {
+                    mbid = mbArtist.id
+                    mbArtist.tags.orEmpty()
+                        .filter { it.count > 0 }
+                        .sortedByDescending { it.count }
+                        .map { it.name.lowercase(Locale.ROOT).trim() }
+                        .filter { it.length > 2 && it !in NON_GENRE_TAGS }
+                        .take(8)
+                        .forEach { tags += it }
+                }
+            }
+            artistDao.upsert(ArtistInfo(key, mbid, tags.take(8).joinToString(","), System.currentTimeMillis()))
         }
     }
 
@@ -231,12 +395,12 @@ class MetadataEnricher(
         try {
             ids.forEachIndexed { i, id ->
                 if (!settings.onlineMetadata.value) return
-                _progress.value = Progress("Looking up MusicBrainz", i, ids.size)
+                _progress.value = Progress("Looking up online metadata", i, ids.size)
                 val track = dao.get(id) ?: return@forEachIndexed
                 val updated = try {
                     lookupOnline(track, albums)
                 } catch (e: IOException) {
-                    // Offline or MusicBrainz unreachable: keep the rest pending and stop for now.
+                    // Offline or service unreachable: keep the rest pending and stop for now.
                     Log.w(TAG, "Online lookup stopped: $e")
                     return
                 } catch (e: Exception) {
@@ -247,39 +411,6 @@ class MetadataEnricher(
             }
         } finally {
             writer.flush()
-        }
-    }
-
-    /**
-     * Genre tags per artist for the recommender: one MusicBrainz artist search each, results kept
-     * (also when nothing is found), so only new artists are looked up later.
-     */
-    private suspend fun artistPass() {
-        val known = artistDao.names().toHashSet()
-        val names = dao.artistNames().map { it.trim() }.filter { it.isNotEmpty() }
-            .distinctBy { it.lowercase(Locale.ROOT) }
-            .filter { it.lowercase(Locale.ROOT) !in known && !it.equals("Various Artists", ignoreCase = true) && !it.startsWith("Bench Artist ") }
-        names.forEachIndexed { i, name ->
-            if (!settings.onlineMetadata.value) return
-            _progress.value = Progress("Fetching genres", i, names.size)
-            val artist = try {
-                mbCall { musicBrainz.searchArtists("artist:${quote(name)}").artists }
-                    .firstOrNull { (it.score ?: 0) >= MIN_SCORE && similar(it.name, name) }
-            } catch (e: IOException) {
-                Log.w(TAG, "Genre lookup stopped: $e")
-                return
-            } catch (e: Exception) {
-                Log.w(TAG, "Genre lookup failed for $name", e)
-                null
-            }
-            val tags = artist?.tags.orEmpty()
-                .filter { it.count > 0 }
-                .sortedByDescending { it.count }
-                .map { it.name.lowercase(Locale.ROOT).trim() }
-                .filter { it.length > 2 && it !in NON_GENRE_TAGS }
-                .distinct()
-                .take(8)
-            artistDao.upsert(ArtistInfo(name.lowercase(Locale.ROOT), artist?.id, tags.joinToString(","), System.currentTimeMillis()))
         }
     }
 
@@ -441,32 +572,77 @@ class MetadataEnricher(
         )
     }
 
-    // ---- Tier 2: MusicBrainz + Cover Art Archive ----
+    // ---- Tier 2: Deezer, Apple Music & MusicBrainz + Cover Art Archive ----
 
     private suspend fun lookupOnline(track: Track, albums: MutableMap<String, AlbumMatch?>): Track {
         val albumArtist = track.albumArtist ?: track.artist
         if (track.artist != null && track.album != null && albumArtist != null) {
-            // Tags are fine, only the cover is missing: one release lookup per album.
+            // Tags are fine, only the cover/year/genre is missing: one release lookup per album.
             val key = track.albumKey
-            val match = if (albums.containsKey(key)) albums[key] else findAlbum(track.album, albumArtist).also { albums[key] = it }
+            val match = if (albums.containsKey(key)) albums[key] else findAlbumOnline(track.album, albumArtist).also { albums[key] = it }
             return if (match == null) track else track.copy(
-                artworkUri = match.artworkUrl,
-                mbReleaseId = match.releaseId,
+                artworkUri = track.artworkUri ?: match.artworkUrl,
+                mbReleaseId = track.mbReleaseId ?: match.releaseId,
                 year = track.year ?: match.year,
+                genre = track.genre ?: match.genre?.let(::normalizeGenre),
             )
         }
         return lookupRecording(track)
     }
 
-    private suspend fun findAlbum(album: String, artist: String): AlbumMatch? {
+    /**
+     * Multi-provider album lookup in priority order (Deezer → Apple Music → MusicBrainz / CAA),
+     * consulting only the providers enabled in Settings.
+     */
+    private suspend fun findAlbumOnline(album: String, artist: String): AlbumMatch? {
+        var coverUrl: String? = null
+        var year: Int? = null
+        var genre: String? = null
+        var releaseId: String? = null
+
+        if (settings.metaDeezer.value) {
+            val dz = runCatching { catalog.deezerAlbumMetadata(album, artist) }
+                .onFailure { Log.i(TAG, "Deezer album lookup failed for $artist - $album: $it") }
+                .getOrNull()
+            if (dz != null) {
+                coverUrl = dz.coverUrl
+                year = dz.year
+                genre = dz.genre
+            }
+        }
+        if ((coverUrl == null || year == null || genre == null) && settings.metaApple.value) {
+            val ap = runCatching { catalog.appleAlbumMetadata(album, artist) }
+                .onFailure { Log.i(TAG, "Apple album lookup failed for $artist - $album: $it") }
+                .getOrNull()
+            if (ap != null) {
+                if (coverUrl == null) coverUrl = ap.coverUrl
+                if (year == null) year = ap.year
+                if (genre == null) genre = ap.genre
+            }
+        }
+        if (coverUrl == null && settings.metaMusicBrainz.value) {
+            val mb = runCatching { findAlbumMb(album, artist) }
+                .onFailure { Log.i(TAG, "MB album lookup failed for $artist - $album: $it") }
+                .getOrNull()
+            if (mb != null) {
+                coverUrl = mb.artworkUrl
+                if (year == null) year = mb.year
+                releaseId = mb.releaseId
+            }
+        }
+        if (coverUrl == null && year == null && genre == null && releaseId == null) return null
+        return AlbumMatch(releaseId = releaseId, artworkUrl = coverUrl, year = year, genre = genre)
+    }
+
+    private suspend fun findAlbumMb(album: String, artist: String): AlbumMatch? {
         val releases = mbCall {
             musicBrainz.searchReleases("release:${quote(album)} AND artist:${quote(artist)}").releases
         }.filter { (it.score ?: 0) >= MIN_SCORE }
         // The best-scored release may have no cover in the archive; try a few.
         for (release in releases.take(3)) {
-            findCover(release)?.let { return AlbumMatch(release.id, it, release.year()) }
+            findCover(release)?.let { return AlbumMatch(releaseId = release.id, artworkUrl = it, year = release.year()) }
         }
-        return releases.firstOrNull()?.let { AlbumMatch(it.id, null, it.year()) }
+        return releases.firstOrNull()?.let { AlbumMatch(releaseId = it.id, artworkUrl = null, year = it.year()) }
     }
 
     private suspend fun lookupRecording(track: Track): Track {
@@ -476,7 +652,36 @@ class MetadataEnricher(
         val artist = track.artist ?: track.albumArtist ?: fromName?.get(0)?.trim()
         val title = if (track.artist == null && fromName != null) fromName[1].trim() else track.title
         if (artist.isNullOrBlank() || title.isBlank()) return track
+        val untitled = track.title == track.fileName.substringBeforeLast('.')
 
+        // 1. Try Deezer / Apple Music first when enabled
+        if (settings.metaDeezer.value || settings.metaApple.value) {
+            val cat = catalog.lookupTrack(
+                title = title,
+                artist = artist,
+                album = track.album,
+                useDeezer = settings.metaDeezer.value,
+                useApple = settings.metaApple.value,
+            )
+            if (cat != null) {
+                return track.copy(
+                    title = if (untitled) cat.title else track.title,
+                    artist = track.artist ?: cat.artist,
+                    album = track.album ?: cat.album.takeIf { it.isNotBlank() },
+                    albumArtist = track.albumArtist ?: cat.albumArtist,
+                    trackNumber = track.trackNumber ?: cat.trackNumber,
+                    discNumber = track.discNumber ?: cat.discNumber,
+                    year = track.year ?: cat.year,
+                    genre = track.genre ?: cat.genre?.let(::normalizeGenre),
+                    durationMs = if (track.durationMs > 0) track.durationMs else cat.durationMs,
+                    artworkUri = track.artworkUri ?: cat.coverUrl,
+                )
+            }
+        }
+
+        if (!settings.metaMusicBrainz.value) return track
+
+        // 2. Fallback to MusicBrainz + Cover Art Archive
         val query = buildString {
             append("recording:").append(quote(title)).append(" AND artist:").append(quote(artist))
             track.album?.let { append(" AND release:").append(quote(it)) }
@@ -504,7 +709,6 @@ class MetadataEnricher(
         val artwork = track.artworkUri ?: release?.let { findCover(it) }
         // A title from the tags always stays: MusicBrainz may have matched another edition, e.g. a
         // deluxe release's "(Hollola Tapes)" versions. Only a file-name title is replaced.
-        val untitled = track.title == track.fileName.substringBeforeLast('.')
         return track.copy(
             title = if (untitled) recording.title else track.title,
             artist = track.artist ?: recording.artistName,
@@ -569,6 +773,8 @@ class MetadataEnricher(
         private const val PARALLEL_READS = 12
         private const val HEADER_CAP_BYTES = 1024 * 1024L
         private const val FLUSH_INTERVAL_MS = 2_000L
+        private const val ALBUM_FLUSH_DELAY_MS = 5_000L
+        private const val ARTIST_INFO_RETRY_MS = 30L * 24 * 60 * 60 * 1000L
         private const val MIN_SCORE = 90
         private const val GENRE_BATCH = 100
 

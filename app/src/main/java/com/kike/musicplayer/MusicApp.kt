@@ -125,7 +125,9 @@ class AppContainer(app: Application) {
 
     val lyrics = LyricsRepository(database.lyrics(), metadataHttp, moshi)
 
-    val artistImages = ArtistImages(app, database.artistImages(), database.artistInfo(), metadataHttp, moshi)
+    val catalog = com.kike.musicplayer.data.catalog.CatalogClient(metadataHttp, moshi)
+
+    val artistImages = ArtistImages(app, database.artistImages(), database.artistInfo(), settings, catalog, metadataHttp, moshi)
 
     val discover = DiscoverRepository(
         database.discover(), database.artistInfo(), settings, metadataHttp, moshi, BuildConfig.TICKETMASTER_KEY, appScope,
@@ -139,7 +141,7 @@ class AppContainer(app: Application) {
         indexer.start(settings.indexVersion) { settings.indexVersion = it }
     }
 
-    val enricher = MetadataEnricher(app, database.tracks(), settings, driveAuth, driveScanHttp, database.artistInfo(), musicBrainz, coverArt)
+    val enricher = MetadataEnricher(app, database.tracks(), settings, driveAuth, driveScanHttp, database.artistInfo(), catalog, musicBrainz, coverArt, appScope)
 
     val castManager = CastManager(app, appScope)
     private val isCasting = { castManager.active.value != null }

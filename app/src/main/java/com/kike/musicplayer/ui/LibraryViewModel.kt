@@ -380,6 +380,13 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
     val unplayableCount = repo.unplayableCount.stateIn(viewModelScope, SharingStarted.Eagerly, 0)
     val safFolders = settings.safFolders
     val onlineMetadata = settings.onlineMetadata
+    val metaDeezer = settings.metaDeezer
+    val metaApple = settings.metaApple
+    val metaMusicBrainz = settings.metaMusicBrainz
+    val catalogEnabled = settings.catalogEnabled
+    val catalogShown = settings.catalogShown
+    fun setCatalogEnabled(enabled: Boolean) = settings.setCatalogEnabled(enabled)
+    fun toggleCatalogShown() = settings.toggleCatalogShown()
     val darkMode = settings.darkMode
     val fullScreenCover = settings.fullScreenCover
     fun setDarkMode(enabled: Boolean) = settings.setDarkMode(enabled)
@@ -537,8 +544,22 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
     val artistImageUrls: StateFlow<Map<String, String>> = container.artistImages.urls
         .stateIn(viewModelScope, SharingStarted.Eagerly, emptyMap())
 
-    /** The artist's photo (looked up online once, then remembered), or null. */
-    suspend fun artistImage(name: String): String? = container.artistImages.imageFor(name)
+    /** Dynamically looked-up album cover URLs by album key, for grid thumbnails before Room flush. */
+    val albumCoverUrls: StateFlow<Map<String, String>> = container.enricher.albumCovers
+
+    /** The artist's photo (looked up online once, then remembered), or null; also fetches missing artist genres. */
+    suspend fun artistImage(name: String): String? {
+        viewModelScope.launch { container.enricher.ensureArtistInfo(name) }
+        return container.artistImages.imageFor(name)
+    }
+
+    /** Dynamically looks up a missing album cover (and year/genre) as the user scrolls or opens an album. */
+    suspend fun albumCover(key: String, title: String, artist: String): String? =
+        container.enricher.albumCover(key, title, artist)
+
+    /** Dynamically enriches an opened album and writes any found cover, year or genre to Room immediately. */
+    suspend fun enrichAlbum(key: String, title: String, artist: String) =
+        container.enricher.enrichAlbum(key, title, artist)
 
     // ---- User playlists ----
 
@@ -761,9 +782,12 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
+    fun setMetaDeezer(enabled: Boolean) = settings.setMetaDeezer(enabled)
+    fun setMetaApple(enabled: Boolean) = settings.setMetaApple(enabled)
+    fun setMetaMusicBrainz(enabled: Boolean) = settings.setMetaMusicBrainz(enabled)
+
     fun setOnlineMetadata(enabled: Boolean) {
         settings.setOnlineMetadata(enabled)
-        if (enabled) repo.enrich()
     }
 
     fun retryMetadata() = repo.retryIncompleteMetadata()

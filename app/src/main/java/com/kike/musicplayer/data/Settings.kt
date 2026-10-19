@@ -47,8 +47,46 @@ class Settings(context: Context, name: String = "settings") {
         _lastDriveSync.value = time
     }
 
-    private val _onlineMetadata = MutableStateFlow(prefs.getBoolean(KEY_ONLINE, true))
+    private val _metaDeezer = MutableStateFlow(prefs.getBoolean(KEY_META_DEEZER, true))
+    val metaDeezer: StateFlow<Boolean> = _metaDeezer.asStateFlow()
+
+    private val _metaApple = MutableStateFlow(prefs.getBoolean(KEY_META_APPLE, true))
+    val metaApple: StateFlow<Boolean> = _metaApple.asStateFlow()
+
+    private val _metaMusicBrainz = MutableStateFlow(
+        if (prefs.contains(KEY_META_MB)) prefs.getBoolean(KEY_META_MB, true)
+        else prefs.getBoolean(KEY_ONLINE, true)
+    )
+    val metaMusicBrainz: StateFlow<Boolean> = _metaMusicBrainz.asStateFlow()
+
+    private val _onlineMetadata = MutableStateFlow(
+        _metaDeezer.value || _metaApple.value || _metaMusicBrainz.value
+    )
     val onlineMetadata: StateFlow<Boolean> = _onlineMetadata.asStateFlow()
+
+    private val _catalogEnabled = MutableStateFlow(prefs.getBoolean(KEY_CATALOG_ENABLED, false))
+    /** Whether the Deezer & Apple Music catalog source is enabled in Music sources. */
+    val catalogEnabled: StateFlow<Boolean> = _catalogEnabled.asStateFlow()
+
+    private val _catalogShown = MutableStateFlow(prefs.getBoolean(KEY_CATALOG_SHOWN, true))
+    /** Whether Deezer / Apple Music is ticked in the top-bar source selector. */
+    val catalogShown: StateFlow<Boolean> = _catalogShown.asStateFlow()
+
+    fun setCatalogEnabled(enabled: Boolean) {
+        prefs.edit {
+            putBoolean(KEY_CATALOG_ENABLED, enabled)
+            if (enabled) putBoolean(KEY_CATALOG_SHOWN, true)
+        }
+        _catalogEnabled.value = enabled
+        if (enabled) _catalogShown.value = true
+    }
+
+    fun setCatalogShown(shown: Boolean) {
+        prefs.edit { putBoolean(KEY_CATALOG_SHOWN, shown) }
+        _catalogShown.value = shown
+    }
+
+    fun toggleCatalogShown() = setCatalogShown(!_catalogShown.value)
 
     var driveAccount: String?
         get() = prefs.getString(KEY_DRIVE_ACCOUNT, null)
@@ -138,8 +176,40 @@ class Settings(context: Context, name: String = "settings") {
         get() = prefs.getLong(KEY_DISCOVER_REFRESHED, 0L)
         set(value) = prefs.edit { putLong(KEY_DISCOVER_REFRESHED, value) }
 
+    private fun refreshOnlineFlag() {
+        val any = _metaDeezer.value || _metaApple.value || _metaMusicBrainz.value
+        prefs.edit { putBoolean(KEY_ONLINE, any) }
+        _onlineMetadata.value = any
+    }
+
+    fun setMetaDeezer(enabled: Boolean) {
+        prefs.edit { putBoolean(KEY_META_DEEZER, enabled) }
+        _metaDeezer.value = enabled
+        refreshOnlineFlag()
+    }
+
+    fun setMetaApple(enabled: Boolean) {
+        prefs.edit { putBoolean(KEY_META_APPLE, enabled) }
+        _metaApple.value = enabled
+        refreshOnlineFlag()
+    }
+
+    fun setMetaMusicBrainz(enabled: Boolean) {
+        prefs.edit { putBoolean(KEY_META_MB, enabled) }
+        _metaMusicBrainz.value = enabled
+        refreshOnlineFlag()
+    }
+
     fun setOnlineMetadata(enabled: Boolean) {
-        prefs.edit { putBoolean(KEY_ONLINE, enabled) }
+        prefs.edit {
+            putBoolean(KEY_ONLINE, enabled)
+            putBoolean(KEY_META_DEEZER, enabled)
+            putBoolean(KEY_META_APPLE, enabled)
+            putBoolean(KEY_META_MB, enabled)
+        }
+        _metaDeezer.value = enabled
+        _metaApple.value = enabled
+        _metaMusicBrainz.value = enabled
         _onlineMetadata.value = enabled
     }
 
@@ -171,6 +241,11 @@ class Settings(context: Context, name: String = "settings") {
         const val KEY_CONCERT_COUNTRY = "concert_country"
         const val KEY_DISCOVER_REFRESHED = "discover_refreshed_at"
         const val KEY_ONLINE = "online_metadata"
+        const val KEY_META_DEEZER = "meta_deezer"
+        const val KEY_META_APPLE = "meta_apple"
+        const val KEY_META_MB = "meta_musicbrainz"
+        const val KEY_CATALOG_ENABLED = "catalog_enabled"
+        const val KEY_CATALOG_SHOWN = "catalog_shown"
         const val KEY_DARK_MODE = "dark_mode"
         const val KEY_MB_TITLES_REREAD = "mb_titles_reread"
         const val KEY_FULL_COVER = "full_screen_cover"

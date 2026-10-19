@@ -102,7 +102,7 @@ internal fun AlbumsTab(libraryVm: LibraryViewModel, onOpenAlbum: (String) -> Uni
     val scope = rememberCoroutineScope()
     val state = rememberLazyGridState()
     Box(Modifier.fillMaxSize()) {
-        PagedAlbumGrid(albums, state, onOpenAlbum, endSpace = barSpace(jumps))
+        PagedAlbumGrid(albums, libraryVm, state, onOpenAlbum, endSpace = barSpace(jumps))
         AlphabetBar(jumps, Modifier.align(Alignment.CenterEnd)) { position -> scope.launch { state.scrollToItem(position) } }
     }
 }
@@ -110,11 +110,13 @@ internal fun AlbumsTab(libraryVm: LibraryViewModel, onOpenAlbum: (String) -> Uni
 @Composable
 private fun PagedAlbumGrid(
     albums: androidx.paging.compose.LazyPagingItems<AlbumIndex>,
+    libraryVm: LibraryViewModel,
     state: LazyGridState,
     onOpenAlbum: (String) -> Unit,
     header: (@Composable () -> Unit)? = null,
     endSpace: androidx.compose.ui.unit.Dp = 0.dp,
 ) {
+    val extraCovers by libraryVm.albumCoverUrls.collectAsState()
     LazyVerticalGrid(
         columns = GridCells.Adaptive(140.dp),
         state = state,
@@ -126,8 +128,15 @@ private fun PagedAlbumGrid(
         if (header != null) item(span = { GridItemSpan(maxLineSpan) }) { header() }
         items(albums.itemCount, key = albums.itemKey { it.key }) { index ->
             val album = albums[index]
+            val cover = album?.artworkUri ?: album?.key?.let { extraCovers[it] }
+            if (album != null && cover == null) {
+                LaunchedEffect(album.key) {
+                    kotlinx.coroutines.delay(250)
+                    libraryVm.albumCover(album.key, album.title, album.artist)
+                }
+            }
             Column(Modifier.then(if (album != null) Modifier.clickable { onOpenAlbum(album.key) } else Modifier)) {
-                Artwork(album?.artworkUri, Modifier.fillMaxWidth().aspectRatio(1f))
+                Artwork(cover, Modifier.fillMaxWidth().aspectRatio(1f))
                 Text(album?.title ?: "", maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 4.dp))
                 ArtistAlbumText(album?.artist ?: "", listOf(album?.artist))
             }
@@ -135,7 +144,7 @@ private fun PagedAlbumGrid(
     }
 }
 
-/** Every artist A–Z with their photo, page by page; photos are looked up as rows come into view. */
+/** Every artist A–Z with their photo, page by page; photos and genres are looked up as rows settle in view. */
 @Composable
 internal fun ArtistsTab(libraryVm: LibraryViewModel, onOpenArtist: (String) -> Unit) {
     val artists = libraryVm.artistPages.collectAsLazyPagingItems()
@@ -150,7 +159,10 @@ internal fun ArtistsTab(libraryVm: LibraryViewModel, onOpenArtist: (String) -> U
                 if (artist == null) RowPlaceholder()
                 else {
                     val photo = photos[artist.name.lowercase()]
-                    LaunchedEffect(artist.name) { if (photo == null) libraryVm.artistImage(artist.name) }
+                    LaunchedEffect(artist.name) {
+                        kotlinx.coroutines.delay(250)
+                        if (photo == null) libraryVm.artistImage(artist.name)
+                    }
                     ArtistRow(artist.name, artist.albumCount, artist.trackCount, photo) { onOpenArtist(artist.name) }
                 }
             }
@@ -203,7 +215,7 @@ fun GenreScreen(
             title = { Text(genre?.name ?: "", maxLines = 1, overflow = TextOverflow.Ellipsis) },
             navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back") } },
         )
-        PagedAlbumGrid(albums, rememberLazyGridState(), onOpenAlbum, header = {
+        PagedAlbumGrid(albums, libraryVm, rememberLazyGridState(), onOpenAlbum, header = {
             Column {
                 genre?.let {
                     Text(

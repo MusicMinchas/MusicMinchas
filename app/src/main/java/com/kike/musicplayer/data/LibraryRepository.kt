@@ -97,14 +97,14 @@ class LibraryRepository(
 
     fun retryIncompleteMetadata() = scope.launch {
         dao.requeueIncomplete()
-        enrich()
+        enrich(online = true)
     }
 
-    fun enrich() {
+    fun enrich(online: Boolean = false) {
         if (enrichJob?.isActive == true) return
         enrichJob = scope.launch {
             try {
-                enricher.run()
+                if (online) enricher.runOnline() else enricher.run()
             } catch (e: Exception) {
                 Log.w(TAG, "Metadata enrichment failed", e)
             }

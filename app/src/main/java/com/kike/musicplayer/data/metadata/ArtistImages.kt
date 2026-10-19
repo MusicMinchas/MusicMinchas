@@ -4,36 +4,39 @@ import android.content.Context
 import android.util.Log
 import coil3.SingletonImageLoader
 import coil3.request.ImageRequest
+import com.kike.musicplayer.data.Settings
+import com.kike.musicplayer.data.catalog.CatalogClient
+import com.kike.musicplayer.data.db.ArtistImage
+import com.kike.musicplayer.data.db.ArtistImageDao
+import com.kike.musicplayer.data.db.ArtistInfoDao
+import com.squareup.moshi.Moshi
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
-import com.kike.musicplayer.data.db.ArtistImage
-import com.kike.musicplayer.data.db.ArtistImageDao
-import com.kike.musicplayer.data.db.ArtistInfoDao
-import com.squareup.moshi.Moshi
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.OkHttpClient
 import okhttp3.Request
-import java.text.Normalizer
 import java.util.Locale
 
 /**
- * Artist photos for the artist page, looked up once and remembered: Deezer first (no key; square
- * press photos, found for 102 of 106 artists in this library), then Wikidata's image of the
- * artist's MusicBrainz entry (Wikimedia Commons, free licence). Last.fm no longer serves artist
- * photos. Artists without one are tried again after a month.
+ * Artist photos for the artist page and Artists tab, looked up dynamically as artists come into
+ * view and remembered: Deezer first (no key; square press photos, when enabled in Settings), then
+ * Wikidata's image of the artist's MusicBrainz entry (Wikimedia Commons, when MusicBrainz is
+ * enabled). Artists without one are tried again after a month.
  */
 class ArtistImages(
     private val context: Context,
     private val dao: ArtistImageDao,
     private val artistInfo: ArtistInfoDao,
+    private val settings: Settings,
+    private val catalog: CatalogClient,
     private val http: OkHttpClient,
     private val moshi: Moshi,
 ) {
@@ -45,9 +48,7 @@ class ArtistImages(
         .map { list -> list.mapNotNull { i -> i.url?.let { i.name to it } }.toMap() }
 
     /**
-     * Looks up the photos of all [artists] not looked up yet and downloads them into the image
-     * cache, so the Artists tab thumbnails and the artist pages show them at once. Runs once at a
-     * time, gently (Deezer allows 50 requests per 5 s).
+     * Looks up the photos of [artists] not looked up yet and downloads them into the image cache.
      */
     fun prefetch(artists: List<String>, scope: CoroutineScope) {
         if (prefetchJob?.isActive == true || artists.any { it.startsWith("Bench Artist ") }) return
@@ -69,23 +70,19 @@ class ArtistImages(
         dao.get(key)?.let { cached ->
             if (cached.url != null || System.currentTimeMillis() - cached.checkedAt < RETRY_MS) return@withContext cached.url
         }
+        val useDeezer = settings.metaDeezer.value
+        val useMb = settings.metaMusicBrainz.value
+        if (!useDeezer && !useMb) return@withContext null
+
         mutex.withLock {
-            val url = runCatching { deezer(artist) }.onFailure { Log.i(TAG, "Deezer: $it") }.getOrNull()
-                ?: runCatching { wikidata(key) }.onFailure { Log.i(TAG, "Wikidata: $it") }.getOrNull()
+            dao.get(key)?.let { cached ->
+                if (cached.url != null || System.currentTimeMillis() - cached.checkedAt < RETRY_MS) return@withLock cached.url
+            }
+            val url = (if (useDeezer) runCatching { catalog.deezerArtistPhoto(artist) }.onFailure { Log.i(TAG, "Deezer: $it") }.getOrNull() else null)
+                ?: (if (useMb) runCatching { wikidata(key) }.onFailure { Log.i(TAG, "Wikidata: $it") }.getOrNull() else null)
             dao.upsert(ArtistImage(key, url, System.currentTimeMillis()))
             url
         }
-    }
-
-    /** Deezer's artist search; only an exact name match, and not Deezer's empty default picture. */
-    private fun deezer(artist: String): String? {
-        val url = "https://api.deezer.com/search/artist".toHttpUrl().newBuilder()
-            .addQueryParameter("q", artist).addQueryParameter("limit", "5").build()
-        val data = json(url.toString())["data"] as? List<*> ?: return null
-        return data.asSequence().mapNotNull { it as? Map<*, *> }
-            .firstOrNull { comparable(it["name"] as? String ?: "") == comparable(artist) }
-            ?.let { it["picture_xl"] as? String }
-            ?.takeIf { "/artist//" !in it }
     }
 
     /** The image (P18) of the Wikidata item with this MusicBrainz artist ID (P434), scaled by Commons. */
@@ -104,9 +101,6 @@ class ArtistImages(
             if (!response.isSuccessful) throw java.io.IOException("HTTP ${response.code}")
             moshi.adapter(Map::class.java).fromJson(response.body.string()) ?: emptyMap<Any, Any>()
         }
-
-    private fun comparable(s: String) =
-        Normalizer.normalize(s.lowercase(Locale.ROOT), Normalizer.Form.NFD).replace(Regex("[^a-z0-9]"), "")
 
     private companion object {
         const val TAG = "ArtistImages"

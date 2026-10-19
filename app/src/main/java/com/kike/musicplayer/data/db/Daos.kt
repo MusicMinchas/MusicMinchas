@@ -88,6 +88,9 @@ interface TrackDao {
     @Query("SELECT * FROM tracks WHERE mbRecordingId IN (:ids)")
     suspend fun byRecordingIdsChunk(ids: List<String>): List<Track>
 
+    @Query("SELECT * FROM tracks INDEXED BY index_tracks_indexAlbum WHERE indexAlbum IN (:keys)")
+    suspend fun byAlbumKeys(keys: List<String>): List<Track>
+
     @Query("SELECT COUNT(*) FROM tracks WHERE durationMs >= 0 AND scope IN (:scopes)")
     suspend fun countPlayable(scopes: List<Int>): Int
 

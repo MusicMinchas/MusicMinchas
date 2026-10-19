@@ -84,6 +84,7 @@ fun ArtistScreen(
     val shownAlbums = remember(tracks) { tracks.mapTo(HashSet()) { it.indexAlbum } }
     val topPlays = allTop.filter { it.track.id in shownIds }
     val followed by libraryVm.followedArtists.collectAsState()
+    val extraCovers by libraryVm.albumCoverUrls.collectAsState()
     val image by produceState<String?>(null, name) { value = libraryVm.artistImage(name) }
     // Edge to edge: the photo goes under the status bar.
     Box(Modifier.fillMaxSize().padding(bottom = contentPadding.calculateBottomPadding())) {
@@ -131,8 +132,15 @@ fun ArtistScreen(
                 item {
                     LazyRow(contentPadding = PaddingValues(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                         items(albums, key = { it.key }) { album ->
+                            val cover = album.artworkUri ?: extraCovers[album.key]
+                            androidx.compose.runtime.LaunchedEffect(album.key) {
+                                if (cover == null) {
+                                    kotlinx.coroutines.delay(250)
+                                    libraryVm.albumCover(album.key, album.title, album.artist)
+                                }
+                            }
                             Column(Modifier.width(140.dp).clickable { onOpenAlbum(album.key) }) {
-                                Artwork(album.artworkUri, Modifier.fillMaxWidth().aspectRatio(1f), shape = RoundedCornerShape(10.dp))
+                                Artwork(cover, Modifier.fillMaxWidth().aspectRatio(1f), shape = RoundedCornerShape(10.dp))
                                 Text(album.title, maxLines = 2, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.bodyMedium,
                                     modifier = Modifier.padding(top = 6.dp))
                                 album.year?.let {

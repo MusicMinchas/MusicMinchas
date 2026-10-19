@@ -160,25 +160,70 @@ fun SourcesScreen(
                 }
             }
 
-            SourceCard(
-                "Metadata & cover art",
-                "Tags and artwork are read from the files first. Songs still missing details are looked up on " +
-                    "MusicBrainz, with covers from the Cover Art Archive.",
-            ) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text("Look up missing info online", Modifier.weight(1f))
-                    Switch(checked = online, onCheckedChange = vm::setOnlineMetadata)
-                }
-                Text(
-                    progress?.let { "${it.stage}: ${it.done} of ${it.total}" } ?: "$pending songs waiting",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-                OutlinedButton(onClick = { vm.retryMetadata() }) { Text("Retry songs with missing info") }
-            }
+            MetadataCard(vm, pending, progress)
 
             SyncCard(vm)
         }
+    }
+}
+
+@Composable
+private fun MetadataCard(
+    vm: LibraryViewModel,
+    pending: Int,
+    progress: com.kike.musicplayer.data.metadata.MetadataEnricher.Progress?,
+) {
+    val deezer by vm.metaDeezer.collectAsState()
+    val apple by vm.metaApple.collectAsState()
+    val mb by vm.metaMusicBrainz.collectAsState()
+    val anyOnline = deezer || apple || mb
+    SourceCard(
+        "Metadata & cover art",
+        "Embedded tags and artwork are read from your files first. Missing artist photos, album covers, " +
+            "release years and genres are fetched dynamically as you browse Artists and Albums (rather than " +
+            "in bulk when music is added), using the providers switched on below in priority order.",
+    ) {
+        ProviderToggleRow(
+            title = "Deezer",
+            subtitle = "Artist photos (1000×1000), album covers, release years & genres (fast, up to 50 req / 5 s)",
+            checked = deezer,
+            onCheckedChange = vm::setMetaDeezer,
+        )
+        HorizontalDivider(Modifier.padding(vertical = 2.dp))
+        ProviderToggleRow(
+            title = "Apple Music",
+            subtitle = "Album covers (1000×1000), track-level genres, release years & Album Artist (~20 req / min)",
+            checked = apple,
+            onCheckedChange = vm::setMetaApple,
+        )
+        HorizontalDivider(Modifier.padding(vertical = 2.dp))
+        ProviderToggleRow(
+            title = "MusicBrainz & Cover Art Archive",
+            subtitle = "Release & recording matching, MBIDs, Cover Art Archive & Wikidata artist photos (1 req / s)",
+            checked = mb,
+            onCheckedChange = vm::setMetaMusicBrainz,
+        )
+        HorizontalDivider(Modifier.padding(vertical = 4.dp))
+        Text(
+            progress?.let { "${it.stage}: ${it.done} of ${it.total}" }
+                ?: "$pending songs with incomplete file tags (enriched as you browse, or all at once below)",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        OutlinedButton(onClick = { vm.retryMetadata() }, enabled = anyOnline && progress == null) {
+            Text("Retry songs with missing info")
+        }
+    }
+}
+
+@Composable
+private fun ProviderToggleRow(title: String, subtitle: String, checked: Boolean, onCheckedChange: (Boolean) -> Unit) {
+    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
+        Column(Modifier.weight(1f)) {
+            Text(title, style = MaterialTheme.typography.bodyMedium)
+            Text(subtitle, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+        Switch(checked = checked, onCheckedChange = onCheckedChange, modifier = Modifier.padding(start = 8.dp))
     }
 }
 
@@ -219,14 +264,23 @@ private fun MusicSourcesEntry(vm: LibraryViewModel, onOpen: () -> Unit) {
     val counts by vm.sourceCounts.collectAsState()
     val account by vm.driveAccount.collectAsState()
     val server by vm.subsonicState.collectAsState()
+    val catalog by vm.catalogEnabled.collectAsState()
     val needsReconnect by vm.driveNeedsReconnect.collectAsState()
     val number = java.text.NumberFormat.getIntegerInstance()
-    val parts = buildList {
+    val songParts = buildList {
         counts[Track.SOURCE_SAF]?.takeIf { it > 0 }?.let { add("Local ${number.format(it)}") }
         if (account != null) add("GDrive ${number.format(counts[Track.SOURCE_DRIVE] ?: 0)}")
         if (server.address != null) {
             add("${server.server?.substringBefore(' ') ?: "Navidrome"} ${number.format(counts[Track.SOURCE_SUBSONIC] ?: 0)}")
         }
+    }
+    val summary = buildString {
+        if (songParts.isNotEmpty()) append(songParts.joinToString(" · ")).append(" songs")
+        if (catalog) {
+            if (isNotEmpty()) append(" · ")
+            append("Deezer / Apple Music")
+        }
+        if (isEmpty()) append("Folders on this device, Google Drive, Navidrome, Deezer & Apple Music")
     }
     Card(Modifier.fillMaxWidth().clickable(onClick = onOpen)) {
         Row(Modifier.padding(horizontal = 12.dp, vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -234,8 +288,7 @@ private fun MusicSourcesEntry(vm: LibraryViewModel, onOpen: () -> Unit) {
             Column(Modifier.weight(1f).padding(start = 12.dp)) {
                 Text("Music sources", style = MaterialTheme.typography.titleMedium)
                 Text(
-                    if (parts.isEmpty()) "Folders on this device, Google Drive, Navidrome"
-                    else parts.joinToString(" · ") + " songs",
+                    summary,
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -374,7 +427,38 @@ fun MusicSourcesScreen(
             }
 
             ServerCard(vm)
+
+            CatalogSourceCard(vm)
         }
+    }
+}
+
+/** Public catalog & playlist discovery via Deezer and Apple Music (no account, no audio streaming). */
+@Composable
+private fun CatalogSourceCard(vm: LibraryViewModel) {
+    val enabled by vm.catalogEnabled.collectAsState()
+    SourceCard(
+        "Deezer & Apple Music",
+        if (enabled) "Enabled · Public catalog search, Deezer playlist import & artist discographies (no account needed)"
+        else "Browse and search the public Deezer & Apple Music catalogs alongside your own library (no account needed)",
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text("Enable Deezer & Apple Music catalog", Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium)
+            Switch(checked = enabled, onCheckedChange = vm::setCatalogEnabled, modifier = Modifier.padding(start = 8.dp))
+        }
+        Text(
+            "What both contribute:\n" +
+                "• Catalog search: find artists, albums and songs across Deezer & Apple Music, matched against your Local, Google Drive and Navidrome library.\n" +
+                "• Public playlists (Deezer): search curated and user playlists on Deezer and import them into Playlists using the songs you own.\n" +
+                "• Artist discography: view an artist's full studio & live discography on their page and spot albums missing from your library.",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        Text(
+            "Limitations: catalog & metadata only — MusicMinchas never streams or plays audio from Deezer or Apple Music (playback always uses your own sources). Public playlist search comes from Deezer, as Apple Music's public API does not offer unauthenticated playlist search.",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
     }
 }
 

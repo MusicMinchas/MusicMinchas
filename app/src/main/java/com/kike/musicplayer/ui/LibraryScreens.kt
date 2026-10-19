@@ -155,12 +155,18 @@ fun LibraryScreen(
             title = { Text(stringResource(R.string.app_name)) },
             actions = {
                 val available by libraryVm.availableScopes.collectAsState()
-                if (available.size > 1) {
+                val catalogEnabled by libraryVm.catalogEnabled.collectAsState()
+                val catalogShown by libraryVm.catalogShown.collectAsState()
+                if (available.size + (if (catalogEnabled) 1 else 0) > 1) {
                     val server = libraryVm.subsonicState.collectAsState().value.server
                     SourcesMenu(
-                        available, libraryVm.hiddenScopes.collectAsState().value,
+                        available = available,
+                        hidden = libraryVm.hiddenScopes.collectAsState().value,
                         serverName = server?.substringBefore(' ')?.takeIf { it.isNotBlank() } ?: "Navidrome",
+                        catalogEnabled = catalogEnabled,
+                        catalogShown = catalogShown,
                         onToggle = libraryVm::toggleScope,
+                        onToggleCatalog = libraryVm::toggleCatalogShown,
                     )
                 }
                 IconButton(onClick = onOpenSources) { Icon(Icons.Default.Tune, "Settings") }
@@ -184,7 +190,15 @@ fun LibraryScreen(
             Text(busy, Modifier.padding(horizontal = 16.dp, vertical = 2.dp), style = MaterialTheme.typography.labelSmall)
         }
         if (query.isNotEmpty()) {
-            SearchResultsList(results, filters, player.current?.mediaId, playerVm, onOpenArtist, onOpenAlbum, libraryVm.artistImageUrls.collectAsState().value)
+            SearchResultsList(
+                results = results,
+                filters = filters,
+                currentId = player.current?.mediaId,
+                libraryVm = libraryVm,
+                playerVm = playerVm,
+                onOpenArtist = onOpenArtist,
+                onOpenAlbum = onOpenAlbum,
+            )
             return@Column
         }
         // Narrow tabs, so five fit across a phone; the rest scroll in.
@@ -222,9 +236,17 @@ fun LibraryScreen(
     }
 }
 
-/** Which sources the library lists: each one switched on or off (at least one stays on). */
+/** Which sources the library lists: each one switched on or off (at least one library source stays on). */
 @Composable
-private fun SourcesMenu(available: List<Int>, hidden: Set<Int>, serverName: String, onToggle: (Int) -> Unit) {
+private fun SourcesMenu(
+    available: List<Int>,
+    hidden: Set<Int>,
+    serverName: String,
+    catalogEnabled: Boolean,
+    catalogShown: Boolean,
+    onToggle: (Int) -> Unit,
+    onToggleCatalog: () -> Unit,
+) {
     var open by remember { mutableStateOf(false) }
     val shown = available.filter { it !in hidden }.ifEmpty { available }
     fun label(scope: Int) = when (scope) {
@@ -237,21 +259,30 @@ private fun SourcesMenu(available: List<Int>, hidden: Set<Int>, serverName: Stri
         Track.SCOPE_SERVER -> SubmarineIcon
         else -> Icons.Default.Folder
     }
+    val allShown = shown.size == available.size && (!catalogEnabled || catalogShown)
+    val activeLabels = buildList {
+        shown.forEach { add(label(it)) }
+        if (catalogEnabled && catalogShown) add("Deezer / Apple")
+    }
     Box {
         AssistChip(
             onClick = { open = true },
             label = {
                 Text(
                     when {
-                        shown.size == available.size -> "All sources"
-                        shown.size == 1 -> label(shown.single())
-                        else -> shown.joinToString(" + ") { label(it) }
+                        allShown -> "All sources"
+                        activeLabels.size == 1 -> activeLabels.single()
+                        else -> activeLabels.joinToString(" + ")
                     },
                     maxLines = 1,
                 )
             },
             leadingIcon = {
-                Icon(if (shown.size == 1) icon(shown.single()) else Icons.Default.LibraryMusic, null, Modifier.size(18.dp))
+                Icon(
+                    if (shown.size == 1 && (!catalogEnabled || !catalogShown)) icon(shown.single()) else Icons.Default.LibraryMusic,
+                    null,
+                    Modifier.size(18.dp),
+                )
             },
             trailingIcon = { Icon(Icons.Default.ArrowDropDown, null, Modifier.size(18.dp)) },
             modifier = Modifier.widthIn(max = 200.dp),
@@ -266,6 +297,14 @@ private fun SourcesMenu(available: List<Int>, hidden: Set<Int>, serverName: Stri
                     leadingIcon = { Icon(icon(scope), null) },
                     trailingIcon = { Checkbox(checked = on, onCheckedChange = null) },
                     enabled = !(on && shown.size == 1),
+                )
+            }
+            if (catalogEnabled) {
+                DropdownMenuItem(
+                    text = { Text("Deezer / Apple Music") },
+                    onClick = onToggleCatalog,
+                    leadingIcon = { Icon(Icons.Default.Search, null) },
+                    trailingIcon = { Checkbox(checked = catalogShown, onCheckedChange = null) },
                 )
             }
         }
@@ -357,11 +396,13 @@ private fun SearchResultsList(
     results: SearchResults,
     filters: Set<String>,
     currentId: String?,
+    libraryVm: LibraryViewModel,
     playerVm: PlayerViewModel,
     onOpenArtist: (String) -> Unit,
     onOpenAlbum: (String) -> Unit,
-    photos: Map<String, String>,
 ) {
+    val photos by libraryVm.artistImageUrls.collectAsState()
+    val extraCovers by libraryVm.albumCoverUrls.collectAsState()
     fun show(kind: String) = filters.isEmpty() || kind in filters
     val artists = if (show(SEARCH_ARTISTS)) results.artists else emptyList()
     val albums = if (show(SEARCH_ALBUMS)) results.albums else emptyList()
@@ -374,17 +415,31 @@ private fun SearchResultsList(
         if (artists.isNotEmpty()) {
             item { ResultsHeader("Artists") }
             items(artists, key = { "ar:" + it.name }) { artist ->
-                ArtistRow(artist.name, artist.albumCount, artist.trackCount, photos[artist.name.lowercase()]) { onOpenArtist(artist.name) }
+                val photo = photos[artist.name.lowercase()]
+                LaunchedEffect(artist.name) {
+                    if (photo == null) {
+                        kotlinx.coroutines.delay(250)
+                        libraryVm.artistImage(artist.name)
+                    }
+                }
+                ArtistRow(artist.name, artist.albumCount, artist.trackCount, photo) { onOpenArtist(artist.name) }
             }
         }
         if (albums.isNotEmpty()) {
             item { ResultsHeader("Albums") }
             items(albums, key = { "al:" + it.key }) { album ->
+                val cover = album.artworkUri ?: extraCovers[album.key]
+                LaunchedEffect(album.key) {
+                    if (cover == null) {
+                        kotlinx.coroutines.delay(250)
+                        libraryVm.albumCover(album.key, album.title, album.artist)
+                    }
+                }
                 Row(
                     Modifier.fillMaxWidth().clickable { onOpenAlbum(album.key) }.padding(horizontal = 16.dp, vertical = 6.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    Artwork(album.artworkUri, size = 48.dp)
+                    Artwork(cover, size = 48.dp)
                     Column(Modifier.padding(start = 12.dp)) {
                         Text(album.title, maxLines = 1, overflow = TextOverflow.Ellipsis)
                         ArtistAlbumText(album.artist, listOf(album.artist))
@@ -482,6 +537,7 @@ fun AlbumScreen(
 ) {
     val player by playerVm.state.collectAsState()
     val albumOrNull by remember(albumKey) { libraryVm.album(albumKey) }.collectAsState(null)
+    val extraCovers by libraryVm.albumCoverUrls.collectAsState()
     val allTracks by remember(albumKey, genreKey) { libraryVm.albumTracks(albumKey, genreKey) }.collectAsState(emptyList())
     // The album in several sources: each song once (own copy first), or one source's copy.
     var source by rememberSaveable(albumKey) { mutableStateOf<Int?>(null) }
@@ -494,13 +550,19 @@ fun AlbumScreen(
             navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back") } },
         )
         val album = albumOrNull ?: return@Column
+        val cover = album.artworkUri ?: extraCovers[album.key]
+        LaunchedEffect(album.key) {
+            if (album.artworkUri == null || album.year == null) {
+                libraryVm.enrichAlbum(album.key, album.title, album.artist)
+            }
+        }
         // Shown under the album info when only some of its songs are listed.
         val note = genre?.takeIf { tracks.isNotEmpty() && tracks.size < album.trackCount }
             ?.let { "Only ${it.name} songs · ${album.trackCount} on the album" }
         LazyColumn(Modifier.fillMaxSize()) {
             item {
                 Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Artwork(album.artworkUri, size = 140.dp)
+                    Artwork(cover, size = 140.dp)
                     Column(Modifier.padding(start = 16.dp)) {
                         Text(album.title, style = MaterialTheme.typography.titleLarge)
                         ArtistAlbumText(album.artist, listOf(album.artist), style = MaterialTheme.typography.bodyLarge)
