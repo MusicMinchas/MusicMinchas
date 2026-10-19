@@ -187,6 +187,26 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
         .flowOn(Dispatchers.IO)
         .stateIn(viewModelScope, SharingStarted.Eagerly, SearchResults())
 
+    /** Online catalog search on Deezer and Apple Music when the catalog source is enabled and ticked. */
+    @OptIn(kotlinx.coroutines.FlowPreview::class, kotlinx.coroutines.ExperimentalCoroutinesApi::class)
+    val catalogSearchResults: StateFlow<com.kike.musicplayer.data.catalog.CatalogSearchResults> = combine(
+        _query.debounce { if (it.isBlank()) 0L else CATALOG_SEARCH_DEBOUNCE_MS },
+        settings.catalogEnabled,
+        settings.catalogShown,
+    ) { q, enabled, shown -> Triple(q, enabled, shown) }
+        .flatMapLatest { (q, enabled, shown) ->
+            if (!enabled || !shown || q.trim().length < 2) {
+                flowOf(com.kike.musicplayer.data.catalog.CatalogSearchResults())
+            } else {
+                kotlinx.coroutines.flow.flow {
+                    emit(com.kike.musicplayer.data.catalog.CatalogSearchResults(loading = true))
+                    emit(container.catalog.searchCatalog(q, includePlaylists = true))
+                }
+            }
+        }
+        .flowOn(Dispatchers.IO)
+        .stateIn(viewModelScope, SharingStarted.Eagerly, com.kike.musicplayer.data.catalog.CatalogSearchResults())
+
     private val history = container.database.history().observeAll()
 
     private val artistTags = container.database.artistInfo().observeAll().map(::artistTagMap)
@@ -348,10 +368,72 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
         return candidates.firstOrNull { it in found }
     }
 
-    /** The library album by this artist with this title (ignoring case, accents and punctuation), if any. */
-    suspend fun albumInLibrary(artist: String, title: String): String? =
-        browse.observeArtistAlbums(artist, Track.SCOPES).first()
-            .firstOrNull { com.kike.musicplayer.data.discover.Names.comparable(it.title) == com.kike.musicplayer.data.discover.Names.comparable(title) }?.key
+    /** The library album by this artist with this title (ignoring case, accents, punctuation and edition suffixes), if any. */
+    suspend fun albumInLibrary(artist: String, title: String): String? {
+        val wantedKey = com.kike.musicplayer.data.discover.Names.releaseKey(title)
+        val direct = browse.observeArtistAlbums(artist, Track.SCOPES).first()
+            .firstOrNull { com.kike.musicplayer.data.discover.Names.releaseKey(it.title) == wantedKey }?.key
+        if (direct != null) return direct
+        val match = SearchText.match("$artist $title") ?: return null
+        return browse.searchAlbums(match, 20, Track.SCOPES)
+            .firstOrNull {
+                com.kike.musicplayer.data.discover.Names.comparable(it.artist) == com.kike.musicplayer.data.discover.Names.comparable(artist) &&
+                    com.kike.musicplayer.data.discover.Names.releaseKey(it.title) == wantedKey
+            }?.key
+    }
+
+    /**
+     * Matches catalog tracks against the user's library using [TrackMatcher], which prefers the
+     * user's own copy (Local / Google Drive) over Navidrome and ignores edition suffixes.
+     */
+    suspend fun matchCatalogTracks(
+        tracks: List<com.kike.musicplayer.data.catalog.CatalogTrack>,
+    ): Map<String, Track> = kotlinx.coroutines.withContext(Dispatchers.IO) {
+        if (tracks.isEmpty()) return@withContext emptyMap()
+        val artists = tracks.flatMap { listOfNotNull(it.artist, it.albumArtist) }.distinct()
+        val matcher = TrackMatcher.forScrobbles(database.tracks(), artists, emptySet())
+        val out = HashMap<String, Track>()
+        for (t in tracks) {
+            matcher.match(t.artist, t.title, t.album.takeIf { it.isNotBlank() }, null)?.let { matched ->
+                out[t.id] = matched
+            }
+        }
+        out
+    }
+
+    /** Fetches the tracklist of a catalog album and matches each song against the user's library. */
+    suspend fun catalogAlbumTracks(
+        album: com.kike.musicplayer.data.catalog.CatalogAlbum,
+    ): Pair<List<com.kike.musicplayer.data.catalog.CatalogTrack>, Map<String, Track>> {
+        val tracks = container.catalog.albumTracks(album)
+        return tracks to matchCatalogTracks(tracks)
+    }
+
+    /** Fetches top songs and discography albums for a catalog artist and matches top songs against the library. */
+    suspend fun catalogArtistOverview(
+        artist: com.kike.musicplayer.data.catalog.CatalogArtist,
+    ): Triple<List<com.kike.musicplayer.data.catalog.CatalogTrack>, Map<String, Track>, List<com.kike.musicplayer.data.catalog.CatalogAlbum>> {
+        val (top, albums) = container.catalog.artistOverview(artist)
+        return Triple(top, matchCatalogTracks(top), albums)
+    }
+
+    /** Fetches tracks of a public Deezer playlist and matches each song against the user's library. */
+    suspend fun catalogPlaylistTracks(
+        playlist: com.kike.musicplayer.data.catalog.CatalogPlaylist,
+    ): Pair<List<com.kike.musicplayer.data.catalog.CatalogTrack>, Map<String, Track>> {
+        val tracks = container.catalog.playlistTracks(playlist)
+        return tracks to matchCatalogTracks(tracks)
+    }
+
+    /** Returns studio/live albums by [artistName] on Deezer/Apple Music that are not already in [ownedTitles]. */
+    suspend fun artistMissingDiscography(
+        artistName: String,
+        ownedTitles: Collection<String>,
+    ): List<com.kike.musicplayer.data.catalog.CatalogAlbum> {
+        val ownedKeys = ownedTitles.mapTo(HashSet()) { com.kike.musicplayer.data.discover.Names.releaseKey(it) }
+        return container.catalog.artistDiscography(artistName)
+            .filter { com.kike.musicplayer.data.discover.Names.releaseKey(it.title) !in ownedKeys }
+    }
 
     /**
      * Songs for the playlist picker: those whose title, artist or album (as chosen) has words
@@ -810,6 +892,7 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
         const val QUEUE_LIMIT = 1000
         const val ARTIST_TOP_SONGS = 10
         const val SEARCH_DEBOUNCE_MS = 150L
+        const val CATALOG_SEARCH_DEBOUNCE_MS = 400L
         /** Search results shown at most per kind. */
         const val SEARCH_ARTISTS = 30
         const val SEARCH_ALBUMS = 50

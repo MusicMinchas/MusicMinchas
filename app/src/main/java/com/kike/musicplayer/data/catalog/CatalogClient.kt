@@ -4,6 +4,8 @@ import android.util.Log
 import com.kike.musicplayer.data.discover.Names
 import com.squareup.moshi.Moshi
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -63,6 +65,14 @@ data class CatalogPlaylist(
     }
 }
 
+data class CatalogSearchResults(
+    val artists: List<CatalogArtist> = emptyList(),
+    val albums: List<CatalogAlbum> = emptyList(),
+    val songs: List<CatalogTrack> = emptyList(),
+    val playlists: List<CatalogPlaylist> = emptyList(),
+    val loading: Boolean = false,
+)
+
 /**
  * Public, zero-account catalog & metadata client for Deezer (`api.deezer.com`) and Apple Music /
  * iTunes (`itunes.apple.com`). Never streams or plays audio; used strictly for catalog search,
@@ -77,6 +87,414 @@ class CatalogClient(
 
     private val appleMutex = Mutex()
     private var lastAppleCall = 0L
+
+    // ---- Catalog Search & Detail Lookups (Step 2) ----
+
+    /**
+     * Searches Deezer and Apple Music in parallel (a single combined entity request on Apple Music
+     * to respect its rate limit) and merges duplicate artists, albums, and tracks.
+     */
+    suspend fun searchCatalog(query: String, includePlaylists: Boolean = false): CatalogSearchResults =
+        withContext(Dispatchers.IO) {
+            val trimmed = query.trim()
+            if (trimmed.length < 2) return@withContext CatalogSearchResults()
+            coroutineScope {
+                val dzArtistsDef = async { runCatching { searchDeezerArtists(trimmed, 8) }.getOrDefault(emptyList()) }
+                val dzAlbumsDef = async { runCatching { searchDeezerAlbums(trimmed, 12) }.getOrDefault(emptyList()) }
+                val dzTracksDef = async { runCatching { searchDeezerTracks(trimmed, 20) }.getOrDefault(emptyList()) }
+                val dzPlaylistsDef = async {
+                    if (includePlaylists) runCatching { searchPlaylists(trimmed, 12) }.getOrDefault(emptyList()) else emptyList()
+                }
+                val appleDef = async { runCatching { searchAppleCombined(trimmed, 25) }.getOrDefault(Triple(emptyList(), emptyList(), emptyList())) }
+
+                val dzArtists = dzArtistsDef.await()
+                val dzAlbums = dzAlbumsDef.await()
+                val dzTracks = dzTracksDef.await()
+                val dzPlaylists = dzPlaylistsDef.await()
+                val (apArtists, apAlbums, apTracks) = appleDef.await()
+
+                // Merge artists (Deezer first because it includes 1000x1000 artist photos).
+                val mergedArtists = LinkedHashMap<String, CatalogArtist>()
+                for (a in dzArtists + apArtists) {
+                    val key = Names.comparable(a.name)
+                    if (key.isEmpty()) continue
+                    val existing = mergedArtists[key]
+                    if (existing == null) {
+                        mergedArtists[key] = a
+                    } else if (existing.pictureUrl == null && a.pictureUrl != null) {
+                        mergedArtists[key] = existing.copy(pictureUrl = a.pictureUrl)
+                    }
+                }
+
+                // Merge albums (combine Deezer & Apple Music so year/genre from Apple enrich Deezer's row).
+                val mergedAlbums = LinkedHashMap<String, CatalogAlbum>()
+                for (al in dzAlbums + apAlbums) {
+                    val key = Names.comparable(al.artist) + "\u0001" + Names.releaseKey(al.title)
+                    val existing = mergedAlbums[key]
+                    if (existing == null) {
+                        mergedAlbums[key] = al
+                    } else {
+                        mergedAlbums[key] = existing.copy(
+                            year = existing.year ?: al.year,
+                            genre = existing.genre ?: al.genre,
+                            coverUrl = existing.coverUrl ?: al.coverUrl,
+                            trackCount = existing.trackCount ?: al.trackCount,
+                        )
+                    }
+                }
+
+                // Merge tracks (combine Deezer & Apple Music metadata).
+                val mergedTracks = LinkedHashMap<String, CatalogTrack>()
+                for (t in dzTracks + apTracks) {
+                    val key = Names.comparable(t.artist) + "\u0001" + Names.comparable(t.title)
+                    val existing = mergedTracks[key]
+                    if (existing == null) {
+                        mergedTracks[key] = t
+                    } else {
+                        mergedTracks[key] = existing.copy(
+                            year = existing.year ?: t.year,
+                            genre = existing.genre ?: t.genre,
+                            trackNumber = existing.trackNumber ?: t.trackNumber,
+                            discNumber = existing.discNumber ?: t.discNumber,
+                            albumArtist = existing.albumArtist ?: t.albumArtist,
+                            coverUrl = existing.coverUrl ?: t.coverUrl,
+                        )
+                    }
+                }
+
+                CatalogSearchResults(
+                    artists = mergedArtists.values.take(10),
+                    albums = mergedAlbums.values.take(15),
+                    songs = mergedTracks.values.take(25),
+                    playlists = dzPlaylists,
+                )
+            }
+        }
+
+    /** Full tracklist for a catalog album (`dz:...` or `ap:...`). */
+    suspend fun albumTracks(album: CatalogAlbum): List<CatalogTrack> = withContext(Dispatchers.IO) {
+        runCatching {
+            if (album.id.startsWith("dz:")) {
+                val rawId = album.id.removePrefix("dz:")
+                val detail = deezerJson("https://api.deezer.com/album/$rawId")
+                val year = (detail["release_date"] as? String)?.take(4)?.toIntOrNull()?.takeIf { it > 1900 } ?: album.year
+                val genre = (((detail["genres"] as? Map<*, *>)?.get("data") as? List<*>)
+                    ?.firstOrNull() as? Map<*, *>)?.get("name") as? String ?: album.genre
+                val cover = ((detail["cover_xl"] as? String) ?: (detail["cover_big"] as? String))
+                    ?.takeIf { "/album//" !in it } ?: album.coverUrl
+                val tracksData = ((detail["tracks"] as? Map<*, *>)?.get("data") as? List<*>)
+                    ?.mapNotNull { it as? Map<*, *> }
+                    .orEmpty()
+                tracksData.mapIndexed { idx, item ->
+                    val artistName = ((item["artist"] as? Map<*, *>)?.get("name") as? String) ?: album.artist
+                    CatalogTrack(
+                        id = "dz:${item.longStr("id") ?: idx}",
+                        title = (item["title"] as? String) ?: "",
+                        artist = artistName,
+                        album = album.title,
+                        albumArtist = album.artist,
+                        trackNumber = (item["track_position"] as? Number)?.toInt() ?: (idx + 1),
+                        discNumber = (item["disk_number"] as? Number)?.toInt() ?: 1,
+                        durationMs = ((item["duration"] as? Number)?.toLong() ?: 0L) * 1000L,
+                        year = year,
+                        genre = genre,
+                        coverUrl = cover,
+                        albumId = album.id,
+                        source = CatalogPlaylist.SOURCE_DEEZER,
+                    )
+                }.filter { it.title.isNotBlank() }
+            } else if (album.id.startsWith("ap:")) {
+                val rawId = album.id.removePrefix("ap:")
+                val url = "https://itunes.apple.com/lookup".toHttpUrl().newBuilder()
+                    .addQueryParameter("id", rawId)
+                    .addQueryParameter("entity", "song")
+                    .addQueryParameter("limit", "200")
+                    .build()
+                val results = (appleJson(url.toString())["results"] as? List<*>)?.mapNotNull { it as? Map<*, *> }.orEmpty()
+                results.filter { it["wrapperType"] == "track" }.mapIndexed { idx, item ->
+                    CatalogTrack(
+                        id = "ap:${item.longStr("trackId") ?: idx}",
+                        title = (item["trackName"] as? String) ?: "",
+                        artist = (item["artistName"] as? String) ?: album.artist,
+                        album = (item["collectionName"] as? String) ?: album.title,
+                        albumArtist = (item["collectionArtistName"] as? String) ?: album.artist,
+                        trackNumber = (item["trackNumber"] as? Number)?.toInt() ?: (idx + 1),
+                        discNumber = (item["discNumber"] as? Number)?.toInt() ?: 1,
+                        durationMs = (item["trackTimeMillis"] as? Number)?.toLong() ?: 0L,
+                        year = (item["releaseDate"] as? String)?.take(4)?.toIntOrNull()?.takeIf { it > 1900 } ?: album.year,
+                        genre = (item["primaryGenreName"] as? String)?.takeIf { it.isNotBlank() && !it.equals("Music", ignoreCase = true) } ?: album.genre,
+                        coverUrl = appleHiResCover(item["artworkUrl100"] as? String) ?: album.coverUrl,
+                        albumId = album.id,
+                        source = CatalogPlaylist.SOURCE_APPLE,
+                    )
+                }.filter { it.title.isNotBlank() }
+            } else {
+                emptyList()
+            }
+        }.onFailure { Log.w(TAG, "albumTracks failed for ${album.id}: $it") }.getOrDefault(emptyList())
+    }
+
+    /** Top songs and discography albums for a catalog artist (`dz:...` or `ap:...`). */
+    suspend fun artistOverview(artist: CatalogArtist): Pair<List<CatalogTrack>, List<CatalogAlbum>> =
+        withContext(Dispatchers.IO) {
+            runCatching {
+                val dzId = if (artist.id.startsWith("dz:")) {
+                    artist.id.removePrefix("dz:")
+                } else {
+                    searchDeezerArtists(artist.name, 5)
+                        .firstOrNull { Names.comparable(it.name) == Names.comparable(artist.name) }
+                        ?.id?.removePrefix("dz:")
+                }
+                if (dzId != null) {
+                    val topUrl = "https://api.deezer.com/artist/$dzId/top?limit=10"
+                    val topData = (deezerJson(topUrl)["data"] as? List<*>)?.mapNotNull { it as? Map<*, *> }.orEmpty()
+                    val topTracks = topData.mapNotNull { parseDeezerTrack(it) }
+
+                    val albumsUrl = "https://api.deezer.com/artist/$dzId/albums?limit=60"
+                    val albumsData = (deezerJson(albumsUrl)["data"] as? List<*>)?.mapNotNull { it as? Map<*, *> }.orEmpty()
+                    val albums = albumsData
+                        .mapNotNull { item ->
+                            val id = item.longStr("id") ?: return@mapNotNull null
+                            val title = (item["title"] as? String)?.takeIf { it.isNotBlank() } ?: return@mapNotNull null
+                            val recordType = (item["record_type"] as? String) ?: "album"
+                            if (recordType == "single") return@mapNotNull null
+                            val cover = ((item["cover_xl"] as? String) ?: (item["cover_big"] as? String))?.takeIf { "/album//" !in it }
+                            val year = (item["release_date"] as? String)?.take(4)?.toIntOrNull()?.takeIf { it > 1900 }
+                            CatalogAlbum(
+                                id = "dz:$id",
+                                title = title,
+                                artist = artist.name,
+                                year = year,
+                                coverUrl = cover,
+                                genre = null,
+                                trackCount = (item["nb_tracks"] as? Number)?.toInt(),
+                                recordType = recordType,
+                                source = CatalogPlaylist.SOURCE_DEEZER,
+                            )
+                        }
+                        .distinctBy { Names.releaseKey(it.title) }
+                        .sortedByDescending { it.year ?: 0 }
+                    return@runCatching topTracks to albums
+                }
+                // Apple Music fallback when artist isn't on Deezer
+                val rawApId = artist.id.removePrefix("ap:")
+                val lookupUrl = "https://itunes.apple.com/lookup".toHttpUrl().newBuilder()
+                    .addQueryParameter("id", rawApId)
+                    .addQueryParameter("entity", "album")
+                    .addQueryParameter("limit", "50")
+                    .build()
+                val results = (appleJson(lookupUrl.toString())["results"] as? List<*>)?.mapNotNull { it as? Map<*, *> }.orEmpty()
+                val albums = results.filter { it["wrapperType"] == "collection" }
+                    .mapNotNull { parseAppleAlbum(it) }
+                    .distinctBy { Names.releaseKey(it.title) }
+                    .sortedByDescending { it.year ?: 0 }
+                val songs = searchAppleCombined(artist.name, 15).third
+                    .filter { Names.comparable(it.artist) == Names.comparable(artist.name) }
+                    .take(10)
+                songs to albums
+            }.onFailure { Log.w(TAG, "artistOverview failed for ${artist.name}: $it") }
+                .getOrDefault(emptyList<CatalogTrack>() to emptyList<CatalogAlbum>())
+        }
+
+    /** Public playlists on Deezer matching [query]. */
+    suspend fun searchPlaylists(query: String, limit: Int = 15): List<CatalogPlaylist> = withContext(Dispatchers.IO) {
+        val url = "https://api.deezer.com/search/playlist".toHttpUrl().newBuilder()
+            .addQueryParameter("q", query)
+            .addQueryParameter("limit", limit.toString())
+            .build()
+        val data = (deezerJson(url.toString())["data"] as? List<*>)?.mapNotNull { it as? Map<*, *> }.orEmpty()
+        data.mapNotNull { item ->
+            val id = item.longStr("id") ?: return@mapNotNull null
+            val title = (item["title"] as? String)?.takeIf { it.isNotBlank() } ?: return@mapNotNull null
+            val count = (item["nb_tracks"] as? Number)?.toInt() ?: 0
+            if (count <= 0) return@mapNotNull null
+            val creator = (item["user"] as? Map<*, *>)?.get("name") as? String
+            val cover = ((item["picture_xl"] as? String) ?: (item["picture_big"] as? String) ?: (item["picture_medium"] as? String))
+                ?.takeIf { "/playlist//" !in it }
+            CatalogPlaylist(
+                id = "dz:$id",
+                title = title,
+                creator = creator,
+                trackCount = count,
+                coverUrl = cover,
+                source = CatalogPlaylist.SOURCE_DEEZER,
+            )
+        }
+    }
+
+    /** Tracks inside a public Deezer playlist (`dz:...`). */
+    suspend fun playlistTracks(playlist: CatalogPlaylist): List<CatalogTrack> = withContext(Dispatchers.IO) {
+        runCatching {
+            val rawId = playlist.id.removePrefix("dz:")
+            val url = "https://api.deezer.com/playlist/$rawId/tracks?limit=200"
+            val data = (deezerJson(url)["data"] as? List<*>)?.mapNotNull { it as? Map<*, *> }.orEmpty()
+            data.mapNotNull { parseDeezerTrack(it) }
+        }.onFailure { Log.w(TAG, "playlistTracks failed for ${playlist.id}: $it") }.getOrDefault(emptyList())
+    }
+
+    /** Studio & live album discography for [artistName] from Deezer and Apple Music. */
+    suspend fun artistDiscography(artistName: String): List<CatalogAlbum> = withContext(Dispatchers.IO) {
+        runCatching {
+            val dzArtist = searchDeezerArtists(artistName, 5)
+                .firstOrNull { Names.comparable(it.name) == Names.comparable(artistName) }
+            if (dzArtist != null) {
+                artistOverview(dzArtist).second
+            } else {
+                val (_, apAlbums, _) = searchAppleCombined(artistName, 25)
+                apAlbums.filter { Names.comparable(it.artist) == Names.comparable(artistName) }
+                    .distinctBy { Names.releaseKey(it.title) }
+                    .sortedByDescending { it.year ?: 0 }
+            }
+        }.getOrDefault(emptyList())
+    }
+
+    private suspend fun searchDeezerArtists(query: String, limit: Int): List<CatalogArtist> {
+        val url = "https://api.deezer.com/search/artist".toHttpUrl().newBuilder()
+            .addQueryParameter("q", query)
+            .addQueryParameter("limit", limit.toString())
+            .build()
+        val data = (deezerJson(url.toString())["data"] as? List<*>)?.mapNotNull { it as? Map<*, *> }.orEmpty()
+        return data.mapNotNull { item ->
+            val id = item.longStr("id") ?: return@mapNotNull null
+            val name = (item["name"] as? String)?.takeIf { it.isNotBlank() } ?: return@mapNotNull null
+            val pic = ((item["picture_xl"] as? String) ?: (item["picture_big"] as? String))?.takeIf { "/artist//" !in it }
+            CatalogArtist(
+                id = "dz:$id",
+                name = name,
+                pictureUrl = pic,
+                albumCount = (item["nb_album"] as? Number)?.toInt(),
+                source = CatalogPlaylist.SOURCE_DEEZER,
+            )
+        }
+    }
+
+    private suspend fun searchDeezerAlbums(query: String, limit: Int): List<CatalogAlbum> {
+        val url = "https://api.deezer.com/search/album".toHttpUrl().newBuilder()
+            .addQueryParameter("q", query)
+            .addQueryParameter("limit", limit.toString())
+            .build()
+        val data = (deezerJson(url.toString())["data"] as? List<*>)?.mapNotNull { it as? Map<*, *> }.orEmpty()
+        return data.mapNotNull { item ->
+            val id = item.longStr("id") ?: return@mapNotNull null
+            val title = (item["title"] as? String)?.takeIf { it.isNotBlank() } ?: return@mapNotNull null
+            val artist = ((item["artist"] as? Map<*, *>)?.get("name") as? String)?.takeIf { it.isNotBlank() } ?: return@mapNotNull null
+            val cover = ((item["cover_xl"] as? String) ?: (item["cover_big"] as? String))?.takeIf { "/album//" !in it }
+            CatalogAlbum(
+                id = "dz:$id",
+                title = title,
+                artist = artist,
+                year = null,
+                coverUrl = cover,
+                genre = null,
+                trackCount = (item["nb_tracks"] as? Number)?.toInt(),
+                recordType = (item["record_type"] as? String) ?: "album",
+                source = CatalogPlaylist.SOURCE_DEEZER,
+            )
+        }
+    }
+
+    private suspend fun searchDeezerTracks(query: String, limit: Int): List<CatalogTrack> {
+        val url = "https://api.deezer.com/search/track".toHttpUrl().newBuilder()
+            .addQueryParameter("q", query)
+            .addQueryParameter("limit", limit.toString())
+            .build()
+        val data = (deezerJson(url.toString())["data"] as? List<*>)?.mapNotNull { it as? Map<*, *> }.orEmpty()
+        return data.mapNotNull { parseDeezerTrack(it) }
+    }
+
+    private fun parseDeezerTrack(item: Map<*, *>): CatalogTrack? {
+        val id = item.longStr("id") ?: return null
+        val title = (item["title"] as? String)?.takeIf { it.isNotBlank() } ?: return null
+        val artist = ((item["artist"] as? Map<*, *>)?.get("name") as? String)?.takeIf { it.isNotBlank() } ?: return null
+        val albMap = item["album"] as? Map<*, *>
+        val albTitle = (albMap?.get("title") as? String) ?: ""
+        val albId = albMap?.longStr("id")
+        val cover = ((albMap?.get("cover_xl") as? String) ?: (albMap?.get("cover_big") as? String))?.takeIf { "/album//" !in it }
+        return CatalogTrack(
+            id = "dz:$id",
+            title = title,
+            artist = artist,
+            album = albTitle,
+            albumArtist = artist,
+            trackNumber = (item["track_position"] as? Number)?.toInt(),
+            discNumber = (item["disk_number"] as? Number)?.toInt(),
+            durationMs = ((item["duration"] as? Number)?.toLong() ?: 0L) * 1000L,
+            year = null,
+            genre = null,
+            coverUrl = cover,
+            albumId = albId?.let { "dz:$it" },
+            source = CatalogPlaylist.SOURCE_DEEZER,
+        )
+    }
+
+    private suspend fun searchAppleCombined(
+        query: String,
+        limit: Int,
+    ): Triple<List<CatalogArtist>, List<CatalogAlbum>, List<CatalogTrack>> {
+        val url = "https://itunes.apple.com/search".toHttpUrl().newBuilder()
+            .addQueryParameter("term", query)
+            .addQueryParameter("media", "music")
+            .addQueryParameter("entity", "musicArtist,album,song")
+            .addQueryParameter("limit", limit.toString())
+            .build()
+        val results = (appleJson(url.toString())["results"] as? List<*>)?.mapNotNull { it as? Map<*, *> }.orEmpty()
+        val artists = mutableListOf<CatalogArtist>()
+        val albums = mutableListOf<CatalogAlbum>()
+        val tracks = mutableListOf<CatalogTrack>()
+        for (item in results) {
+            when (item["wrapperType"] as? String) {
+                "artist" -> {
+                    val id = item.longStr("artistId") ?: continue
+                    val name = (item["artistName"] as? String)?.takeIf { it.isNotBlank() } ?: continue
+                    artists += CatalogArtist(
+                        id = "ap:$id",
+                        name = name,
+                        pictureUrl = null,
+                        source = CatalogPlaylist.SOURCE_APPLE,
+                    )
+                }
+                "collection" -> parseAppleAlbum(item)?.let { albums += it }
+                "track" -> {
+                    val id = item.longStr("trackId") ?: continue
+                    val title = (item["trackName"] as? String)?.takeIf { it.isNotBlank() } ?: continue
+                    val artist = (item["artistName"] as? String)?.takeIf { it.isNotBlank() } ?: continue
+                    tracks += CatalogTrack(
+                        id = "ap:$id",
+                        title = title,
+                        artist = artist,
+                        album = (item["collectionName"] as? String) ?: "",
+                        albumArtist = (item["collectionArtistName"] as? String) ?: artist,
+                        trackNumber = (item["trackNumber"] as? Number)?.toInt(),
+                        discNumber = (item["discNumber"] as? Number)?.toInt(),
+                        durationMs = (item["trackTimeMillis"] as? Number)?.toLong() ?: 0L,
+                        year = (item["releaseDate"] as? String)?.take(4)?.toIntOrNull()?.takeIf { it > 1900 },
+                        genre = (item["primaryGenreName"] as? String)?.takeIf { it.isNotBlank() && !it.equals("Music", ignoreCase = true) },
+                        coverUrl = appleHiResCover(item["artworkUrl100"] as? String),
+                        albumId = item.longStr("collectionId")?.let { "ap:$it" },
+                        source = CatalogPlaylist.SOURCE_APPLE,
+                    )
+                }
+            }
+        }
+        return Triple(artists, albums, tracks)
+    }
+
+    private fun parseAppleAlbum(item: Map<*, *>): CatalogAlbum? {
+        val id = item.longStr("collectionId") ?: return null
+        val title = (item["collectionName"] as? String)?.takeIf { it.isNotBlank() } ?: return null
+        val artist = (item["artistName"] as? String)?.takeIf { it.isNotBlank() } ?: return null
+        if (title.endsWith(" - Single", ignoreCase = true)) return null
+        return CatalogAlbum(
+            id = "ap:$id",
+            title = title,
+            artist = artist,
+            year = (item["releaseDate"] as? String)?.take(4)?.toIntOrNull()?.takeIf { it > 1900 },
+            coverUrl = appleHiResCover(item["artworkUrl100"] as? String),
+            genre = (item["primaryGenreName"] as? String)?.takeIf { it.isNotBlank() && !it.equals("Music", ignoreCase = true) },
+            trackCount = (item["trackCount"] as? Number)?.toInt(),
+            source = CatalogPlaylist.SOURCE_APPLE,
+        )
+    }
 
     // ---- Dynamic Metadata & Cover Art Lookups (Step 1) ----
 

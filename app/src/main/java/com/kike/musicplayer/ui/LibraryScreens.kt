@@ -129,10 +129,13 @@ fun LibraryScreen(
     onOpenMix: (String) -> Unit,
     onOpenGenre: (String) -> Unit,
     onOpenFollowing: () -> Unit,
+    onOpenCatalogArtist: (com.kike.musicplayer.data.catalog.CatalogArtist) -> Unit = {},
+    onOpenCatalogAlbum: (com.kike.musicplayer.data.catalog.CatalogAlbum) -> Unit = {},
     contentPadding: PaddingValues,
 ) {
     val playlists by libraryVm.playlists.collectAsState()
     val results by libraryVm.searchResults.collectAsState()
+    val catalogResults by libraryVm.catalogSearchResults.collectAsState()
     val query by libraryVm.query.collectAsState()
     val scanStatus by libraryVm.scanStatus.collectAsState()
     val progress by libraryVm.metadataProgress.collectAsState()
@@ -192,12 +195,15 @@ fun LibraryScreen(
         if (query.isNotEmpty()) {
             SearchResultsList(
                 results = results,
+                catalogResults = catalogResults,
                 filters = filters,
                 currentId = player.current?.mediaId,
                 libraryVm = libraryVm,
                 playerVm = playerVm,
                 onOpenArtist = onOpenArtist,
                 onOpenAlbum = onOpenAlbum,
+                onOpenCatalogArtist = onOpenCatalogArtist,
+                onOpenCatalogAlbum = onOpenCatalogAlbum,
             )
             return@Column
         }
@@ -394,12 +400,15 @@ internal fun ArtistPhoto(url: String?, modifier: Modifier = Modifier) {
 @Composable
 private fun SearchResultsList(
     results: SearchResults,
+    catalogResults: com.kike.musicplayer.data.catalog.CatalogSearchResults,
     filters: Set<String>,
     currentId: String?,
     libraryVm: LibraryViewModel,
     playerVm: PlayerViewModel,
     onOpenArtist: (String) -> Unit,
     onOpenAlbum: (String) -> Unit,
+    onOpenCatalogArtist: (com.kike.musicplayer.data.catalog.CatalogArtist) -> Unit,
+    onOpenCatalogAlbum: (com.kike.musicplayer.data.catalog.CatalogAlbum) -> Unit,
 ) {
     val photos by libraryVm.artistImageUrls.collectAsState()
     val extraCovers by libraryVm.albumCoverUrls.collectAsState()
@@ -407,7 +416,41 @@ private fun SearchResultsList(
     val artists = if (show(SEARCH_ARTISTS)) results.artists else emptyList()
     val albums = if (show(SEARCH_ALBUMS)) results.albums else emptyList()
     val songs = if (show(SEARCH_SONGS)) results.songs else emptyList()
-    if (artists.isEmpty() && albums.isEmpty() && songs.isEmpty()) {
+
+    val libArtistKeys = remember(results.artists) {
+        results.artists.mapTo(HashSet()) { com.kike.musicplayer.data.discover.Names.comparable(it.name) }
+    }
+    val libAlbumKeys = remember(results.albums) {
+        results.albums.mapTo(HashSet()) {
+            com.kike.musicplayer.data.discover.Names.comparable(it.artist) + "\u0001" + com.kike.musicplayer.data.discover.Names.releaseKey(it.title)
+        }
+    }
+    val libSongKeys = remember(results.songs) {
+        results.songs.mapTo(HashSet()) {
+            com.kike.musicplayer.data.discover.Names.comparable(it.displayArtist) + "\u0001" + com.kike.musicplayer.data.discover.Names.comparable(it.title)
+        }
+    }
+
+    val catArtists = remember(catalogResults.artists, libArtistKeys, filters) {
+        if (!show(SEARCH_ARTISTS)) emptyList()
+        else catalogResults.artists.filter { com.kike.musicplayer.data.discover.Names.comparable(it.name) !in libArtistKeys }
+    }
+    val catAlbums = remember(catalogResults.albums, libAlbumKeys, filters) {
+        if (!show(SEARCH_ALBUMS)) emptyList()
+        else catalogResults.albums.filter {
+            (com.kike.musicplayer.data.discover.Names.comparable(it.artist) + "\u0001" + com.kike.musicplayer.data.discover.Names.releaseKey(it.title)) !in libAlbumKeys
+        }
+    }
+    val catSongs = remember(catalogResults.songs, libSongKeys, filters) {
+        if (!show(SEARCH_SONGS)) emptyList()
+        else catalogResults.songs.filter {
+            (com.kike.musicplayer.data.discover.Names.comparable(it.artist) + "\u0001" + com.kike.musicplayer.data.discover.Names.comparable(it.title)) !in libSongKeys
+        }
+    }
+
+    if (artists.isEmpty() && albums.isEmpty() && songs.isEmpty() &&
+        catArtists.isEmpty() && catAlbums.isEmpty() && catSongs.isEmpty() && !catalogResults.loading
+    ) {
         Text("No matches", Modifier.padding(16.dp), color = MaterialTheme.colorScheme.onSurfaceVariant)
         return
     }
@@ -456,6 +499,86 @@ private fun SearchResultsList(
                     onClick = { playerVm.playTracks(songs, index) },
                     onPlayNext = { playerVm.playNext(track) },
                     onAddToQueue = { playerVm.addToQueue(track) },
+                )
+            }
+        }
+        if (catalogResults.loading) {
+            item {
+                Row(
+                    Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    androidx.compose.material3.CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 2.dp)
+                    Spacer(Modifier.width(10.dp))
+                    Text(
+                        "Searching Deezer & Apple Music…",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
+        }
+        if (catArtists.isNotEmpty()) {
+            item { ResultsHeader("Artists on Deezer & Apple Music") }
+            items(catArtists, key = { "cat-ar:" + it.id }) { artist ->
+                val photo = artist.pictureUrl ?: photos[artist.name.lowercase()]
+                Row(
+                    Modifier.fillMaxWidth().clickable { onOpenCatalogArtist(artist) }.padding(horizontal = 16.dp, vertical = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    ArtistPhoto(photo, Modifier.size(52.dp))
+                    Column(Modifier.padding(start = 14.dp)) {
+                        Text(artist.name, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        val sub = buildList {
+                            artist.albumCount?.takeIf { it > 0 }?.let { add(count(it, "album")) }
+                            add(if (artist.source == com.kike.musicplayer.data.catalog.CatalogPlaylist.SOURCE_APPLE) "Apple Music" else "Deezer")
+                        }.joinToString(" · ")
+                        Text(sub, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                }
+            }
+        }
+        if (catAlbums.isNotEmpty()) {
+            item { ResultsHeader("Albums on Deezer & Apple Music") }
+            items(catAlbums, key = { "cat-al:" + it.id }) { album ->
+                Row(
+                    Modifier.fillMaxWidth().clickable { onOpenCatalogAlbum(album) }.padding(horizontal = 16.dp, vertical = 6.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Artwork(album.coverUrl, size = 48.dp)
+                    Column(Modifier.padding(start = 12.dp)) {
+                        Text(album.title, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        val sub = buildList {
+                            add(album.artist)
+                            album.year?.let { add(it.toString()) }
+                            album.genre?.let { add(it) }
+                        }.joinToString(" · ")
+                        Text(sub, maxLines = 1, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                }
+            }
+        }
+        if (catSongs.isNotEmpty()) {
+            item { ResultsHeader("Songs on Deezer & Apple Music") }
+            items(catSongs, key = { "cat-so:" + it.id }) { track ->
+                UnownedCatalogTrackRow(
+                    track = track,
+                    onClick = if (track.albumId != null) {
+                        {
+                            onOpenCatalogAlbum(
+                                com.kike.musicplayer.data.catalog.CatalogAlbum(
+                                    id = track.albumId,
+                                    title = track.album.ifBlank { track.title },
+                                    artist = track.albumArtist ?: track.artist,
+                                    year = track.year,
+                                    coverUrl = track.coverUrl,
+                                    genre = track.genre,
+                                    trackCount = null,
+                                    source = track.source,
+                                )
+                            )
+                        }
+                    } else null,
                 )
             }
         }

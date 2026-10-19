@@ -74,6 +74,8 @@ private sealed interface Screen {
     data class MixDetail(val id: String) : Screen
     data class GenreDetail(val key: String) : Screen
     data object Following : Screen
+    data class CatalogAlbumDetail(val album: com.kike.musicplayer.data.catalog.CatalogAlbum) : Screen
+    data class CatalogArtistDetail(val artist: com.kike.musicplayer.data.catalog.CatalogArtist) : Screen
 }
 
 class MainActivity : ComponentActivity() {
@@ -210,17 +212,33 @@ class MainActivity : ComponentActivity() {
                             onOpenReplay = { push(Screen.Replay) },
                             onOpenMostPlayed = { push(Screen.MostPlayed) },
                             onOpenFavourites = { push(Screen.Favourites) },
-                        onNewPlaylist = { push(Screen.NewPlaylist) },
-                        onOpenPlaylist = { push(Screen.PlaylistDetail(it)) },
+                            onNewPlaylist = { push(Screen.NewPlaylist) },
+                            onOpenPlaylist = { push(Screen.PlaylistDetail(it)) },
                             onOpenMix = { push(Screen.MixDetail(it)) },
                             onOpenGenre = { push(Screen.GenreDetail(it)) },
                             onOpenFollowing = { push(Screen.Following) },
+                            onOpenCatalogArtist = { push(Screen.CatalogArtistDetail(it)) },
+                            onOpenCatalogAlbum = { push(Screen.CatalogAlbumDetail(it)) },
                             contentPadding = padding,
                         )
                         is Screen.AlbumDetail -> AlbumScreen(screen.key, screen.genreKey, libraryVm, playerVm, ::pop, padding)
                         is Screen.ArtistDetail -> ArtistScreen(
                             screen.name, libraryVm, playerVm,
                             onOpenAlbum = { push(Screen.AlbumDetail(it)) }, onBack = ::pop, contentPadding = padding,
+                        )
+                        is Screen.CatalogAlbumDetail -> CatalogAlbumScreen(
+                            screen.album, libraryVm, playerVm,
+                            onOpenArtist = { push(Screen.ArtistDetail(it)) },
+                            onOpenCatalogArtist = { push(Screen.CatalogArtistDetail(it)) },
+                            onBack = ::pop,
+                            contentPadding = padding,
+                        )
+                        is Screen.CatalogArtistDetail -> CatalogArtistScreen(
+                            screen.artist, libraryVm, playerVm,
+                            onOpenAlbum = { push(Screen.AlbumDetail(it)) },
+                            onOpenCatalogAlbum = { push(Screen.CatalogAlbumDetail(it)) },
+                            onBack = ::pop,
+                            contentPadding = padding,
                         )
                         Screen.NowPlaying -> NowPlayingScreen(playerVm, ::pop, { push(Screen.Queue) }, padding, fullCover)
                         Screen.Queue -> QueueScreen(playerVm, ::pop, padding)
