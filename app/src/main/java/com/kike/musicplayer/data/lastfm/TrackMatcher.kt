@@ -4,6 +4,7 @@ import com.kike.musicplayer.data.db.Track
 import com.kike.musicplayer.data.db.TrackDao
 import com.kike.musicplayer.data.db.byArtistNames
 import com.kike.musicplayer.data.db.byRecordingIds
+import com.kike.musicplayer.data.discover.Names
 import java.text.Normalizer
 
 /**
@@ -35,16 +36,33 @@ class TrackMatcher(tracks: List<Track>) {
         }
     }
 
-    fun match(artist: String, title: String, album: String?, mbid: String?): Track? {
+    fun match(artist: String, title: String, album: String?, mbid: String?, exactAlbumOnly: Boolean = false): Track? {
         mbid?.let { byMbid[it] }?.let { return it }
         val wanted = album?.let(::basic)
+        val wantedRelease = album?.let { Names.releaseKey(it) }
         val exactHits = exact[key(basic(artist), basic(title))].orEmpty()
         val looseHits = loose[key(looseArtist(artist), looseTitle(title))].orEmpty()
+        val onAlbum = { t: Track ->
+            val alb = t.album
+            alb != null && (alb.let(::basic) == wanted || (wantedRelease != null && Names.releaseKey(alb) == wantedRelease))
+        }
+
+        // 1. If an album is specified, an on-album copy across ANY source takes priority (own copy first, then server).
+        // An off-album copy (e.g. from a Greatest Hits compilation) must never hijack an actual album track.
+        if (wanted != null) {
+            val onAlbumExactOwn = exactHits.filter { !it.fromServer && onAlbum(it) }
+            val onAlbumLooseOwn = looseHits.filter { !it.fromServer && onAlbum(it) }
+            val onAlbumExactServer = exactHits.filter { it.fromServer && onAlbum(it) }
+            val onAlbumLooseServer = looseHits.filter { it.fromServer && onAlbum(it) }
+            for (hits in listOf(onAlbumExactOwn, onAlbumLooseOwn, onAlbumExactServer, onAlbumLooseServer)) {
+                if (hits.isNotEmpty()) return hits.first()
+            }
+            if (exactAlbumOnly) return null
+        }
+
         if (exactHits.isEmpty() && looseHits.isEmpty()) return lastResort(artist, title, wanted)
-        val onAlbum = { t: Track -> wanted != null && t.album?.let(::basic) == wanted }
-        // The user's own copy of the same song beats a server file whose title only matches more
-        // exactly ("Fade To Black (Remastered)" is their "Fade to Black"); within each, the exact
-        // title, then the scrobble's album.
+
+        // 2. Off-album fallback (scrobbles, playlists): own copy first, then server.
         for (hits in listOf(exactHits.filter { !it.fromServer }, looseHits.filter { !it.fromServer }, exactHits, looseHits)) {
             if (hits.isNotEmpty()) return hits.firstOrNull(onAlbum) ?: hits.first()
         }

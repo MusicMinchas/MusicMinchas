@@ -127,4 +127,23 @@ class TrackMatcherTest {
         val onlyServer = track("s2", "Opeth", "Harvest", album = "Blackwater Park").copy(source = Track.SOURCE_SUBSONIC, scope = Track.SCOPE_SERVER)
         assertEquals("s2", TrackMatcher(listOf(onlyServer, own)).match("Opeth", "Harvest", null, null)?.id)
     }
+
+    @Test
+    fun `an on-album server copy beats an off-album own copy`() {
+        val serverJazz = track("s-jazz", "Queen", "Fat Bottomed Girls (Remastered 2011)", album = "Jazz")
+            .copy(source = Track.SOURCE_SUBSONIC, scope = Track.SCOPE_SERVER)
+        val driveHits = track("d-hits", "Queen", "Fat Bottomed Girls", album = "Greatest Hits")
+            .copy(source = Track.SOURCE_DRIVE, scope = Track.SCOPE_DRIVE)
+        val matcher = TrackMatcher(listOf(serverJazz, driveHits))
+
+        // When looking for the song on Jazz, the on-album copy from Navidrome must win over Greatest Hits from Drive.
+        assertEquals("s-jazz", matcher.match("Queen", "Fat Bottomed Girls", "Jazz", null)?.id)
+        assertEquals("s-jazz", matcher.match("Queen", "Fat Bottomed Girls", "Jazz", null, exactAlbumOnly = true)?.id)
+
+        // When exactAlbumOnly is true, an off-album song from Greatest Hits will not match a different album.
+        assertNull(matcher.match("Queen", "Fat Bottomed Girls", "A Night at the Opera", null, exactAlbumOnly = true))
+
+        // When exactAlbumOnly is false (playlists/scrobbles), it can fall back to the off-album copy if not on the requested album.
+        assertEquals("d-hits", matcher.match("Queen", "Fat Bottomed Girls", "A Night at the Opera", null, exactAlbumOnly = false)?.id)
+    }
 }

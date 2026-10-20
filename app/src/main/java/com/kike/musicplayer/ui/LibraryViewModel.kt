@@ -388,13 +388,14 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
      */
     suspend fun matchCatalogTracks(
         tracks: List<com.kike.musicplayer.data.catalog.CatalogTrack>,
+        exactAlbumOnly: Boolean = false,
     ): Map<String, Track> = kotlinx.coroutines.withContext(Dispatchers.IO) {
         if (tracks.isEmpty()) return@withContext emptyMap()
         val artists = tracks.flatMap { listOfNotNull(it.artist, it.albumArtist) }.distinct()
         val matcher = TrackMatcher.forScrobbles(database.tracks(), artists, emptySet())
         val out = HashMap<String, Track>()
         for (t in tracks) {
-            matcher.match(t.artist, t.title, t.album.takeIf { it.isNotBlank() }, null)?.let { matched ->
+            matcher.match(t.artist, t.title, t.album.takeIf { it.isNotBlank() }, null, exactAlbumOnly)?.let { matched ->
                 out[t.id] = matched
             }
         }
@@ -406,7 +407,7 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
         album: com.kike.musicplayer.data.catalog.CatalogAlbum,
     ): Pair<List<com.kike.musicplayer.data.catalog.CatalogTrack>, Map<String, Track>> {
         val tracks = container.catalog.albumTracks(album)
-        return tracks to matchCatalogTracks(tracks)
+        return tracks to matchCatalogTracks(tracks, exactAlbumOnly = true)
     }
 
     /** Fetches top songs and discography albums for a catalog artist and matches top songs against the library. */
