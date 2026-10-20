@@ -37,6 +37,8 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Clear
+import androidx.compose.material.icons.filled.KeyboardArrowDown
+import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Shuffle
@@ -131,12 +133,15 @@ fun LibraryScreen(
     onOpenFollowing: () -> Unit,
     onOpenCatalogArtist: (com.kike.musicplayer.data.catalog.CatalogArtist) -> Unit = {},
     onOpenCatalogAlbum: (com.kike.musicplayer.data.catalog.CatalogAlbum) -> Unit = {},
+    onOpenCatalogPlaylist: (com.kike.musicplayer.data.catalog.CatalogPlaylist) -> Unit = {},
     contentPadding: PaddingValues,
 ) {
     val playlists by libraryVm.playlists.collectAsState()
     val results by libraryVm.searchResults.collectAsState()
     val catalogResults by libraryVm.catalogSearchResults.collectAsState()
     val query by libraryVm.query.collectAsState()
+    val catalogEnabled by libraryVm.catalogEnabled.collectAsState()
+    val catalogShown by libraryVm.catalogShown.collectAsState()
     val scanStatus by libraryVm.scanStatus.collectAsState()
     val progress by libraryVm.metadataProgress.collectAsState()
     val player by playerVm.state.collectAsState()
@@ -158,8 +163,6 @@ fun LibraryScreen(
             title = { Text(stringResource(R.string.app_name)) },
             actions = {
                 val available by libraryVm.availableScopes.collectAsState()
-                val catalogEnabled by libraryVm.catalogEnabled.collectAsState()
-                val catalogShown by libraryVm.catalogShown.collectAsState()
                 if (available.size + (if (catalogEnabled) 1 else 0) > 1) {
                     val server = libraryVm.subsonicState.collectAsState().value.server
                     SourcesMenu(
@@ -177,8 +180,14 @@ fun LibraryScreen(
         )
         SearchField(query, libraryVm::setQuery, Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp))
         if (query.isNotEmpty()) {
+            val filterKinds = buildList {
+                add(SEARCH_ARTISTS)
+                add(SEARCH_ALBUMS)
+                add(SEARCH_SONGS)
+                if (catalogEnabled && catalogShown) add(SEARCH_PLAYLISTS)
+            }
             Row(Modifier.padding(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                listOf(SEARCH_ARTISTS, SEARCH_ALBUMS, SEARCH_SONGS).forEach { kind ->
+                filterKinds.forEach { kind ->
                     FilterChip(
                         selected = kind in filters,
                         onClick = { filters = if (kind in filters) filters - kind else filters + kind },
@@ -204,6 +213,7 @@ fun LibraryScreen(
                 onOpenAlbum = onOpenAlbum,
                 onOpenCatalogArtist = onOpenCatalogArtist,
                 onOpenCatalogAlbum = onOpenCatalogAlbum,
+                onOpenCatalogPlaylist = onOpenCatalogPlaylist,
             )
             return@Column
         }
@@ -358,6 +368,7 @@ private val LIBRARY_TABS = listOf("Home", "Discover", "Playlists", "Albums", "Ar
 private const val SEARCH_ARTISTS = "Artists"
 private const val SEARCH_ALBUMS = "Albums"
 private const val SEARCH_SONGS = "Songs"
+private const val SEARCH_PLAYLISTS = "Playlists"
 
 @Composable
 internal fun ArtistRow(name: String, albumCount: Int, songCount: Int, photo: String?, onClick: () -> Unit) {
@@ -409,9 +420,15 @@ private fun SearchResultsList(
     onOpenAlbum: (String) -> Unit,
     onOpenCatalogArtist: (com.kike.musicplayer.data.catalog.CatalogArtist) -> Unit,
     onOpenCatalogAlbum: (com.kike.musicplayer.data.catalog.CatalogAlbum) -> Unit,
+    onOpenCatalogPlaylist: (com.kike.musicplayer.data.catalog.CatalogPlaylist) -> Unit,
 ) {
     val photos by libraryVm.artistImageUrls.collectAsState()
     val extraCovers by libraryVm.albumCoverUrls.collectAsState()
+    var collapsedSections by rememberSaveable { mutableStateOf(setOf<String>()) }
+    fun toggleSection(key: String) {
+        collapsedSections = if (key in collapsedSections) collapsedSections - key else collapsedSections + key
+    }
+
     fun show(kind: String) = filters.isEmpty() || kind in filters
     val artists = if (show(SEARCH_ARTISTS)) results.artists else emptyList()
     val albums = if (show(SEARCH_ALBUMS)) results.albums else emptyList()
@@ -431,9 +448,10 @@ private fun SearchResultsList(
         }
     }
 
-    val catArtists = remember(catalogResults.artists, libArtistKeys, filters) {
+    // Keep catalog artists in search results even if owned in library (badged with "In library").
+    val catArtists = remember(catalogResults.artists, filters) {
         if (!show(SEARCH_ARTISTS)) emptyList()
-        else catalogResults.artists.filter { com.kike.musicplayer.data.discover.Names.comparable(it.name) !in libArtistKeys }
+        else catalogResults.artists
     }
     val catAlbums = remember(catalogResults.albums, libAlbumKeys, filters) {
         if (!show(SEARCH_ALBUMS)) emptyList()
@@ -447,59 +465,85 @@ private fun SearchResultsList(
             (com.kike.musicplayer.data.discover.Names.comparable(it.artist) + "\u0001" + com.kike.musicplayer.data.discover.Names.comparable(it.title)) !in libSongKeys
         }
     }
+    val catPlaylists = remember(catalogResults.playlists, filters) {
+        if (!show(SEARCH_PLAYLISTS)) emptyList()
+        else catalogResults.playlists
+    }
+
+    var inLibraryArtists by remember { mutableStateOf(emptySet<String>()) }
+    LaunchedEffect(catArtists) {
+        val inLib = catArtists.map { it.name }.filter { libraryVm.firstArtist(listOf(it)) != null }
+        inLibraryArtists = inLib.mapTo(HashSet()) { com.kike.musicplayer.data.discover.Names.comparable(it) }
+    }
 
     if (artists.isEmpty() && albums.isEmpty() && songs.isEmpty() &&
-        catArtists.isEmpty() && catAlbums.isEmpty() && catSongs.isEmpty() && !catalogResults.loading
+        catArtists.isEmpty() && catAlbums.isEmpty() && catSongs.isEmpty() &&
+        catPlaylists.isEmpty() && !catalogResults.loading
     ) {
         Text("No matches", Modifier.padding(16.dp), color = MaterialTheme.colorScheme.onSurfaceVariant)
         return
     }
     LazyColumn(Modifier.fillMaxSize()) {
         if (artists.isNotEmpty()) {
-            item { ResultsHeader("Artists") }
-            items(artists, key = { "ar:" + it.name }) { artist ->
-                val photo = photos[artist.name.lowercase()]
-                LaunchedEffect(artist.name) {
-                    if (photo == null) {
-                        kotlinx.coroutines.delay(250)
-                        libraryVm.artistImage(artist.name)
+            val collapsed = "artists" in collapsedSections
+            item {
+                ResultsHeader("Artists", artists.size, collapsed) { toggleSection("artists") }
+            }
+            if (!collapsed) {
+                items(artists, key = { "ar:" + it.name }) { artist ->
+                    val photo = photos[artist.name.lowercase()]
+                    LaunchedEffect(artist.name) {
+                        if (photo == null) {
+                            kotlinx.coroutines.delay(250)
+                            libraryVm.artistImage(artist.name)
+                        }
                     }
+                    ArtistRow(artist.name, artist.albumCount, artist.trackCount, photo) { onOpenArtist(artist.name) }
                 }
-                ArtistRow(artist.name, artist.albumCount, artist.trackCount, photo) { onOpenArtist(artist.name) }
             }
         }
         if (albums.isNotEmpty()) {
-            item { ResultsHeader("Albums") }
-            items(albums, key = { "al:" + it.key }) { album ->
-                val cover = album.artworkUri ?: extraCovers[album.key]
-                LaunchedEffect(album.key) {
-                    if (cover == null) {
-                        kotlinx.coroutines.delay(250)
-                        libraryVm.albumCover(album.key, album.title, album.artist)
+            val collapsed = "albums" in collapsedSections
+            item {
+                ResultsHeader("Albums", albums.size, collapsed) { toggleSection("albums") }
+            }
+            if (!collapsed) {
+                items(albums, key = { "al:" + it.key }) { album ->
+                    val cover = album.artworkUri ?: extraCovers[album.key]
+                    LaunchedEffect(album.key) {
+                        if (cover == null) {
+                            kotlinx.coroutines.delay(250)
+                            libraryVm.albumCover(album.key, album.title, album.artist)
+                        }
                     }
-                }
-                Row(
-                    Modifier.fillMaxWidth().clickable { onOpenAlbum(album.key) }.padding(horizontal = 16.dp, vertical = 6.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Artwork(cover, size = 48.dp)
-                    Column(Modifier.padding(start = 12.dp)) {
-                        Text(album.title, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                        ArtistAlbumText(album.artist, listOf(album.artist))
+                    Row(
+                        Modifier.fillMaxWidth().clickable { onOpenAlbum(album.key) }.padding(horizontal = 16.dp, vertical = 6.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Artwork(cover, size = 48.dp)
+                        Column(Modifier.padding(start = 12.dp)) {
+                            Text(album.title, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            ArtistAlbumText(album.artist, listOf(album.artist))
+                        }
                     }
                 }
             }
         }
         if (songs.isNotEmpty()) {
-            item { ResultsHeader("Songs") }
-            itemsIndexed(songs, key = { _, t -> "so:" + t.id }) { index, track ->
-                TrackRow(
-                    track = track,
-                    isCurrent = track.id == currentId,
-                    onClick = { playerVm.playTracks(songs, index) },
-                    onPlayNext = { playerVm.playNext(track) },
-                    onAddToQueue = { playerVm.addToQueue(track) },
-                )
+            val collapsed = "songs" in collapsedSections
+            item {
+                ResultsHeader("Songs", songs.size, collapsed) { toggleSection("songs") }
+            }
+            if (!collapsed) {
+                itemsIndexed(songs, key = { _, t -> "so:" + t.id }) { index, track ->
+                    TrackRow(
+                        track = track,
+                        isCurrent = track.id == currentId,
+                        onClick = { playerVm.playTracks(songs, index) },
+                        onPlayNext = { playerVm.playNext(track) },
+                        onAddToQueue = { playerVm.addToQueue(track) },
+                    )
+                }
             }
         }
         if (catalogResults.loading) {
@@ -519,78 +563,162 @@ private fun SearchResultsList(
             }
         }
         if (catArtists.isNotEmpty()) {
-            item { ResultsHeader("Artists on Deezer & Apple Music") }
-            items(catArtists, key = { "cat-ar:" + it.id }) { artist ->
-                val photo = artist.pictureUrl ?: photos[artist.name.lowercase()]
-                Row(
-                    Modifier.fillMaxWidth().clickable { onOpenCatalogArtist(artist) }.padding(horizontal = 16.dp, vertical = 8.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    ArtistPhoto(photo, Modifier.size(52.dp))
-                    Column(Modifier.padding(start = 14.dp)) {
-                        Text(artist.name, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                        val sub = buildList {
-                            artist.albumCount?.takeIf { it > 0 }?.let { add(count(it, "album")) }
-                            add(if (artist.source == com.kike.musicplayer.data.catalog.CatalogPlaylist.SOURCE_APPLE) "Apple Music" else "Deezer")
-                        }.joinToString(" · ")
-                        Text(sub, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            val collapsed = "cat_artists" in collapsedSections
+            item {
+                ResultsHeader("Artists on Deezer & Apple Music", catArtists.size, collapsed) { toggleSection("cat_artists") }
+            }
+            if (!collapsed) {
+                items(catArtists, key = { "cat-ar:" + it.id }) { artist ->
+                    val inLib = remember(artist.name, libArtistKeys, inLibraryArtists) {
+                        com.kike.musicplayer.data.discover.Names.comparable(artist.name) in libArtistKeys ||
+                            com.kike.musicplayer.data.discover.Names.comparable(artist.name) in inLibraryArtists
+                    }
+                    val photo = artist.pictureUrl ?: photos[artist.name.lowercase()]
+                    Row(
+                        Modifier.fillMaxWidth().clickable { onOpenCatalogArtist(artist) }.padding(horizontal = 16.dp, vertical = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        ArtistPhoto(photo, Modifier.size(52.dp))
+                        Column(Modifier.padding(start = 14.dp)) {
+                            Text(artist.name, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            val sub = buildList {
+                                if (inLib) add("In library")
+                                artist.albumCount?.takeIf { it > 0 }?.let { add(count(it, "album")) }
+                                add(if (artist.source == com.kike.musicplayer.data.catalog.CatalogPlaylist.SOURCE_APPLE) "Apple Music" else "Deezer")
+                            }.joinToString(" · ")
+                            Text(sub, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
                     }
                 }
             }
         }
         if (catAlbums.isNotEmpty()) {
-            item { ResultsHeader("Albums on Deezer & Apple Music") }
-            items(catAlbums, key = { "cat-al:" + it.id }) { album ->
-                Row(
-                    Modifier.fillMaxWidth().clickable { onOpenCatalogAlbum(album) }.padding(horizontal = 16.dp, vertical = 6.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Artwork(album.coverUrl, size = 48.dp)
-                    Column(Modifier.padding(start = 12.dp)) {
-                        Text(album.title, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                        val sub = buildList {
-                            add(album.artist)
-                            album.year?.let { add(it.toString()) }
-                            album.genre?.let { add(it) }
-                        }.joinToString(" · ")
-                        Text(sub, maxLines = 1, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            val collapsed = "cat_albums" in collapsedSections
+            item {
+                ResultsHeader("Albums on Deezer & Apple Music", catAlbums.size, collapsed) { toggleSection("cat_albums") }
+            }
+            if (!collapsed) {
+                items(catAlbums, key = { "cat-al:" + it.id }) { album ->
+                    Row(
+                        Modifier.fillMaxWidth().clickable { onOpenCatalogAlbum(album) }.padding(horizontal = 16.dp, vertical = 6.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Artwork(album.coverUrl, size = 48.dp)
+                        Column(Modifier.padding(start = 12.dp)) {
+                            Text(album.title, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            val sub = buildList {
+                                add(album.artist)
+                                album.year?.let { add(it.toString()) }
+                                album.genre?.let { add(it) }
+                            }.joinToString(" · ")
+                            Text(sub, maxLines = 1, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
                     }
                 }
             }
         }
         if (catSongs.isNotEmpty()) {
-            item { ResultsHeader("Songs on Deezer & Apple Music") }
-            items(catSongs, key = { "cat-so:" + it.id }) { track ->
-                UnownedCatalogTrackRow(
-                    track = track,
-                    onClick = if (track.albumId != null) {
-                        {
-                            onOpenCatalogAlbum(
-                                com.kike.musicplayer.data.catalog.CatalogAlbum(
-                                    id = track.albumId,
-                                    title = track.album.ifBlank { track.title },
-                                    artist = track.albumArtist ?: track.artist,
-                                    year = track.year,
-                                    coverUrl = track.coverUrl,
-                                    genre = track.genre,
-                                    trackCount = null,
-                                    source = track.source,
+            val collapsed = "cat_songs" in collapsedSections
+            item {
+                ResultsHeader("Songs on Deezer & Apple Music", catSongs.size, collapsed) { toggleSection("cat_songs") }
+            }
+            if (!collapsed) {
+                items(catSongs, key = { "cat-so:" + it.id }) { track ->
+                    UnownedCatalogTrackRow(
+                        track = track,
+                        onClick = if (track.albumId != null) {
+                            {
+                                onOpenCatalogAlbum(
+                                    com.kike.musicplayer.data.catalog.CatalogAlbum(
+                                        id = track.albumId,
+                                        title = track.album.ifBlank { track.title },
+                                        artist = track.albumArtist ?: track.artist,
+                                        year = track.year,
+                                        coverUrl = track.coverUrl,
+                                        genre = track.genre,
+                                        trackCount = null,
+                                        source = track.source,
+                                    )
                                 )
+                            }
+                        } else null,
+                    )
+                }
+            }
+        }
+        if (catPlaylists.isNotEmpty()) {
+            val collapsed = "cat_playlists" in collapsedSections
+            item {
+                ResultsHeader("Playlists on Deezer", catPlaylists.size, collapsed) { toggleSection("cat_playlists") }
+            }
+            if (!collapsed) {
+                items(catPlaylists, key = { "cat-pl:" + it.id }) { playlist ->
+                    Row(
+                        Modifier.fillMaxWidth().clickable { onOpenCatalogPlaylist(playlist) }.padding(horizontal = 16.dp, vertical = 6.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Artwork(playlist.coverUrl, size = 48.dp)
+                        Column(Modifier.padding(start = 12.dp)) {
+                            Text(playlist.title, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            val sub = buildList {
+                                playlist.creator?.takeIf { it.isNotBlank() }?.let { add("by $it") }
+                                if (playlist.trackCount > 0) add(count(playlist.trackCount, "song"))
+                                add("Deezer")
+                            }.joinToString(" · ")
+                            Text(
+                                sub,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
                         }
-                    } else null,
-                )
+                    }
+                }
             }
         }
     }
 }
 
 @Composable
-private fun ResultsHeader(text: String) {
-    Text(
-        text, style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary,
-        modifier = Modifier.padding(start = 16.dp, top = 12.dp, bottom = 4.dp),
-    )
+private fun ResultsHeader(
+    text: String,
+    count: Int? = null,
+    collapsed: Boolean = false,
+    onToggle: (() -> Unit)? = null,
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .then(if (onToggle != null) Modifier.clickable(onClick = onToggle) else Modifier)
+            .padding(horizontal = 16.dp, vertical = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.SpaceBetween,
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(
+                text,
+                style = MaterialTheme.typography.labelLarge,
+                color = MaterialTheme.colorScheme.primary,
+            )
+            if (count != null) {
+                Spacer(Modifier.width(6.dp))
+                Text(
+                    "($count)",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        }
+        if (onToggle != null) {
+            Icon(
+                imageVector = if (collapsed) Icons.Default.KeyboardArrowDown else Icons.Default.KeyboardArrowUp,
+                contentDescription = if (collapsed) "Expand $text" else "Collapse $text",
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.size(20.dp),
+            )
+        }
+    }
 }
 
 @Composable

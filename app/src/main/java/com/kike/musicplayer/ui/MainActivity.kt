@@ -76,6 +76,7 @@ private sealed interface Screen {
     data object Following : Screen
     data class CatalogAlbumDetail(val album: com.kike.musicplayer.data.catalog.CatalogAlbum) : Screen
     data class CatalogArtistDetail(val artist: com.kike.musicplayer.data.catalog.CatalogArtist) : Screen
+    data class CatalogPlaylistDetail(val playlist: com.kike.musicplayer.data.catalog.CatalogPlaylist) : Screen
 }
 
 class MainActivity : ComponentActivity() {
@@ -219,6 +220,7 @@ class MainActivity : ComponentActivity() {
                             onOpenFollowing = { push(Screen.Following) },
                             onOpenCatalogArtist = { push(Screen.CatalogArtistDetail(it)) },
                             onOpenCatalogAlbum = { push(Screen.CatalogAlbumDetail(it)) },
+                            onOpenCatalogPlaylist = { push(Screen.CatalogPlaylistDetail(it)) },
                             contentPadding = padding,
                         )
                         is Screen.AlbumDetail -> AlbumScreen(screen.key, screen.genreKey, libraryVm, playerVm, ::pop, padding)
@@ -237,6 +239,11 @@ class MainActivity : ComponentActivity() {
                             screen.artist, libraryVm, playerVm,
                             onOpenAlbum = { push(Screen.AlbumDetail(it)) },
                             onOpenCatalogAlbum = { push(Screen.CatalogAlbumDetail(it)) },
+                            onBack = ::pop,
+                            contentPadding = padding,
+                        )
+                        is Screen.CatalogPlaylistDetail -> CatalogPlaylistScreen(
+                            screen.playlist, libraryVm, playerVm,
                             onBack = ::pop,
                             contentPadding = padding,
                         )
