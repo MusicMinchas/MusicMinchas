@@ -149,4 +149,5 @@ Started 2026-10-08 from user-pasted spec. NEW app, explicitly independent of Son
       - Fast cache-first loading (0ms) from local SQLite cache; works 100% offline.
       - Dynamic auto-rematching against library triggered only when new tracks are added to Local, Drive, or Navidrome via `tracksChanged`.
       - On-demand tracklist refresh button in `CatalogPlaylistScreen` top bar + automatic refresh for dynamic playlists older than 7 days.
+      - Suppressed loading spinner flash on opening saved Deezer playlists (`CatalogScreens.kt`), rendering instantly from SQLite cache without spinner flicker or extra memory consumption.
       - Pre-migration backup saved to `C:\Users\kike\dev\db-backup\2026-10-20-pre-1.32.3\music.db`.
