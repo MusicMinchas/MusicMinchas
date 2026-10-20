@@ -139,3 +139,14 @@ Started 2026-10-08 from user-pasted spec. NEW app, explicitly independent of Son
     - `CatalogPlaylistScreen`: opens public playlist with async library track matching (`catalogPlaylistTracks`), Play / Shuffle buttons for owned songs, unowned track graying, and "Save to Playlists" dialog to import all matched tracks into a new user playlist with one tap.
     - GitHub Issue #3: Catalog artists in search remain visible in "Artists on Deezer & Apple Music" even when present in the user's library, badged with "In library", allowing full catalog exploration.
     - GitHub Issue #4: Added collapsible headers with count badges and expand/collapse chevron arrows (`KeyboardArrowUp` / `KeyboardArrowDown`) to all search result sections (Artists, Albums, Songs, Artists on Deezer & Apple Music, Albums on Deezer & Apple Music, Songs on Deezer & Apple Music, Playlists on Deezer) to easily navigate dense search hits.
+  - 1.32.3 (`versionCode = 82`, Room DB `v24`, debug APK installed on device):
+    - GitHub Issue #5 (Button fixes):
+      - Search filter chips: tightened gap between chips to `6.dp` and outer margin to `12.dp` with `maxLines = 1`, fitting Artists, Albums, Songs, and Playlists comfortably on a single line without wrapping.
+      - Save button in `CatalogPlaylistScreen`: replaced elongated `OutlinedButton` with a clean 40x40dp `FilledTonalIconButton` with Bookmark / PlaylistAdd toggle, matching `PlayShuffleRow`.
+    - GitHub Issue #6 (Deezer Playlists Improvements):
+      - Dedicated `saved_catalog_playlists` Room table (migration `23 -> 24`) storing Deezer playlists independently of local user playlists, allowing saving any Deezer playlist even with 0 matched tracks.
+      - Playlists Tab separated into collapsible "Your Playlists" and "From Deezer" sections with item count badges and chevron arrows.
+      - Fast cache-first loading (0ms) from local SQLite cache; works 100% offline.
+      - Dynamic auto-rematching against library triggered only when new tracks are added to Local, Drive, or Navidrome via `tracksChanged`.
+      - On-demand tracklist refresh button in `CatalogPlaylistScreen` top bar + automatic refresh for dynamic playlists older than 7 days.
+      - Pre-migration backup saved to `C:\Users\kike\dev\db-backup\2026-10-20-pre-1.32.3\music.db`.

@@ -406,3 +406,18 @@ data class AlbumFts(val title: String)
 @Entity(tableName = "artist_fts")
 data class ArtistFts(val name: String)
 
+
+/** A public catalog playlist (e.g. from Deezer) saved by the user. */
+@Entity(tableName = "saved_catalog_playlists")
+data class SavedCatalogPlaylist(
+    @PrimaryKey val id: String,
+    val title: String,
+    val creator: String?,
+    val trackCount: Int,
+    val coverUrl: String?,
+    val source: String = com.kike.musicplayer.data.catalog.CatalogPlaylist.SOURCE_DEEZER,
+    val addedAt: Long = System.currentTimeMillis(),
+    val lastRefreshedAt: Long = System.currentTimeMillis(),
+    val matchedCount: Int = 0,
+    val cachedTracksJson: String? = null,
+)

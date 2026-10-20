@@ -63,6 +63,7 @@ import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 data class Album(
     val key: String,
@@ -206,6 +207,32 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
         }
         .flowOn(Dispatchers.IO)
         .stateIn(viewModelScope, SharingStarted.Eagerly, com.kike.musicplayer.data.catalog.CatalogSearchResults())
+
+    /** Saved public Deezer playlists. */
+    val savedCatalogPlaylists: StateFlow<List<com.kike.musicplayer.data.db.SavedCatalogPlaylist>> =
+        container.database.savedCatalogPlaylists().observeAll()
+            .stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
+
+    init {
+        viewModelScope.launch(Dispatchers.IO) {
+            tracksChanged.collect {
+                // Whenever songs change in Local, Drive or Navidrome, update matches for saved Deezer playlists:
+                val savedList = container.database.savedCatalogPlaylists().observeAll().first()
+                if (savedList.isEmpty()) return@collect
+                val type = com.squareup.moshi.Types.newParameterizedType(List::class.java, com.kike.musicplayer.data.catalog.CatalogTrack::class.java)
+                val adapter = container.moshi.adapter<List<com.kike.musicplayer.data.catalog.CatalogTrack>>(type)
+                for (saved in savedList) {
+                    val json = saved.cachedTracksJson ?: continue
+                    val tracks = runCatching { adapter.fromJson(json) }.getOrNull().orEmpty()
+                    if (tracks.isEmpty()) continue
+                    val matched = matchCatalogTracks(tracks)
+                    if (matched.size != saved.matchedCount) {
+                        container.database.savedCatalogPlaylists().updateMatchedCount(saved.id, matched.size)
+                    }
+                }
+            }
+        }
+    }
 
     private val history = container.database.history().observeAll()
 
@@ -418,12 +445,82 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
         return Triple(top, matchCatalogTracks(top), albums)
     }
 
-    /** Fetches tracks of a public Deezer playlist and matches each song against the user's library. */
+    /** Fetches tracks of a public Deezer playlist (cache-first) and matches each song against the user's library. */
     suspend fun catalogPlaylistTracks(
         playlist: com.kike.musicplayer.data.catalog.CatalogPlaylist,
-    ): Pair<List<com.kike.musicplayer.data.catalog.CatalogTrack>, Map<String, Track>> {
-        val tracks = container.catalog.playlistTracks(playlist)
-        return tracks to matchCatalogTracks(tracks)
+        forceRefresh: Boolean = false,
+    ): Pair<List<com.kike.musicplayer.data.catalog.CatalogTrack>, Map<String, Track>> = withContext(Dispatchers.IO) {
+        val saved = container.database.savedCatalogPlaylists().getById(playlist.id)
+        val type = com.squareup.moshi.Types.newParameterizedType(List::class.java, com.kike.musicplayer.data.catalog.CatalogTrack::class.java)
+        val adapter = container.moshi.adapter<List<com.kike.musicplayer.data.catalog.CatalogTrack>>(type)
+
+        // Fast cache path: if saved, has cached tracks, and not force-refreshing or stale (> 7 days)
+        val isStale = saved != null && (System.currentTimeMillis() - saved.lastRefreshedAt > 7 * 24 * 3600 * 1000L)
+        if (!forceRefresh && saved?.cachedTracksJson != null && !isStale) {
+            val cached = runCatching { adapter.fromJson(saved.cachedTracksJson) }.getOrNull().orEmpty()
+            if (cached.isNotEmpty()) {
+                val matched = matchCatalogTracks(cached)
+                return@withContext cached to matched
+            }
+        }
+
+        // Network fetch from Deezer
+        val freshTracks = try {
+            container.catalog.playlistTracks(playlist)
+        } catch (e: Exception) {
+            // Fall back to cache on network failure / offline
+            if (saved?.cachedTracksJson != null) {
+                runCatching { adapter.fromJson(saved.cachedTracksJson) }.getOrNull().orEmpty()
+            } else {
+                emptyList()
+            }
+        }
+        val matched = matchCatalogTracks(freshTracks)
+
+        // If saved in DB, persist fresh tracks and timestamp
+        if (saved != null && freshTracks.isNotEmpty()) {
+            val json = adapter.toJson(freshTracks)
+            container.database.savedCatalogPlaylists().updateTracks(
+                id = playlist.id,
+                trackCount = freshTracks.size,
+                cachedTracksJson = json,
+                matchedCount = matched.size,
+                lastRefreshedAt = System.currentTimeMillis(),
+            )
+        }
+
+        freshTracks to matched
+    }
+
+    fun saveCatalogPlaylist(
+        playlist: com.kike.musicplayer.data.catalog.CatalogPlaylist,
+        tracks: List<com.kike.musicplayer.data.catalog.CatalogTrack>,
+        matchedCount: Int,
+    ) {
+        viewModelScope.launch(Dispatchers.IO) {
+            val type = com.squareup.moshi.Types.newParameterizedType(List::class.java, com.kike.musicplayer.data.catalog.CatalogTrack::class.java)
+            val json = container.moshi.adapter<List<com.kike.musicplayer.data.catalog.CatalogTrack>>(type).toJson(tracks)
+            container.database.savedCatalogPlaylists().upsert(
+                com.kike.musicplayer.data.db.SavedCatalogPlaylist(
+                    id = playlist.id,
+                    title = playlist.title,
+                    creator = playlist.creator,
+                    trackCount = if (playlist.trackCount > 0) playlist.trackCount else tracks.size,
+                    coverUrl = playlist.coverUrl,
+                    source = playlist.source,
+                    addedAt = System.currentTimeMillis(),
+                    lastRefreshedAt = System.currentTimeMillis(),
+                    matchedCount = matchedCount,
+                    cachedTracksJson = json,
+                )
+            )
+        }
+    }
+
+    fun removeSavedCatalogPlaylist(id: String) {
+        viewModelScope.launch(Dispatchers.IO) {
+            container.database.savedCatalogPlaylists().delete(id)
+        }
     }
 
     /** Returns studio/live albums by [artistName] on Deezer/Apple Music that are not already in [ownedTitles]. */

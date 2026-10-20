@@ -186,12 +186,16 @@ fun LibraryScreen(
                 add(SEARCH_SONGS)
                 if (catalogEnabled && catalogShown) add(SEARCH_PLAYLISTS)
             }
-            Row(Modifier.padding(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Row(
+                Modifier.padding(horizontal = 12.dp),
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
                 filterKinds.forEach { kind ->
                     FilterChip(
                         selected = kind in filters,
                         onClick = { filters = if (kind in filters) filters - kind else filters + kind },
-                        label = { Text(kind) },
+                        label = { Text(kind, maxLines = 1) },
                     )
                 }
             }
@@ -242,11 +246,16 @@ fun LibraryScreen(
                 "Artists" -> ArtistsTab(libraryVm, onOpenArtist)
                 "Genres" -> GenresTab(libraryVm.genreList.collectAsState().value, onOpenGenre)
                 "Songs" -> SongsTab(libraryVm, playerVm)
-                "Playlists" -> PlaylistsTab(
-                    playlists, libraryVm.userPlaylists.collectAsState().value, playerVm,
-                    onOpenRecentTracks, onOpenRecentAlbums, onOpenAddedAlbums, onOpenMostPlayed, onOpenFavourites, onNewPlaylist, onOpenPlaylist,
-                    libraryVm::deletePlaylist, libraryVm::renamePlaylist,
-                )
+                "Playlists" -> {
+                    val savedDeezer by libraryVm.savedCatalogPlaylists.collectAsState()
+                    PlaylistsTab(
+                        playlists, libraryVm.userPlaylists.collectAsState().value, savedDeezer, playerVm,
+                        onOpenRecentTracks, onOpenRecentAlbums, onOpenAddedAlbums, onOpenMostPlayed, onOpenFavourites, onNewPlaylist, onOpenPlaylist,
+                        onOpenCatalogPlaylist,
+                        libraryVm::deletePlaylist, libraryVm::renamePlaylist,
+                        libraryVm::removeSavedCatalogPlaylist,
+                    )
+                }
             }
         }
     }
@@ -933,10 +942,12 @@ fun AlbumListScreen(
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun PlaylistsTab(
     playlists: Playlists,
     userPlaylists: List<PlaylistView>,
+    savedDeezerPlaylists: List<com.kike.musicplayer.data.db.SavedCatalogPlaylist>,
     playerVm: PlayerViewModel,
     onOpenRecentTracks: () -> Unit,
     onOpenRecentAlbums: () -> Unit,
@@ -945,9 +956,15 @@ private fun PlaylistsTab(
     onOpenFavourites: () -> Unit,
     onNewPlaylist: () -> Unit,
     onOpenPlaylist: (Long) -> Unit,
+    onOpenCatalogPlaylist: (com.kike.musicplayer.data.catalog.CatalogPlaylist) -> Unit,
     onDeletePlaylist: (Long) -> Unit,
     onRenamePlaylist: (Long, String) -> Unit,
+    onRemoveSavedCatalogPlaylist: (String) -> Unit,
 ) {
+    var collapsedSections by rememberSaveable { mutableStateOf(setOf<String>()) }
+    fun toggle(section: String) {
+        collapsedSections = if (section in collapsedSections) collapsedSections - section else collapsedSections + section
+    }
     var renaming by remember { mutableStateOf<PlaylistView?>(null) }
     renaming?.let { p -> RenamePlaylistDialog(p.name, onDismiss = { renaming = null }) { onRenamePlaylist(p.id, it) } }
     var deleting by remember { mutableStateOf<PlaylistView?>(null) }
@@ -989,37 +1006,109 @@ private fun PlaylistsTab(
                         favourites, onOpenFavourites, { playerVm.playTracks(favourites, 0) }, card)
                 }
             }
-            item { SectionTitle("Your playlists") }
-            if (userPlaylists.isEmpty()) {
-                item {
-                    Text(
-                        "Tap + to make a playlist.",
-                        Modifier.padding(horizontal = 16.dp),
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
+            // Section 1: Your Playlists
+            val userCollapsed = "user_playlists" in collapsedSections
+            item {
+                ResultsHeader(
+                    text = "Your Playlists",
+                    count = userPlaylists.size,
+                    collapsed = userCollapsed,
+                    onToggle = { toggle("user_playlists") },
+                )
+            }
+            if (!userCollapsed) {
+                if (userPlaylists.isEmpty()) {
+                    item {
+                        Text(
+                            "Tap + to make a playlist.",
+                            Modifier.padding(horizontal = 16.dp, vertical = 6.dp),
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                }
+                items(userPlaylists, key = { "pl:" + it.id }) { playlist ->
+                    Row(
+                        Modifier.fillMaxWidth().clickable { onOpenPlaylist(playlist.id) }.padding(horizontal = 16.dp, vertical = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        CoverMosaic(playlist.tracks, Modifier.size(72.dp))
+                        Column(Modifier.weight(1f).padding(start = 16.dp)) {
+                            Text(playlist.name, style = MaterialTheme.typography.titleMedium, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                            Text(count(playlist.tracks.size, "song"), style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                        Box {
+                            var menu by remember { mutableStateOf(false) }
+                            IconButton(onClick = { menu = true }) { Icon(Icons.Default.MoreVert, "More") }
+                            DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
+                                if (playlist.tracks.any { it.source == Track.SOURCE_DRIVE }) {
+                                    DropdownMenuItem(text = { Text("Download") }, onClick = { menu = false; downloads.download(playlist.tracks) })
+                                }
+                                DropdownMenuItem(text = { Text("Rename") }, onClick = { menu = false; renaming = playlist })
+                                DropdownMenuItem(text = { Text("Delete") }, onClick = { menu = false; deleting = playlist })
+                            }
+                        }
+                    }
                 }
             }
-            items(userPlaylists, key = { "pl:" + it.id }) { playlist ->
-                Row(
-                    Modifier.fillMaxWidth().clickable { onOpenPlaylist(playlist.id) }.padding(horizontal = 16.dp, vertical = 8.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    CoverMosaic(playlist.tracks, Modifier.size(72.dp))
-                    Column(Modifier.weight(1f).padding(start = 16.dp)) {
-                        Text(playlist.name, style = MaterialTheme.typography.titleMedium, maxLines = 2, overflow = TextOverflow.Ellipsis)
-                        Text(count(playlist.tracks.size, "song"), style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant)
+
+            // Section 2: From Deezer
+            val deezerCollapsed = "deezer_playlists" in collapsedSections
+            item {
+                ResultsHeader(
+                    text = "From Deezer",
+                    count = savedDeezerPlaylists.size,
+                    collapsed = deezerCollapsed,
+                    onToggle = { toggle("deezer_playlists") },
+                )
+            }
+            if (!deezerCollapsed) {
+                if (savedDeezerPlaylists.isEmpty()) {
+                    item {
+                        Text(
+                            "No Deezer playlists saved yet. Search for public playlists on Deezer and tap Save.",
+                            Modifier.padding(horizontal = 16.dp, vertical = 6.dp),
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
                     }
-                    Box {
-                        var menu by remember { mutableStateOf(false) }
-                        IconButton(onClick = { menu = true }) { Icon(Icons.Default.MoreVert, "More") }
-                        DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
-                            if (playlist.tracks.any { it.source == Track.SOURCE_DRIVE }) {
-                                DropdownMenuItem(text = { Text("Download") }, onClick = { menu = false; downloads.download(playlist.tracks) })
+                }
+                items(savedDeezerPlaylists, key = { "dz-pl:" + it.id }) { playlist ->
+                    Row(
+                        Modifier.fillMaxWidth().clickable {
+                            onOpenCatalogPlaylist(
+                                com.kike.musicplayer.data.catalog.CatalogPlaylist(
+                                    id = playlist.id,
+                                    title = playlist.title,
+                                    creator = playlist.creator,
+                                    trackCount = playlist.trackCount,
+                                    coverUrl = playlist.coverUrl,
+                                    source = playlist.source,
+                                )
+                            )
+                        }.padding(horizontal = 16.dp, vertical = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Artwork(playlist.coverUrl, Modifier.size(72.dp))
+                        Column(Modifier.weight(1f).padding(start = 16.dp)) {
+                            Text(playlist.title, style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            val sub = buildList {
+                                playlist.creator?.takeIf { it.isNotBlank() }?.let { add("by $it") }
+                                add(count(playlist.trackCount, "song"))
+                                if (playlist.matchedCount > 0) add("${playlist.matchedCount} in library")
+                            }.joinToString(" · ")
+                            Text(sub, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                        Box {
+                            var menu by remember { mutableStateOf(false) }
+                            IconButton(onClick = { menu = true }) { Icon(Icons.Default.MoreVert, "More") }
+                            DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
+                                DropdownMenuItem(
+                                    text = { Text("Remove from saved") },
+                                    onClick = { menu = false; onRemoveSavedCatalogPlaylist(playlist.id) },
+                                )
                             }
-                            DropdownMenuItem(text = { Text("Rename") }, onClick = { menu = false; renaming = playlist })
-                            DropdownMenuItem(text = { Text("Delete") }, onClick = { menu = false; deleting = playlist })
                         }
                     }
                 }

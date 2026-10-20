@@ -28,7 +28,10 @@ import androidx.compose.material.icons.automirrored.filled.PlaylistAdd
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Person
+import androidx.compose.material.icons.filled.Bookmark
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.PlayArrow
+import kotlinx.coroutines.launch
 import androidx.compose.material.icons.filled.Shuffle
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
@@ -475,10 +478,37 @@ fun CatalogPlaylistScreen(
         )
     }
 
+    val savedPlaylists by libraryVm.savedCatalogPlaylists.collectAsState()
+    val isSaved = savedPlaylists.any { it.id == playlist.id }
+    val scope = rememberCoroutineScope()
+    var refreshing by remember { mutableStateOf(false) }
+
     Column(Modifier.fillMaxSize().padding(contentPadding)) {
         TopAppBar(
             title = { Text(playlist.title, maxLines = 1, overflow = TextOverflow.Ellipsis) },
             navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back") } },
+            actions = {
+                IconButton(
+                    onClick = {
+                        if (!refreshing) {
+                            refreshing = true
+                            scope.launch {
+                                val (list, map) = libraryVm.catalogPlaylistTracks(playlist, forceRefresh = true)
+                                tracks = list
+                                matched = map
+                                refreshing = false
+                            }
+                        }
+                    },
+                    enabled = !refreshing,
+                ) {
+                    if (refreshing) {
+                        CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
+                    } else {
+                        Icon(Icons.Default.Refresh, "Refresh tracklist")
+                    }
+                }
+            },
             windowInsets = NoTopInsets,
         )
         LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 16.dp)) {
@@ -513,9 +543,9 @@ fun CatalogPlaylistScreen(
                             modifier = Modifier.padding(top = 6.dp),
                         )
                     }
-                    if (savedBanner) {
+                    if (isSaved) {
                         Text(
-                            "Saved to your Playlists",
+                            "Saved in From Deezer",
                             style = MaterialTheme.typography.labelMedium,
                             color = MaterialTheme.colorScheme.primary,
                             modifier = Modifier.padding(top = 4.dp),
@@ -523,28 +553,43 @@ fun CatalogPlaylistScreen(
                     }
                 }
             }
-            if (ownedTracks.isNotEmpty()) {
-                item {
-                    Row(
-                        Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally),
-                        verticalAlignment = Alignment.CenterVertically,
+            item {
+                Row(
+                    Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Button(
+                        onClick = { playerVm.playTracks(ownedTracks, 0) },
+                        enabled = ownedTracks.isNotEmpty(),
                     ) {
-                        Button(onClick = { playerVm.playTracks(ownedTracks, 0) }) {
-                            Icon(Icons.Default.PlayArrow, null)
-                            Spacer(Modifier.width(4.dp))
-                            Text("Play")
-                        }
-                        FilledTonalButton(onClick = { playerVm.playTracks(ownedTracks, 0, shuffle = true) }) {
-                            Icon(Icons.Default.Shuffle, null)
-                            Spacer(Modifier.width(4.dp))
-                            Text("Shuffle")
-                        }
-                        OutlinedButton(onClick = { saveDialog = true }) {
-                            Icon(Icons.AutoMirrored.Filled.PlaylistAdd, null)
-                            Spacer(Modifier.width(4.dp))
-                            Text("Save")
-                        }
+                        Icon(Icons.Default.PlayArrow, null)
+                        Spacer(Modifier.width(4.dp))
+                        Text("Play")
+                    }
+                    FilledTonalButton(
+                        onClick = { playerVm.playTracks(ownedTracks, 0, shuffle = true) },
+                        enabled = ownedTracks.isNotEmpty(),
+                    ) {
+                        Icon(Icons.Default.Shuffle, null)
+                        Spacer(Modifier.width(4.dp))
+                        Text("Shuffle")
+                    }
+                    FilledTonalIconButton(
+                        onClick = {
+                            if (isSaved) {
+                                libraryVm.removeSavedCatalogPlaylist(playlist.id)
+                            } else {
+                                libraryVm.saveCatalogPlaylist(playlist, tracks, ownedTracks.size)
+                            }
+                        },
+                        modifier = Modifier.size(40.dp),
+                    ) {
+                        Icon(
+                            imageVector = if (isSaved) Icons.Default.Bookmark else Icons.AutoMirrored.Filled.PlaylistAdd,
+                            contentDescription = if (isSaved) "Remove from Deezer Playlists" else "Save to Deezer Playlists",
+                            tint = if (isSaved) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
                     }
                 }
             }

@@ -819,3 +819,27 @@ interface BrowseDao {
             "SUM(albumCount) AS albumCount, MIN(sortKey) AS sortKey, MIN(artworkUri) AS artworkUri"
     }
 }
+
+@Dao
+interface SavedCatalogPlaylistDao {
+    @Query("SELECT * FROM saved_catalog_playlists ORDER BY addedAt DESC")
+    fun observeAll(): Flow<List<SavedCatalogPlaylist>>
+
+    @Query("SELECT * FROM saved_catalog_playlists WHERE id = :id LIMIT 1")
+    suspend fun getById(id: String): SavedCatalogPlaylist?
+
+    @Query("SELECT * FROM saved_catalog_playlists WHERE id = :id LIMIT 1")
+    fun observeById(id: String): Flow<SavedCatalogPlaylist?>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsert(playlist: SavedCatalogPlaylist)
+
+    @Query("DELETE FROM saved_catalog_playlists WHERE id = :id")
+    suspend fun delete(id: String)
+
+    @Query("UPDATE saved_catalog_playlists SET matchedCount = :matchedCount WHERE id = :id")
+    suspend fun updateMatchedCount(id: String, matchedCount: Int)
+
+    @Query("UPDATE saved_catalog_playlists SET trackCount = :trackCount, cachedTracksJson = :cachedTracksJson, matchedCount = :matchedCount, lastRefreshedAt = :lastRefreshedAt WHERE id = :id")
+    suspend fun updateTracks(id: String, trackCount: Int, cachedTracksJson: String, matchedCount: Int, lastRefreshedAt: Long)
+}

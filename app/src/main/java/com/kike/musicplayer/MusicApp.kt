@@ -83,7 +83,7 @@ class AppContainer(app: Application) {
     }
     val driveAuth = DriveAuth(app, settings)
 
-    private val moshi = Moshi.Builder().add(KotlinJsonAdapterFactory()).build()
+    val moshi = Moshi.Builder().add(KotlinJsonAdapterFactory()).build()
 
     val baseHttp: OkHttpClient = OkHttpClient.Builder()
         .connectTimeout(15, TimeUnit.SECONDS)
