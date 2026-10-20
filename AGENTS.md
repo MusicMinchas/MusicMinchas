@@ -108,6 +108,7 @@ Started 2026-10-08 from user-pasted spec. NEW app, explicitly independent of Son
   - Performance: restored queue NOT prepared at start (was buffering ~27 MB from Drive + spinner); play position in separate `PlayerViewModel.progress` flow (was recomposing app root 2x/s while playing); `tracksOfAlbums` `INDEXED BY indexAlbum` (~700 ms -> 40 ms).
   - Open ideas / pending items:
     - Search "Source" chip (pending user decision)
+    - Nebula / Torbox Add-on Source integration (on-demand search & lossless FLAC streaming via user-configured manifest URL, see NEBULA_SOURCE_PLAN.md)
     - Android Auto covers for `file://` (skipped for now)
     - Background `WorkManager` for daily Sync (offered)
     - Swipeable year-end Replay story (idea 7, TODO later)
@@ -124,3 +125,12 @@ Started 2026-10-08 from user-pasted spec. NEW app, explicitly independent of Son
     4. `TrackServer` (`sonos/`): retries transient upstream HTTP/IO failures (401 token refresh, 5xx, timeouts) with backoff before failing Sonos range requests, and skips speculative next-track prefetch while the current track's initial blocks are still being served.
     5. `PlaybackService` + `AutoSync`: `isCastingActively()` defers background auto-sync while actively casting to Sonos.
   - Search & Keyboard Back navigation (`LibraryScreens.kt`, `PlaylistScreens.kt`, `MainActivity.kt`): gated `BackHandler` with `!WindowInsets.isImeVisible` so swiping Back while typing dismisses the keyboard first and keeps search results on screen; wrapped library tabs in `rememberSaveableStateHolder()`.
+- 2026-10-19/20 BRANCH `feature/catalog-deezer-apple`:
+  - Remote setup: Pushed to `https://github.com/MusicMinchas/MusicMinchas.git` (`master`, `feature/catalog-deezer-apple`, and tags `v1.28`–`v1.31.3`).
+  - Pre-backup: checkpointed DB (`music.db`, `user_version = 23`) and 7 shared_prefs to `C:\Users\kike\dev\db-backup\2026-10-19-pre-1.32\`.
+  - 1.32.0 (`ab00470`, code 79): Zero-account Deezer & Apple Music public catalog integration (`data/catalog/CatalogClient.kt`). Dynamic on-demand metadata & cover enrichment (Deezer 1000x1000, Apple Music, MusicBrainz) as user scrolls or opens albums; 3 independent provider toggles in Settings; "Deezer & Apple Music" card in Music sources; single "Deezer / Apple Music" checkbox in top-bar source chip.
+  - 1.32.1 (`e25ff02` & `4d8ba5d`, code 80):
+    - Catalog search for Artists, Albums, and Songs across Deezer and Apple Music with deduplication and detail views (`ui/CatalogScreens.kt`: `CatalogAlbumScreen`, `CatalogArtistScreen`, `CatalogPlaylistScreen`).
+    - GitHub Issue #1 fix (`4d8ba5d`): In `TrackMatcher`, on-album matches across any source take strict priority over off-album own copies (`exactAlbumOnly = true` for `CatalogAlbumScreen` prevents compilation tracks like *Greatest Hits* from contaminating studio album tracklists like *Queen - Jazz*).
+    - GitHub Issue #2: Explained source deduplication difference between raw summed search count (66 Navidrome + 7 GDrive = 73 albums) and merged deduplicated artist page (64 albums, 728 songs).
+    - GitHub Issue #3 (Option 3 decision): Catalog artists in search will remain visible under "Artists on Deezer & Apple Music" even when present in the user's library (badged with "In library") so users can explore their full online catalog discography, and `ArtistScreen` will display a "More albums on Deezer & Apple Music" section for missing releases.
