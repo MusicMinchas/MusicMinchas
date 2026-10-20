@@ -1,6 +1,7 @@
 package com.kike.musicplayer.data.lastfm
 
 import com.kike.musicplayer.data.db.Track
+import com.kike.musicplayer.data.db.LibraryIndexDao
 import com.kike.musicplayer.data.db.TrackDao
 import com.kike.musicplayer.data.db.byArtistNames
 import com.kike.musicplayer.data.db.byRecordingIds
@@ -100,6 +101,19 @@ class TrackMatcher(tracks: List<Track>) {
          * their artists (however spelled) or with one of their MusicBrainz recording IDs, so a
          * large library is never loaded whole.
          */
+        /**
+         * Fast matcher for catalog tracks: looks up artist spellings in [browseDao] (artist_index,
+         * small pre-indexed table of distinct artists) instead of scanning the entire tracks table.
+         */
+        suspend fun forCatalog(dao: TrackDao, indexDao: LibraryIndexDao, artists: Collection<String>): TrackMatcher {
+            val wanted = artists.mapTo(HashSet()) { looseArtist(it) }
+            val knownArtists = runCatching { indexDao.allArtists().map { it.name } }.getOrDefault(emptyList())
+            val matchingSpellings = knownArtists.filter { looseArtist(it) in wanted }
+            val names = (artists + matchingSpellings).distinct()
+            val tracks = dao.byArtistNames(names)
+            return TrackMatcher(tracks.distinctBy { it.id })
+        }
+
         suspend fun forScrobbles(dao: TrackDao, artists: Collection<String>, recordingIds: Collection<String>): TrackMatcher {
             val wanted = artists.mapTo(HashSet()) { looseArtist(it) }
             val names = dao.allArtistSpellings().filter { looseArtist(it) in wanted }

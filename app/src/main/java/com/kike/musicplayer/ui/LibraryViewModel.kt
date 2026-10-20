@@ -213,26 +213,7 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
         container.database.savedCatalogPlaylists().observeAll()
             .stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
 
-    init {
-        viewModelScope.launch(Dispatchers.IO) {
-            tracksChanged.collect {
-                // Whenever songs change in Local, Drive or Navidrome, update matches for saved Deezer playlists:
-                val savedList = container.database.savedCatalogPlaylists().observeAll().first()
-                if (savedList.isEmpty()) return@collect
-                val type = com.squareup.moshi.Types.newParameterizedType(List::class.java, com.kike.musicplayer.data.catalog.CatalogTrack::class.java)
-                val adapter = container.moshi.adapter<List<com.kike.musicplayer.data.catalog.CatalogTrack>>(type)
-                for (saved in savedList) {
-                    val json = saved.cachedTracksJson ?: continue
-                    val tracks = runCatching { adapter.fromJson(json) }.getOrNull().orEmpty()
-                    if (tracks.isEmpty()) continue
-                    val matched = matchCatalogTracks(tracks)
-                    if (matched.size != saved.matchedCount) {
-                        container.database.savedCatalogPlaylists().updateMatchedCount(saved.id, matched.size)
-                    }
-                }
-            }
-        }
-    }
+
 
     private val history = container.database.history().observeAll()
 
@@ -419,7 +400,7 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
     ): Map<String, Track> = kotlinx.coroutines.withContext(Dispatchers.IO) {
         if (tracks.isEmpty()) return@withContext emptyMap()
         val artists = tracks.flatMap { listOfNotNull(it.artist, it.albumArtist) }.distinct()
-        val matcher = TrackMatcher.forScrobbles(database.tracks(), artists, emptySet())
+        val matcher = TrackMatcher.forCatalog(database.tracks(), database.libraryIndex(), artists)
         val out = HashMap<String, Track>()
         for (t in tracks) {
             matcher.match(t.artist, t.title, t.album.takeIf { it.isNotBlank() }, null, exactAlbumOnly)?.let { matched ->
@@ -451,15 +432,33 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
         forceRefresh: Boolean = false,
     ): Pair<List<com.kike.musicplayer.data.catalog.CatalogTrack>, Map<String, Track>> = withContext(Dispatchers.IO) {
         val saved = container.database.savedCatalogPlaylists().getById(playlist.id)
-        val type = com.squareup.moshi.Types.newParameterizedType(List::class.java, com.kike.musicplayer.data.catalog.CatalogTrack::class.java)
-        val adapter = container.moshi.adapter<List<com.kike.musicplayer.data.catalog.CatalogTrack>>(type)
+        val trackListType = com.squareup.moshi.Types.newParameterizedType(List::class.java, com.kike.musicplayer.data.catalog.CatalogTrack::class.java)
+        val trackAdapter = container.moshi.adapter<List<com.kike.musicplayer.data.catalog.CatalogTrack>>(trackListType)
+        val matchMapType = com.squareup.moshi.Types.newParameterizedType(Map::class.java, String::class.java, String::class.java)
+        val matchAdapter = container.moshi.adapter<Map<String, String>>(matchMapType)
 
         // Fast cache path: if saved, has cached tracks, and not force-refreshing or stale (> 7 days)
         val isStale = saved != null && (System.currentTimeMillis() - saved.lastRefreshedAt > 7 * 24 * 3600 * 1000L)
         if (!forceRefresh && saved?.cachedTracksJson != null && !isStale) {
-            val cached = runCatching { adapter.fromJson(saved.cachedTracksJson) }.getOrNull().orEmpty()
+            val cached = runCatching { trackAdapter.fromJson(saved.cachedTracksJson) }.getOrNull().orEmpty()
             if (cached.isNotEmpty()) {
+                // Instant library read: load matched tracks directly by ID (same as non-Deezer playlists)
+                val cachedMatches = saved.cachedMatchesJson?.let { json ->
+                    runCatching { matchAdapter.fromJson(json) }.getOrNull()
+                }
+                if (cachedMatches != null) {
+                    val libTracks = database.tracks().getByIds(cachedMatches.values).associateBy { it.id }
+                    val matched = cachedMatches.mapNotNull { (catId, libId) ->
+                        libTracks[libId]?.let { catId to it }
+                    }.toMap()
+                    return@withContext cached to matched
+                }
+
+                // If not yet cached (e.g. migration from v24), match once and persist immediately
                 val matched = matchCatalogTracks(cached)
+                val matchMap = matched.mapValues { it.value.id }
+                val matchesJson = matchAdapter.toJson(matchMap)
+                container.database.savedCatalogPlaylists().updateMatches(saved.id, matched.size, matchesJson)
                 return@withContext cached to matched
             }
         }
@@ -470,21 +469,24 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
         } catch (e: Exception) {
             // Fall back to cache on network failure / offline
             if (saved?.cachedTracksJson != null) {
-                runCatching { adapter.fromJson(saved.cachedTracksJson) }.getOrNull().orEmpty()
+                runCatching { trackAdapter.fromJson(saved.cachedTracksJson) }.getOrNull().orEmpty()
             } else {
                 emptyList()
             }
         }
         val matched = matchCatalogTracks(freshTracks)
 
-        // If saved in DB, persist fresh tracks and timestamp
+        // If saved in DB, persist fresh tracks, matched IDs, and timestamp
         if (saved != null && freshTracks.isNotEmpty()) {
-            val json = adapter.toJson(freshTracks)
-            container.database.savedCatalogPlaylists().updateTracks(
+            val json = trackAdapter.toJson(freshTracks)
+            val matchMap = matched.mapValues { it.value.id }
+            val matchesJson = matchAdapter.toJson(matchMap)
+            container.database.savedCatalogPlaylists().updateTracksAndMatches(
                 id = playlist.id,
                 trackCount = freshTracks.size,
                 cachedTracksJson = json,
                 matchedCount = matched.size,
+                cachedMatchesJson = matchesJson,
                 lastRefreshedAt = System.currentTimeMillis(),
             )
         }
@@ -495,11 +497,14 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
     fun saveCatalogPlaylist(
         playlist: com.kike.musicplayer.data.catalog.CatalogPlaylist,
         tracks: List<com.kike.musicplayer.data.catalog.CatalogTrack>,
-        matchedCount: Int,
+        matched: Map<String, Track>,
     ) {
         viewModelScope.launch(Dispatchers.IO) {
-            val type = com.squareup.moshi.Types.newParameterizedType(List::class.java, com.kike.musicplayer.data.catalog.CatalogTrack::class.java)
-            val json = container.moshi.adapter<List<com.kike.musicplayer.data.catalog.CatalogTrack>>(type).toJson(tracks)
+            val trackListType = com.squareup.moshi.Types.newParameterizedType(List::class.java, com.kike.musicplayer.data.catalog.CatalogTrack::class.java)
+            val json = container.moshi.adapter<List<com.kike.musicplayer.data.catalog.CatalogTrack>>(trackListType).toJson(tracks)
+            val matchMapType = com.squareup.moshi.Types.newParameterizedType(Map::class.java, String::class.java, String::class.java)
+            val matchMap = matched.mapValues { it.value.id }
+            val matchesJson = container.moshi.adapter<Map<String, String>>(matchMapType).toJson(matchMap)
             container.database.savedCatalogPlaylists().upsert(
                 com.kike.musicplayer.data.db.SavedCatalogPlaylist(
                     id = playlist.id,
@@ -510,8 +515,9 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
                     source = playlist.source,
                     addedAt = System.currentTimeMillis(),
                     lastRefreshedAt = System.currentTimeMillis(),
-                    matchedCount = matchedCount,
+                    matchedCount = matched.size,
                     cachedTracksJson = json,
+                    cachedMatchesJson = matchesJson,
                 )
             )
         }
@@ -959,6 +965,27 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
         @OptIn(kotlinx.coroutines.FlowPreview::class)
         viewModelScope.launch {
             songCount.drop(1).distinctUntilChanged().debounce(30_000).collect { importer.rematch() }
+        }
+
+        // Whenever songs change in Local, Drive or Navidrome, update matches for saved Deezer playlists:
+        viewModelScope.launch(Dispatchers.IO) {
+            tracksChanged.collect {
+                val savedList = container.database.savedCatalogPlaylists().observeAll().first()
+                if (savedList.isEmpty()) return@collect
+                val type = com.squareup.moshi.Types.newParameterizedType(List::class.java, com.kike.musicplayer.data.catalog.CatalogTrack::class.java)
+                val adapter = container.moshi.adapter<List<com.kike.musicplayer.data.catalog.CatalogTrack>>(type)
+                val matchMapType = com.squareup.moshi.Types.newParameterizedType(Map::class.java, String::class.java, String::class.java)
+                val matchAdapter = container.moshi.adapter<Map<String, String>>(matchMapType)
+                for (saved in savedList) {
+                    val json = saved.cachedTracksJson ?: continue
+                    val tracks = runCatching { adapter.fromJson(json) }.getOrNull().orEmpty()
+                    if (tracks.isEmpty()) continue
+                    val matched = matchCatalogTracks(tracks)
+                    val matchMap = matched.mapValues { it.value.id }
+                    val matchesJson = matchAdapter.toJson(matchMap)
+                    container.database.savedCatalogPlaylists().updateMatches(saved.id, matched.size, matchesJson)
+                }
+            }
         }
     }
 

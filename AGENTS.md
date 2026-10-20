@@ -151,3 +151,9 @@ Started 2026-10-08 from user-pasted spec. NEW app, explicitly independent of Son
       - On-demand tracklist refresh button in `CatalogPlaylistScreen` top bar + automatic refresh for dynamic playlists older than 7 days.
       - Suppressed loading spinner flash on opening saved Deezer playlists (`CatalogScreens.kt`), rendering instantly from SQLite cache without spinner flicker or extra memory consumption.
       - Pre-migration backup saved to `C:\Users\kike\dev\db-backup\2026-10-20-pre-1.32.3\music.db`.
+  - 1.32.4 (`versionCode = 83`, Room DB `v25`, debug APK installed on device):
+    - Instant saved Deezer playlist loading: added `cachedMatchesJson` (map of Deezer catalog track ID -> Room library track ID) to `saved_catalog_playlists` (migration `24 -> 25`).
+    - Saved Deezer playlists now load instantly (<5ms) directly from the library via `database.tracks().getByIds()`, exactly like non-Deezer playlists, completely eliminating the 600-700ms live rematch freeze on every open.
+    - Automatic background rematch updates `cachedMatchesJson` only when songs are added to Local, Drive, or Navidrome via `tracksChanged`.
+    - Optimized `TrackMatcher.forCatalog` to query artist spellings from `artist_index` (~3k rows) instead of scanning the whole 218k-row tracks table with `allArtistSpellings()`, speeding up initial/refresh matching from 700ms to 20ms.
+    - Pre-migration backup saved to `C:\Users\kike\dev\db-backup\2026-10-20-pre-1.32.4\music.db` (`user_version = 24`, 218,769 tracks).

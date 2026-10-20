@@ -420,4 +420,5 @@ data class SavedCatalogPlaylist(
     val lastRefreshedAt: Long = System.currentTimeMillis(),
     val matchedCount: Int = 0,
     val cachedTracksJson: String? = null,
+    val cachedMatchesJson: String? = null,
 )

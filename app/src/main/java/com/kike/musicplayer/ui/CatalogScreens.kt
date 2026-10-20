@@ -580,7 +580,7 @@ fun CatalogPlaylistScreen(
                             if (isSaved) {
                                 libraryVm.removeSavedCatalogPlaylist(playlist.id)
                             } else {
-                                libraryVm.saveCatalogPlaylist(playlist, tracks, ownedTracks.size)
+                                libraryVm.saveCatalogPlaylist(playlist, tracks, matched)
                             }
                         },
                         modifier = Modifier.size(40.dp),

@@ -842,4 +842,10 @@ interface SavedCatalogPlaylistDao {
 
     @Query("UPDATE saved_catalog_playlists SET trackCount = :trackCount, cachedTracksJson = :cachedTracksJson, matchedCount = :matchedCount, lastRefreshedAt = :lastRefreshedAt WHERE id = :id")
     suspend fun updateTracks(id: String, trackCount: Int, cachedTracksJson: String, matchedCount: Int, lastRefreshedAt: Long)
+
+    @Query("UPDATE saved_catalog_playlists SET matchedCount = :matchedCount, cachedMatchesJson = :cachedMatchesJson WHERE id = :id")
+    suspend fun updateMatches(id: String, matchedCount: Int, cachedMatchesJson: String?)
+
+    @Query("UPDATE saved_catalog_playlists SET trackCount = :trackCount, cachedTracksJson = :cachedTracksJson, matchedCount = :matchedCount, cachedMatchesJson = :cachedMatchesJson, lastRefreshedAt = :lastRefreshedAt WHERE id = :id")
+    suspend fun updateTracksAndMatches(id: String, trackCount: Int, cachedTracksJson: String, matchedCount: Int, cachedMatchesJson: String?, lastRefreshedAt: Long)
 }
