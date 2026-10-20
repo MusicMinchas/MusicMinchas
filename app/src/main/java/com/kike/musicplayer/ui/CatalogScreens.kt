@@ -428,14 +428,16 @@ fun CatalogPlaylistScreen(
     contentPadding: PaddingValues,
 ) {
     val player by playerVm.state.collectAsState()
-    var loading by remember(playlist.id) { mutableStateOf(true) }
+    val savedPlaylists by libraryVm.savedCatalogPlaylists.collectAsState()
+    val isSaved = savedPlaylists.any { it.id == playlist.id }
+    var loading by remember(playlist.id) { mutableStateOf(!isSaved) }
     var tracks by remember(playlist.id) { mutableStateOf<List<CatalogTrack>>(emptyList()) }
     var matched by remember(playlist.id) { mutableStateOf<Map<String, Track>>(emptyMap()) }
     var saveDialog by remember { mutableStateOf(false) }
     var savedBanner by remember { mutableStateOf(false) }
 
     LaunchedEffect(playlist.id) {
-        loading = true
+        if (!isSaved) loading = true
         val (list, map) = libraryVm.catalogPlaylistTracks(playlist)
         tracks = list
         matched = map
@@ -478,8 +480,6 @@ fun CatalogPlaylistScreen(
         )
     }
 
-    val savedPlaylists by libraryVm.savedCatalogPlaylists.collectAsState()
-    val isSaved = savedPlaylists.any { it.id == playlist.id }
     val scope = rememberCoroutineScope()
     var refreshing by remember { mutableStateOf(false) }
 
@@ -593,7 +593,7 @@ fun CatalogPlaylistScreen(
                     }
                 }
             }
-            if (loading) {
+            if (loading && !isSaved) {
                 item {
                     Box(Modifier.fillMaxWidth().padding(32.dp), contentAlignment = Alignment.Center) {
                         CircularProgressIndicator()
