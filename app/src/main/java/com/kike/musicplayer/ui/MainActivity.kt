@@ -180,8 +180,9 @@ class MainActivity : ComponentActivity() {
         LaunchedEffect(player.current?.mediaId, player.upNext) {
             libraryVm.cacheTracks(listOfNotNull(player.current?.mediaId).plus(player.upNext.map { it.item.mediaId }).map(PlaybackService::trackIdOf))
         }
-        LaunchedEffect(screen) {
-            if (screen !is Screen.ArtistDetail && screen !is Screen.ArtistDiscography) {
+        val hasArtistInStack = backStack.any { it is Screen.ArtistDetail || it is Screen.ArtistDiscography }
+        LaunchedEffect(hasArtistInStack) {
+            if (!hasArtistInStack) {
                 libraryVm.clearActiveArtistCache()
             }
         }
