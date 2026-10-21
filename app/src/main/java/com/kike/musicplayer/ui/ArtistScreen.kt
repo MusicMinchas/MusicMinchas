@@ -75,9 +75,9 @@ fun ArtistScreen(
     contentPadding: PaddingValues,
 ) {
     val player by playerVm.state.collectAsState()
-    val artistOrNull by remember(name) { libraryVm.artist(name) }.collectAsState(null)
-    val albums by remember(name) { libraryVm.artistAlbums(name) }.collectAsState(emptyList())
-    val allTracks by remember(name) { libraryVm.artistTracks(name) }.collectAsState(emptyList())
+    val artistOrNull by remember(name) { libraryVm.artist(name) }.collectAsState(libraryVm.cachedArtistIndex(name))
+    val albums by remember(name) { libraryVm.artistAlbums(name) }.collectAsState(libraryVm.cachedArtistAlbums(name))
+    val allTracks by remember(name) { libraryVm.artistTracks(name) }.collectAsState(libraryVm.cachedArtistTracks(name))
     val allTop by remember(name) { libraryVm.artistTop(name) }.collectAsState(emptyList())
     // Songs from several sources: all of them once (own copy first), or one source's.
     var source by rememberSaveable(name) { mutableStateOf<Int?>(null) }

@@ -55,6 +55,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.flow.onStart
 import kotlinx.coroutines.flow.mapLatest
 import kotlinx.coroutines.flow.debounce
@@ -529,7 +530,15 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
-    private val missingDiscographyCache = java.util.concurrent.ConcurrentHashMap<String, List<com.kike.musicplayer.data.catalog.CatalogAlbum>>()
+    // Single-artist cache: only retains missing catalog albums for the currently active artist,
+    // avoiding unbounded memory growth across different artist visits.
+    private var cachedMissingArtist: String? = null
+    private var cachedMissingDiscography: List<com.kike.musicplayer.data.catalog.CatalogAlbum> = emptyList()
+
+    fun clearArtistCatalogCache() {
+        cachedMissingArtist = null
+        cachedMissingDiscography = emptyList()
+    }
 
     /** Returns studio/live albums by [artistName] on Deezer/Apple Music that are not already in [ownedTitles]. */
     suspend fun artistMissingDiscography(
@@ -537,14 +546,15 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
         ownedTitles: Collection<String>,
         forceRefresh: Boolean = false,
     ): List<com.kike.musicplayer.data.catalog.CatalogAlbum> {
-        val cacheKey = artistName.lowercase().trim()
-        if (!forceRefresh) {
-            missingDiscographyCache[cacheKey]?.let { return it }
+        val key = artistName.lowercase().trim()
+        if (!forceRefresh && cachedMissingArtist == key && cachedMissingDiscography.isNotEmpty()) {
+            return cachedMissingDiscography
         }
         val ownedKeys = ownedTitles.mapTo(HashSet()) { com.kike.musicplayer.data.discover.Names.releaseKey(it) }
         val missing = container.catalog.artistDiscography(artistName)
             .filter { com.kike.musicplayer.data.discover.Names.releaseKey(it.title) !in ownedKeys }
-        missingDiscographyCache[cacheKey] = missing
+        cachedMissingArtist = key
+        cachedMissingDiscography = missing
         return missing
     }
 
@@ -848,10 +858,36 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
             if (genreKey == null) browse.observeAlbumTracks(key, s) else browse.observeAlbumTracksInGenre(key, genreKey, s)
         }.map { it.sortedWith(albumTrackOrder) }
 
-    fun artist(name: String): Flow<ArtistIndex?> = detail(browse.observeArtistScopes(name)) { browse.observeArtist(name, it) }
-    fun artistAlbums(name: String): Flow<List<AlbumIndex>> = detail(browse.observeArtistScopes(name)) { browse.observeArtistAlbums(name, it) }
+    private var cachedArtistName: String? = null
+    private var cachedArtistIndex: com.kike.musicplayer.data.db.ArtistIndex? = null
+    private var cachedArtistAlbums: List<com.kike.musicplayer.data.db.AlbumIndex> = emptyList()
+    private var cachedArtistTracks: List<Track> = emptyList()
+
+    fun cachedArtistIndex(name: String): com.kike.musicplayer.data.db.ArtistIndex? =
+        if (cachedArtistName == name) cachedArtistIndex else null
+    fun cachedArtistAlbums(name: String): List<com.kike.musicplayer.data.db.AlbumIndex> =
+        if (cachedArtistName == name) cachedArtistAlbums else emptyList()
+    fun cachedArtistTracks(name: String): List<Track> =
+        if (cachedArtistName == name) cachedArtistTracks else emptyList()
+
+    fun artist(name: String): Flow<com.kike.musicplayer.data.db.ArtistIndex?> =
+        detail(browse.observeArtistScopes(name)) { browse.observeArtist(name, it) }
+            .onEach {
+                if (cachedArtistName != name) {
+                    cachedArtistName = name
+                    cachedArtistAlbums = emptyList()
+                    cachedArtistTracks = emptyList()
+                }
+                cachedArtistIndex = it
+            }
+
+    fun artistAlbums(name: String): Flow<List<com.kike.musicplayer.data.db.AlbumIndex>> =
+        detail(browse.observeArtistScopes(name)) { browse.observeArtistAlbums(name, it) }
+            .onEach { if (cachedArtistName == name) cachedArtistAlbums = it }
+
     fun artistTracks(name: String): Flow<List<Track>> =
         detail(browse.observeArtistScopes(name)) { browse.observeArtistTracks(name, it) }
+            .onEach { if (cachedArtistName == name) cachedArtistTracks = it }
     fun artistTop(name: String): Flow<List<TrackPlays>> =
         detail(browse.observeArtistScopes(name)) { browse.observeArtistTop(name, ARTIST_TOP_SONGS, it) }
 

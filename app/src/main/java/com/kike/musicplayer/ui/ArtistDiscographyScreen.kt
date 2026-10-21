@@ -78,8 +78,8 @@ fun ArtistDiscographyScreen(
     onBack: () -> Unit,
     contentPadding: PaddingValues,
 ) {
-    val ownedAlbums by remember(artistName) { libraryVm.artistAlbums(artistName) }.collectAsState(emptyList())
-    val allTracks by remember(artistName) { libraryVm.artistTracks(artistName) }.collectAsState(emptyList())
+    val ownedAlbums by remember(artistName) { libraryVm.artistAlbums(artistName) }.collectAsState(libraryVm.cachedArtistAlbums(artistName))
+    val allTracks by remember(artistName) { libraryVm.artistTracks(artistName) }.collectAsState(libraryVm.cachedArtistTracks(artistName))
     val catalogEnabled by libraryVm.catalogEnabled.collectAsState()
     val extraCovers by libraryVm.albumCoverUrls.collectAsState()
     var selectedTab by remember(initialTab) { mutableIntStateOf(initialTab.coerceIn(0, 2)) }
