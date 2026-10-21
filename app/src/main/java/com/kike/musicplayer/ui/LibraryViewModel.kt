@@ -529,14 +529,23 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
+    private val missingDiscographyCache = java.util.concurrent.ConcurrentHashMap<String, List<com.kike.musicplayer.data.catalog.CatalogAlbum>>()
+
     /** Returns studio/live albums by [artistName] on Deezer/Apple Music that are not already in [ownedTitles]. */
     suspend fun artistMissingDiscography(
         artistName: String,
         ownedTitles: Collection<String>,
+        forceRefresh: Boolean = false,
     ): List<com.kike.musicplayer.data.catalog.CatalogAlbum> {
+        val cacheKey = artistName.lowercase().trim()
+        if (!forceRefresh) {
+            missingDiscographyCache[cacheKey]?.let { return it }
+        }
         val ownedKeys = ownedTitles.mapTo(HashSet()) { com.kike.musicplayer.data.discover.Names.releaseKey(it) }
-        return container.catalog.artistDiscography(artistName)
+        val missing = container.catalog.artistDiscography(artistName)
             .filter { com.kike.musicplayer.data.discover.Names.releaseKey(it.title) !in ownedKeys }
+        missingDiscographyCache[cacheKey] = missing
+        return missing
     }
 
     /**

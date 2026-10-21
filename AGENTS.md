@@ -157,3 +157,9 @@ Started 2026-10-08 from user-pasted spec. NEW app, explicitly independent of Son
     - Automatic background rematch updates `cachedMatchesJson` only when songs are added to Local, Drive, or Navidrome via `tracksChanged`.
     - Optimized `TrackMatcher.forCatalog` to query artist spellings from `artist_index` (~3k rows) instead of scanning the whole 218k-row tracks table with `allArtistSpellings()`, speeding up initial/refresh matching from 700ms to 20ms.
     - Pre-migration backup saved to `C:\Users\kike\dev\db-backup\2026-10-20-pre-1.32.4\music.db` (`user_version = 24`, 218,769 tracks).
+    - GitHub Issue #7 & Issue #3 Part 2 (Artist Discography & Missing Albums, Design 1):
+      - Tappable "Albums (N)" header on `ArtistScreen` with chevron opening dedicated `ArtistDiscographyScreen` (`Screen.ArtistDiscography`).
+      - 2-column vertically scrollable grid (`LazyVerticalGrid(GridCells.Adaptive(150.dp))`) for easy navigation of artists with 30-40+ albums.
+      - "More on Deezer & Apple Music (N)" carousel added to `ArtistScreen` for missing catalog releases.
+      - Three interactive filter chips on `ArtistDiscographyScreen`: `In Library (N)`, `Missing on Deezer & Apple (N)`, and `All Discography (N)` (chronological merged timeline).
+      - In-memory session cache `missingDiscographyCache` in `LibraryViewModel` for instant transitions between screens.

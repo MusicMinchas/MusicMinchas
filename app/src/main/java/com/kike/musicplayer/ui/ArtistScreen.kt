@@ -69,6 +69,8 @@ fun ArtistScreen(
     libraryVm: LibraryViewModel,
     playerVm: PlayerViewModel,
     onOpenAlbum: (String) -> Unit,
+    onOpenArtistDiscography: (artistName: String, initialTab: Int) -> Unit,
+    onOpenCatalogAlbum: (com.kike.musicplayer.data.catalog.CatalogAlbum) -> Unit,
     onBack: () -> Unit,
     contentPadding: PaddingValues,
 ) {
@@ -86,6 +88,16 @@ fun ArtistScreen(
     val followed by libraryVm.followedArtists.collectAsState()
     val extraCovers by libraryVm.albumCoverUrls.collectAsState()
     val image by produceState<String?>(null, name) { value = libraryVm.artistImage(name) }
+    val catalogEnabled by libraryVm.catalogEnabled.collectAsState()
+    val missingAlbumsState by produceState<List<com.kike.musicplayer.data.catalog.CatalogAlbum>?>(null, name, albums.size, catalogEnabled) {
+        if (!catalogEnabled) {
+            value = emptyList()
+        } else {
+            val ownedTitles = albums.map { it.title }
+            value = libraryVm.artistMissingDiscography(name, ownedTitles)
+        }
+    }
+    val missingAlbums = missingAlbumsState ?: emptyList()
     // Edge to edge: the photo goes under the status bar.
     Box(Modifier.fillMaxSize().padding(bottom = contentPadding.calculateBottomPadding())) {
         val artist = artistOrNull ?: return@Box
@@ -128,7 +140,12 @@ fun ArtistScreen(
                 }
             }
             if (albums.isNotEmpty()) {
-                item { SectionTitle("Albums") }
+                item {
+                    SectionTitle(
+                        text = "Albums (${albums.size})",
+                        onClick = { onOpenArtistDiscography(artist.name, 0) },
+                    )
+                }
                 item {
                     LazyRow(contentPadding = PaddingValues(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                         items(albums, key = { it.key }) { album ->
@@ -146,6 +163,40 @@ fun ArtistScreen(
                                 album.year?.let {
                                     Text(it.toString(), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                                 }
+                            }
+                        }
+                    }
+                }
+            }
+            if (missingAlbums.isNotEmpty()) {
+                item {
+                    SectionTitle(
+                        text = "More on Deezer & Apple Music (${missingAlbums.size})",
+                        onClick = { onOpenArtistDiscography(artist.name, 1) },
+                    )
+                }
+                item {
+                    LazyRow(contentPadding = PaddingValues(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                        items(missingAlbums, key = { it.id }) { catAlbum ->
+                            Column(Modifier.width(140.dp).clickable { onOpenCatalogAlbum(catAlbum) }) {
+                                Artwork(catAlbum.coverUrl, Modifier.fillMaxWidth().aspectRatio(1f), shape = RoundedCornerShape(10.dp))
+                                Text(
+                                    catAlbum.title,
+                                    maxLines = 2,
+                                    overflow = TextOverflow.Ellipsis,
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    modifier = Modifier.padding(top = 6.dp),
+                                )
+                                val sourceLabel = if (catAlbum.source == com.kike.musicplayer.data.catalog.CatalogPlaylist.SOURCE_DEEZER) "Deezer" else "Apple"
+                                val sub = buildList {
+                                    catAlbum.year?.let { add(it.toString()) }
+                                    add("On $sourceLabel")
+                                }.joinToString(" · ")
+                                Text(
+                                    sub,
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.primary,
+                                )
                             }
                         }
                     }
