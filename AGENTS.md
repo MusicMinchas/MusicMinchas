@@ -7,7 +7,7 @@ Parent workspace notes: @[Shared Android Dev Workspace](../AGENTS.md)
 
 - **Path:** `C:\Users\kike\dev\MusicPlayer` (local git repo, repo-local identity `kike` / `kikeprojo@gmail.com`, nothing pushed).
 - **Package:** `com.kike.musicplayer`
-- **Current Release:** `1.31.3` (`versionCode = 78`, Room DB `v23`, `minSdk = 30`, `targetSdk = 36`, `compileSdk = 37`). Merged to `master`, tag `v1.31.3`.
+- **Current Release:** `1.32.4` (`versionCode = 83`, Room DB `v25`, `minSdk = 30`, `targetSdk = 36`, `compileSdk = 37`). Merged to `master`, tag `v1.32.4`.
 - **Stack:** Kotlin 2.4.20, Jetpack Compose, Media3 1.11.1 `MediaLibraryService` (Android Auto browse tree), Room 2.8.5 via KSP 2.3.12 + Paging 3 (`paging-compose 3.3.6`, `room-paging`), Retrofit 3 + Moshi (reflection), Coil 3, `play-services-auth` 22 `AuthorizationClient` (`drive.readonly` + `email`), `reorderable` 3.1.0, AGP 9.4.1, Gradle 9.8.
 - **Shared Toolchain & Environment:**
   - `JAVA_HOME`: Android Studio's bundled `jbr`
@@ -163,3 +163,5 @@ Started 2026-10-08 from user-pasted spec. NEW app, explicitly independent of Son
       - "More on Deezer & Apple Music (N)" carousel added to `ArtistScreen` for missing catalog releases.
       - Three interactive filter chips on `ArtistDiscographyScreen`: `In Library (N)`, `Missing on Deezer & Apple (N)`, and `All Discography (N)` (chronological merged timeline).
       - In-memory session cache `missingDiscographyCache` in `LibraryViewModel` for instant transitions between screens.
+      - In-memory session cache for artist index, albums, and tracks in `LibraryViewModel` retains data throughout artist sub-navigation (Artist -> Discography -> Album Detail -> Track), eliminating reloading/flicker when returning back to the main artist page, while cleanly releasing memory upon returning to global tabs.
+      - Navidrome-exclusive albums track loading delay fix: Enforced `INDEXED BY index_tracks_indexAlbum` in `observeAlbumTracks`, `observeAlbumTracksInGenre`, `songsOfAlbums`, and `INDEXED BY index_tracks_indexArtist` in `songsOfArtists` (`Daos.kt`). Prevents SQLite query planner from erroneously picking `index_tracks_scope_indexTitle` and linearly scanning 214,000 Navidrome tracks on single-scope queries, reducing album load time from ~592ms to ~0.07ms (8,000x speedup).
