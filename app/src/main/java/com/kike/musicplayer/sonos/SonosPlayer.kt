@@ -650,6 +650,7 @@ class SonosPlayer(
                 continue
             }
             failedPolls = 0
+            Log.i(TAG, "Sonos poll: state=${p.transportState}, relTime=${p.relTimeMs}, track=${p.trackUri}")
             if (SystemClock.elapsedRealtime() < holdUntil) continue
             vol?.let { volume = it }
             mode?.let {

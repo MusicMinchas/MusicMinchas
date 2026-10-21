@@ -118,6 +118,7 @@ class TrackServer(
                     .mapNotNull { line -> line.split(':', limit = 2).takeIf { it.size == 2 }?.let { it[0].trim().lowercase() to it[1].trim() } }
                     .toMap()
                 val (method, target) = requestLine.split(' ').let { (it.getOrNull(0) ?: "") to (it.getOrNull(1) ?: "") }
+                Log.i(TAG, "--> Sonos Request: $method $target, range=${headers["range"]}")
                 val parts = target.substringBefore('?').split('/')
                 val out = BufferedOutputStream(socket.getOutputStream(), 64 * 1024)
                 if (parts.size < 4 || parts[2] != token || method !in setOf("GET", "HEAD")) {
@@ -137,6 +138,7 @@ class TrackServer(
     private fun serveTrack(out: OutputStream, method: String, trackId: String?, range: String?) {
         val track = trackOf(trackId) ?: return respondStatus(out, 404)
         val mime = mimeOf(track)
+        Log.i(TAG, "serveTrack: id=$trackId, title='${track.title}', source=${track.source}")
         // Drive and server songs not on the phone are relayed from where they live.
         val remote = when {
             track.localUri != null -> null
@@ -163,6 +165,7 @@ class TrackServer(
                 if (method == "HEAD") {
                     return writeHead(out, 200, mime, total ?: track.sizeBytes, null)
                 }
+                Log.i(TAG, "serveTrack streaming to Sonos: remoteCode=${res.code}, len=${res.body.contentLength()}, range=${res.header("Content-Range")}")
                 writeHead(out, res.code, mime, res.body.contentLength().takeIf { it >= 0 }, res.header("Content-Range"))
                 copy(res.body.byteStream(), out)
             }
@@ -320,6 +323,7 @@ class TrackServer(
             append("Connection: close\r\n\r\n")
         }
         out.write(head.toByteArray(Charsets.ISO_8859_1))
+        out.flush()
     }
 
     private fun respondStatus(out: OutputStream, code: Int) {
