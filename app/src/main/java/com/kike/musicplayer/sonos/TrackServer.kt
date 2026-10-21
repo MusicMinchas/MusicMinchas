@@ -156,6 +156,10 @@ class TrackServer(
             val response = executeRemote(request, ok200 = true) ?: return respondStatus(out, 502)
             response.use { res ->
                 val total = res.header("Content-Range")?.substringAfter('/')?.toLongOrNull()
+                    ?: res.body.contentLength().takeIf { it > 0 }
+                if (total != null && track.sizeBytes == null) {
+                    cachedTracks[track.id] = track.copy(sizeBytes = total)
+                }
                 if (method == "HEAD") {
                     return writeHead(out, 200, mime, total ?: track.sizeBytes, null)
                 }
@@ -200,6 +204,9 @@ class TrackServer(
         val key = "${track.id}#$index"
         val (block, total) = synchronized(blockLocks.computeIfAbsent(key) { Any() }) {
             blocks.get(key) ?: fetchBlock(remote, index)?.also { blocks.put(key, it) } ?: return false
+        }
+        if (total > 0 && track.sizeBytes == null) {
+            cachedTracks[track.id] = track.copy(sizeBytes = total)
         }
         val from = (start - index * BLOCK).toInt()
         if (from >= block.size) return false

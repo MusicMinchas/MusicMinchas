@@ -16,6 +16,7 @@ import com.google.common.util.concurrent.SettableFuture
 import com.kike.musicplayer.data.db.Track
 import com.kike.musicplayer.data.db.TrackDao
 import com.kike.musicplayer.data.db.getByIds
+import com.kike.musicplayer.data.nebula.NebulaUrls
 import com.kike.musicplayer.playback.PlaybackService
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
@@ -181,7 +182,7 @@ class SonosPlayer(
         // The first two songs' first pieces, before Sonos asks for them one by one.
         server.prefetch(snapshot.drop(start).take(2).map { trackIdOf(it.item) })
         val tracks = withContext(Dispatchers.IO) { dao.getByIds(snapshot.map { trackIdOf(it.item) }).associateBy { it.id } }
-        fun item(e: Entry) = tracks[trackIdOf(e.item)]?.let { queueItem(base, e.id, it) }
+        fun item(e: Entry) = trackFor(e.item, tracks)?.let { queueItem(base, e.id, it) }
 
         withContext(sonosThread) {
             sonosOrder.clear()
@@ -202,7 +203,7 @@ class SonosPlayer(
                         Log.w(TAG, "Skipped ${items.size} tracks that Sonos refused", e)
                     }
                 }
-                if (!started) {
+                if (!started && sonosOrder.isNotEmpty()) {
                     started = true
                     Sonos.useQueue(ip, group.uuid)
                     // Before picking the track: leaving a Sonos shuffle mode reorders the queue and jumps.
@@ -239,7 +240,15 @@ class SonosPlayer(
                 }
                 yield()
             }
-            if (!started) onStarted()
+            if (!started) {
+                if (sonosOrder.isNotEmpty()) {
+                    started = true
+                    Sonos.useQueue(ip, group.uuid)
+                    applyPlayMode()
+                    Sonos.seekTrack(ip, 1)
+                }
+                onStarted()
+            }
             val (entryId, resumeAt, restore) = withContext(Dispatchers.Main) {
                 Triple(entries.getOrNull(currentIndex)?.id, currentPosition, pendingResume && !playWhenReady)
             }
@@ -364,7 +373,7 @@ class SonosPlayer(
                     sonosOrder += currentId
                     val tracks = dao.getByIds(order.map { trackIdOf(it.item) }).associateBy { it.id }
                     fun items(batch: List<Entry>) =
-                        batch.mapNotNull { e -> tracks[trackIdOf(e.item)]?.let { e.id to queueItem(base, e.id, it) } }
+                        batch.mapNotNull { e -> trackFor(e.item, tracks)?.let { e.id to queueItem(base, e.id, it) } }
                     val i = order.indexOfFirst { it.id == currentId }
                     for (batch in order.subList(i + 1, order.size).chunked(Sonos.MAX_URIS_PER_ADD)) {
                         val added = items(batch)
@@ -423,7 +432,7 @@ class SonosPlayer(
             // Insert after whatever precedes it in the app's queue, so both orders stay the same.
             var position = afterPositionOf(added.first().id)
             for (batch in added.chunked(Sonos.MAX_URIS_PER_ADD)) {
-                val items = batch.mapNotNull { e -> tracks[trackIdOf(e.item)]?.let { e.id to queueItem(base, e.id, it) } }
+                val items = batch.mapNotNull { e -> trackFor(e.item, tracks)?.let { e.id to queueItem(base, e.id, it) } }
                 if (items.isEmpty()) continue
                 Sonos.addToQueue(ip, items.map { it.second }, position)
                 sonosOrder.addAll(position - 1, items.map { it.first })
@@ -563,6 +572,46 @@ class SonosPlayer(
             else -> "NORMAL"
         }
         Sonos.setPlayMode(ip, mode)
+    }
+
+    private fun trackFor(item: MediaItem, dbTracks: Map<String, Track>): Track? {
+        val id = trackIdOf(item)
+        dbTracks[id]?.let { return it }
+
+        val meta = item.mediaMetadata
+        val title = meta.title?.toString() ?: return null
+        val artist = meta.artist?.toString() ?: ""
+        val uri = item.localConfiguration?.uri?.toString()
+            ?: item.requestMetadata.mediaUri?.toString()
+            ?: if (id.startsWith("nebula:")) {
+                NebulaUrls.uriFor(artist, meta.albumTitle?.toString(), title, id.removePrefix("nebula:"))
+            } else return null
+
+        val source = when {
+            uri.startsWith("nebula:") || id.startsWith("nebula:") -> Track.SOURCE_NEBULA
+            uri.startsWith("subsonic:") || id.startsWith("subsonic:") -> Track.SOURCE_SUBSONIC
+            uri.startsWith("https://") -> Track.SOURCE_DRIVE
+            else -> Track.SOURCE_SAF
+        }
+
+        return Track(
+            id = id,
+            source = source,
+            uri = uri,
+            fileName = "$title.flac",
+            mimeType = if (source == Track.SOURCE_NEBULA) "audio/flac" else "audio/mpeg",
+            sizeBytes = null,
+            title = title,
+            artist = artist,
+            album = meta.albumTitle?.toString(),
+            albumArtist = meta.albumArtist?.toString(),
+            trackNumber = meta.trackNumber,
+            discNumber = meta.discNumber,
+            year = meta.recordingYear,
+            genre = null,
+            durationMs = meta.durationMs ?: 0L,
+            artworkUri = meta.artworkUri?.toString(),
+        )
     }
 
     private fun queueItem(base: String, entryId: Long, track: Track): SonosQueueItem {

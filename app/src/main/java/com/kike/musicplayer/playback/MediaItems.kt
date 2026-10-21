@@ -9,6 +9,11 @@ fun Track.toMediaItem(mediaId: String = id): MediaItem =
     MediaItem.Builder()
         .setMediaId(mediaId)
         .setUri(localUri ?: uri) // the downloaded copy when there is one
+        .setRequestMetadata(
+            MediaItem.RequestMetadata.Builder()
+                .setMediaUri(Uri.parse(localUri ?: uri))
+                .build()
+        )
         .setMediaMetadata(
             MediaMetadata.Builder()
                 .setTitle(title)
