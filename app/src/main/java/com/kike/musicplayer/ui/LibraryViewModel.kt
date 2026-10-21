@@ -535,7 +535,11 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
     private var cachedMissingArtist: String? = null
     private var cachedMissingDiscography: List<com.kike.musicplayer.data.catalog.CatalogAlbum> = emptyList()
 
-    fun clearArtistCatalogCache() {
+    fun clearActiveArtistCache() {
+        cachedArtistName = null
+        cachedArtistIndex = null
+        cachedArtistAlbums = emptyList()
+        cachedArtistTracks = emptyList()
         cachedMissingArtist = null
         cachedMissingDiscography = emptyList()
     }

@@ -180,6 +180,11 @@ class MainActivity : ComponentActivity() {
         LaunchedEffect(player.current?.mediaId, player.upNext) {
             libraryVm.cacheTracks(listOfNotNull(player.current?.mediaId).plus(player.upNext.map { it.item.mediaId }).map(PlaybackService::trackIdOf))
         }
+        LaunchedEffect(screen) {
+            if (screen !is Screen.ArtistDetail && screen !is Screen.ArtistDiscography) {
+                libraryVm.clearActiveArtistCache()
+            }
+        }
         val scope = rememberCoroutineScope()
         val navigation = Navigation(
             openArtist = { names ->
