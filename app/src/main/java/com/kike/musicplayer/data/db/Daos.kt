@@ -665,7 +665,7 @@ interface BrowseDao {
     @Query("SELECT $ALBUM_SUM FROM album_index WHERE `key` = :key AND scope IN (:scopes) GROUP BY `key`")
     fun observeAlbum(key: String, scopes: List<Int>): Flow<AlbumIndex?>
 
-    @Query("SELECT * FROM tracks WHERE indexAlbum = :key AND scope IN (:scopes)")
+    @Query("SELECT * FROM tracks INDEXED BY index_tracks_indexAlbum WHERE indexAlbum = :key AND scope IN (:scopes)")
     fun observeAlbumTracks(key: String, scopes: List<Int>): Flow<List<Track>>
 
     // Artists tab
@@ -717,7 +717,7 @@ interface BrowseDao {
     )
     fun genreAlbums(genre: String, scopes: List<Int>): PagingSource<Int, AlbumIndex>
 
-    @Query("SELECT * FROM tracks WHERE indexAlbum = :album AND indexGenre = :genre AND scope IN (:scopes)")
+    @Query("SELECT * FROM tracks INDEXED BY index_tracks_indexAlbum WHERE indexAlbum = :album AND indexGenre = :genre AND scope IN (:scopes)")
     fun observeAlbumTracksInGenre(album: String, genre: String, scopes: List<Int>): Flow<List<Track>>
 
     /** The genre's songs album by album (for Play), at most [limit]. */
@@ -766,10 +766,10 @@ interface BrowseDao {
     )
     suspend fun songsFromTitle(title: String, id: String, limit: Int, scopes: List<Int>): List<Track>
 
-    @Query("SELECT * FROM tracks WHERE indexArtist IN (:names) AND scope IN (:scopes) ORDER BY indexTitle LIMIT :limit")
+    @Query("SELECT * FROM tracks INDEXED BY index_tracks_indexArtist WHERE indexArtist IN (:names) AND scope IN (:scopes) ORDER BY indexTitle LIMIT :limit")
     suspend fun songsOfArtists(names: List<String>, limit: Int, scopes: List<Int>): List<Track>
 
-    @Query("SELECT * FROM tracks WHERE indexAlbum IN (:keys) AND scope IN (:scopes) ORDER BY indexTitle LIMIT :limit")
+    @Query("SELECT * FROM tracks INDEXED BY index_tracks_indexAlbum WHERE indexAlbum IN (:keys) AND scope IN (:scopes) ORDER BY indexTitle LIMIT :limit")
     suspend fun songsOfAlbums(keys: List<String>, limit: Int, scopes: List<Int>): List<Track>
 
     /** Counted plays per listed artist, most played first. */
