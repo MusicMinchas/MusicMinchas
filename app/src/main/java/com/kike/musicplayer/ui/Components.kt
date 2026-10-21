@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Bolt
 import androidx.compose.material.icons.filled.Cloud
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.DownloadDone
@@ -313,12 +314,14 @@ fun scopeIcon(scope: Int): ImageVector = when (scope) {
 fun sourceIcon(source: String): ImageVector = when (source) {
     Track.SOURCE_DRIVE -> Icons.Default.Cloud
     Track.SOURCE_SUBSONIC -> SubmarineIcon
+    Track.SOURCE_NEBULA -> Icons.Default.Bolt
     else -> Icons.Default.Folder
 }
 
 fun sourceName(source: String): String = when (source) {
     Track.SOURCE_DRIVE -> "Google Drive"
     Track.SOURCE_SUBSONIC -> "Navidrome"
+    Track.SOURCE_NEBULA -> "Nebula"
     else -> "On this device"
 }
 

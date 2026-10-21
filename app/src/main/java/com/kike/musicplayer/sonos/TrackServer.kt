@@ -7,6 +7,7 @@ import android.util.Base64
 import android.util.Log
 import com.kike.musicplayer.data.db.Track
 import com.kike.musicplayer.data.subsonic.SubsonicUrls
+import com.kike.musicplayer.data.nebula.NebulaUrls
 import com.kike.musicplayer.data.db.TrackDao
 import com.kike.musicplayer.data.db.getByIds
 import kotlinx.coroutines.runBlocking
@@ -37,6 +38,7 @@ class TrackServer(
     private val dao: TrackDao,
     private val driveHttp: OkHttpClient,
     private val serverUrls: SubsonicUrls,
+    private val nebulaUrls: NebulaUrls? = null,
 ) {
     private val token = ByteArray(12).also { SecureRandom().nextBytes(it) }.joinToString("") { "%02x".format(it) }
     private var server: ServerSocket? = null
@@ -140,6 +142,7 @@ class TrackServer(
             track.localUri != null -> null
             track.source == Track.SOURCE_DRIVE -> track.uri
             track.source == Track.SOURCE_SUBSONIC -> serverUrls.resolve(track.uri) ?: return respondStatus(out, 503)
+            track.source == Track.SOURCE_NEBULA -> nebulaUrls?.resolve(track.uri) ?: return respondStatus(out, 503)
             else -> null
         }
         if (remote != null) {

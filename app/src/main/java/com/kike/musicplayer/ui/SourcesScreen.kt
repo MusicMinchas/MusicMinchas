@@ -428,6 +428,8 @@ fun MusicSourcesScreen(
 
             ServerCard(vm)
 
+            NebulaCard(vm)
+
             CatalogSourceCard(vm)
         }
     }

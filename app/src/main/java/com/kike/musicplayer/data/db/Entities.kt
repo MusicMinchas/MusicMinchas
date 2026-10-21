@@ -76,6 +76,8 @@ data class Track(
         const val SOURCE_DRIVE = "drive"
         /** A Subsonic / Navidrome server: id "subsonic:<song id>", uri "subsonic:<song id>". */
         const val SOURCE_SUBSONIC = "subsonic"
+        /** On-demand Torbox cached stream via Nebula add-on: uri "nebula:stream?...". */
+        const val SOURCE_NEBULA = "nebula"
 
         /**
          * Where a song comes from, for switching each source on or off in the library: folders on
@@ -115,7 +117,7 @@ data class Track(
 }
 
 /** Streamed from Google Drive or the server unless downloaded; can be downloaded to the phone. */
-val Track.isRemote: Boolean get() = source == Track.SOURCE_DRIVE || source == Track.SOURCE_SUBSONIC
+val Track.isRemote: Boolean get() = source == Track.SOURCE_DRIVE || source == Track.SOURCE_SUBSONIC || source == Track.SOURCE_NEBULA
 
 /**
  * Up to [max] covers of these songs, one per album, in list order. Each file has its own extracted

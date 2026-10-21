@@ -316,7 +316,7 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
                 val saved = savedMixes.load()
                 val asked = requests > mixRequestsDone
                 val fresh = saved != null && saved.scopes == scopes && System.currentTimeMillis() - saved.madeAt < MIX_LIFETIME_MS
-                if (!asked && fresh) return@runCatching savedMixesWithTracks(saved!!)
+                if (!asked && fresh) return@runCatching savedMixesWithTracks(saved)
                 val made = makeMixes(scopes)
                 // Nothing made yet (e.g. the library is still loading): try again on the next change.
                 if (made.isNotEmpty()) {
@@ -928,6 +928,17 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
         browse.observeArtistPlayCounts(SUGGESTED_ARTISTS + 50), followedArtists,
     ) { counts, followed -> counts.map { it.name }.filter { it !in followed }.take(SUGGESTED_ARTISTS) }
         .stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
+
+    // ---- Nebula add-on ----
+
+    private val nebula = container.nebula
+    val nebulaState = nebula.state
+    val nebulaUrls = container.nebulaUrls
+
+    fun connectNebula(manifestUrl: String) =
+        viewModelScope.launch { nebula.connect(manifestUrl) }
+
+    fun disconnectNebula() = nebula.disconnect()
 
     // ---- Subsonic / Navidrome server ----
 

@@ -190,10 +190,13 @@ class PlaybackService : MediaLibraryService(), CastHost {
         // content:// goes to ContentDataSource; https (Drive) goes through OkHttp with the OAuth interceptor;
         // server songs ("subsonic:<id>") get a freshly signed stream URL as they're opened.
         val urls = container.subsonicUrls
+        val nebulaUrls = container.nebulaUrls
         val dataSourceFactory = ResolvingDataSource.Factory(
             DefaultDataSource.Factory(this, OkHttpDataSource.Factory(container.driveHttp)),
         ) { spec ->
-            urls.resolve(spec.uri.toString())?.let { spec.withUri(android.net.Uri.parse(it)) } ?: spec
+            urls.resolve(spec.uri.toString())?.let { spec.withUri(android.net.Uri.parse(it)) }
+                ?: nebulaUrls.resolve(spec.uri.toString())?.let { spec.withUri(android.net.Uri.parse(it)) }
+                ?: spec
         }
 
         player = ExoPlayer.Builder(this)

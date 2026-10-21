@@ -22,6 +22,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import com.kike.musicplayer.data.nebula.NebulaUrls
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.PlaylistAdd
@@ -110,6 +111,13 @@ fun CatalogAlbumScreen(
     }
 
     val ownedTracks = remember(tracks, matched) { tracks.mapNotNull { matched[it.id] } }
+    val nebulaState by libraryVm.nebulaState.collectAsState()
+    val nebulaConnected = nebulaState.manifestUrl != null
+    val playableTracks = remember(tracks, matched, nebulaConnected) {
+        tracks.mapNotNull { catTrack ->
+            matched[catTrack.id] ?: if (nebulaConnected) NebulaUrls.trackFor(catTrack) else null
+        }
+    }
     val year = album.year ?: tracks.firstNotNullOfOrNull { it.year }
     val genre = album.genre ?: tracks.firstNotNullOfOrNull { it.genre }
     val cover = album.coverUrl ?: tracks.firstNotNullOfOrNull { it.coverUrl }
@@ -171,20 +179,25 @@ fun CatalogAlbumScreen(
                         modifier = Modifier.padding(top = 4.dp),
                     )
                     if (!loading && tracks.isNotEmpty()) {
+                        val statusText = if (nebulaConnected && ownedTracks.size < tracks.size) {
+                            "${ownedTracks.size} in library · ${tracks.size - ownedTracks.size} via Nebula"
+                        } else {
+                            "${ownedTracks.size} of ${tracks.size} songs in your library"
+                        }
                         Text(
-                            "${ownedTracks.size} of ${tracks.size} songs in your library",
+                            statusText,
                             style = MaterialTheme.typography.labelMedium,
-                            color = if (ownedTracks.isNotEmpty()) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                            color = if (playableTracks.isNotEmpty()) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
                             modifier = Modifier.padding(top = 6.dp),
                         )
                     }
                 }
             }
-            if (ownedTracks.isNotEmpty()) {
+            if (playableTracks.isNotEmpty()) {
                 item {
                     PlayShuffleRow(
-                        onPlay = { playerVm.playTracks(ownedTracks, 0) },
-                        onShuffle = { playerVm.playTracks(ownedTracks, 0, shuffle = true) },
+                        onPlay = { playerVm.playTracks(playableTracks, 0) },
+                        onShuffle = { playerVm.playTracks(playableTracks, 0, shuffle = true) },
                         enabled = true,
                         downloads = ownedTracks,
                     )
@@ -209,13 +222,25 @@ fun CatalogAlbumScreen(
                     val libTrack = matched[catTrack.id]
                     val num = (catTrack.trackNumber ?: (idx + 1)).toString()
                     if (libTrack != null) {
-                        val playIdx = ownedTracks.indexOfFirst { it.id == libTrack.id }.coerceAtLeast(0)
+                        val playIdx = playableTracks.indexOfFirst { it.id == libTrack.id }.coerceAtLeast(0)
                         TrackRow(
                             track = libTrack,
                             isCurrent = libTrack.id == player.current?.mediaId,
-                            onClick = { playerVm.playTracks(ownedTracks, playIdx) },
+                            onClick = { playerVm.playTracks(playableTracks, playIdx) },
                             onPlayNext = { playerVm.playNext(libTrack) },
                             onAddToQueue = { playerVm.addToQueue(libTrack) },
+                            showArtwork = false,
+                            leading = num,
+                        )
+                    } else if (nebulaConnected) {
+                        val nebTrack = remember(catTrack) { NebulaUrls.trackFor(catTrack) }
+                        val playIdx = playableTracks.indexOfFirst { it.id == nebTrack.id }.coerceAtLeast(0)
+                        TrackRow(
+                            track = nebTrack,
+                            isCurrent = nebTrack.id == player.current?.mediaId,
+                            onClick = { playerVm.playTracks(playableTracks, playIdx) },
+                            onPlayNext = { playerVm.playNext(nebTrack) },
+                            onAddToQueue = { playerVm.addToQueue(nebTrack) },
                             showArtwork = false,
                             leading = num,
                         )
@@ -269,6 +294,13 @@ fun CatalogArtistScreen(
     }
 
     val ownedTop = remember(topTracks, matchedTop) { topTracks.mapNotNull { matchedTop[it.id] } }
+    val nebulaState by libraryVm.nebulaState.collectAsState()
+    val nebulaConnected = nebulaState.manifestUrl != null
+    val playableTop = remember(topTracks, matchedTop, nebulaConnected) {
+        topTracks.mapNotNull { catTrack ->
+            matchedTop[catTrack.id] ?: if (nebulaConnected) NebulaUrls.trackFor(catTrack) else null
+        }
+    }
     val listState = rememberLazyListState()
     val scrolled by remember { derivedStateOf { listState.firstVisibleItemIndex > 0 } }
     val isFollowed = artist.name in followed
@@ -295,11 +327,11 @@ fun CatalogArtistScreen(
                     horizontalArrangement = Arrangement.spacedBy(16.dp, Alignment.CenterHorizontally),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    if (ownedTop.isNotEmpty()) {
-                        FilledIconButton(onClick = { playerVm.playTracks(ownedTop, 0) }, modifier = Modifier.size(56.dp)) {
+                    if (playableTop.isNotEmpty()) {
+                        FilledIconButton(onClick = { playerVm.playTracks(playableTop, 0) }, modifier = Modifier.size(56.dp)) {
                             Icon(Icons.Default.PlayArrow, "Play", Modifier.size(32.dp))
                         }
-                        FilledTonalIconButton(onClick = { playerVm.playTracks(ownedTop, 0, shuffle = true) }) {
+                        FilledTonalIconButton(onClick = { playerVm.playTracks(playableTop, 0, shuffle = true) }) {
                             Icon(Icons.Default.Shuffle, "Shuffle")
                         }
                     }
@@ -367,13 +399,24 @@ fun CatalogArtistScreen(
                     val libTrack = matchedTop[catTrack.id]
                     val num = "${index + 1}"
                     if (libTrack != null) {
-                        val playIdx = ownedTop.indexOfFirst { it.id == libTrack.id }.coerceAtLeast(0)
+                        val playIdx = playableTop.indexOfFirst { it.id == libTrack.id }.coerceAtLeast(0)
                         TrackRow(
                             track = libTrack,
                             isCurrent = libTrack.id == player.current?.mediaId,
-                            onClick = { playerVm.playTracks(ownedTop, playIdx) },
+                            onClick = { playerVm.playTracks(playableTop, playIdx) },
                             onPlayNext = { playerVm.playNext(libTrack) },
                             onAddToQueue = { playerVm.addToQueue(libTrack) },
+                            leading = num,
+                        )
+                    } else if (nebulaConnected) {
+                        val nebTrack = remember(catTrack) { NebulaUrls.trackFor(catTrack) }
+                        val playIdx = playableTop.indexOfFirst { it.id == nebTrack.id }.coerceAtLeast(0)
+                        TrackRow(
+                            track = nebTrack,
+                            isCurrent = nebTrack.id == player.current?.mediaId,
+                            onClick = { playerVm.playTracks(playableTop, playIdx) },
+                            onPlayNext = { playerVm.playNext(nebTrack) },
+                            onAddToQueue = { playerVm.addToQueue(nebTrack) },
                             leading = num,
                         )
                     } else {
@@ -445,6 +488,13 @@ fun CatalogPlaylistScreen(
     }
 
     val ownedTracks = remember(tracks, matched) { tracks.mapNotNull { matched[it.id] }.distinctBy { it.id } }
+    val nebulaState by libraryVm.nebulaState.collectAsState()
+    val nebulaConnected = nebulaState.manifestUrl != null
+    val playableTracks = remember(tracks, matched, nebulaConnected) {
+        tracks.mapNotNull { catTrack ->
+            matched[catTrack.id] ?: if (nebulaConnected) NebulaUrls.trackFor(catTrack) else null
+        }
+    }
 
     if (saveDialog) {
         var name by remember { mutableStateOf(playlist.title) }
@@ -536,10 +586,15 @@ fun CatalogPlaylistScreen(
                         modifier = Modifier.padding(top = 2.dp),
                     )
                     if (!loading && tracks.isNotEmpty()) {
+                        val statusText = if (nebulaConnected && ownedTracks.size < tracks.size) {
+                            "${ownedTracks.size} in library · ${tracks.size - ownedTracks.size} via Nebula"
+                        } else {
+                            "${ownedTracks.size} of ${tracks.size} songs in your library"
+                        }
                         Text(
-                            "${ownedTracks.size} of ${tracks.size} songs in your library",
+                            statusText,
                             style = MaterialTheme.typography.labelMedium,
-                            color = if (ownedTracks.isNotEmpty()) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                            color = if (playableTracks.isNotEmpty()) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
                             modifier = Modifier.padding(top = 6.dp),
                         )
                     }
@@ -560,16 +615,16 @@ fun CatalogPlaylistScreen(
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Button(
-                        onClick = { playerVm.playTracks(ownedTracks, 0) },
-                        enabled = ownedTracks.isNotEmpty(),
+                        onClick = { playerVm.playTracks(playableTracks, 0) },
+                        enabled = playableTracks.isNotEmpty(),
                     ) {
                         Icon(Icons.Default.PlayArrow, null)
                         Spacer(Modifier.width(4.dp))
                         Text("Play")
                     }
                     FilledTonalButton(
-                        onClick = { playerVm.playTracks(ownedTracks, 0, shuffle = true) },
-                        enabled = ownedTracks.isNotEmpty(),
+                        onClick = { playerVm.playTracks(playableTracks, 0, shuffle = true) },
+                        enabled = playableTracks.isNotEmpty(),
                     ) {
                         Icon(Icons.Default.Shuffle, null)
                         Spacer(Modifier.width(4.dp))
@@ -603,13 +658,23 @@ fun CatalogPlaylistScreen(
                 itemsIndexed(tracks, key = { idx, t -> "${t.id}:$idx" }) { idx, catTrack ->
                     val libTrack = matched[catTrack.id]
                     if (libTrack != null) {
-                        val playIdx = ownedTracks.indexOfFirst { it.id == libTrack.id }.coerceAtLeast(0)
+                        val playIdx = playableTracks.indexOfFirst { it.id == libTrack.id }.coerceAtLeast(0)
                         TrackRow(
                             track = libTrack,
                             isCurrent = libTrack.id == player.current?.mediaId,
-                            onClick = { playerVm.playTracks(ownedTracks, playIdx) },
+                            onClick = { playerVm.playTracks(playableTracks, playIdx) },
                             onPlayNext = { playerVm.playNext(libTrack) },
                             onAddToQueue = { playerVm.addToQueue(libTrack) },
+                        )
+                    } else if (nebulaConnected) {
+                        val nebTrack = remember(catTrack) { NebulaUrls.trackFor(catTrack) }
+                        val playIdx = playableTracks.indexOfFirst { it.id == nebTrack.id }.coerceAtLeast(0)
+                        TrackRow(
+                            track = nebTrack,
+                            isCurrent = nebTrack.id == player.current?.mediaId,
+                            onClick = { playerVm.playTracks(playableTracks, playIdx) },
+                            onPlayNext = { playerVm.playNext(nebTrack) },
+                            onAddToQueue = { playerVm.addToQueue(nebTrack) },
                         )
                     } else {
                         UnownedCatalogTrackRow(
