@@ -7,7 +7,7 @@ Parent workspace notes: @[Shared Android Dev Workspace](../AGENTS.md)
 
 - **Path:** `C:\Users\kike\dev\MusicPlayer` (local git repo, repo-local identity `kike` / `kikeprojo@gmail.com`, nothing pushed).
 - **Package:** `com.kike.musicplayer`
-- **Current Release:** `1.32.4` (`versionCode = 83`, Room DB `v25`, `minSdk = 30`, `targetSdk = 36`, `compileSdk = 37`). Merged to `master`, tag `v1.32.4`.
+- **Current Release:** `1.33.0` (`versionCode = 84`, Room DB `v25`, `minSdk = 30`, `targetSdk = 36`, `compileSdk = 37`). Merged to `master`, tag `v1.33.0`.
 - **Stack:** Kotlin 2.4.20, Jetpack Compose, Media3 1.11.1 `MediaLibraryService` (Android Auto browse tree), Room 2.8.5 via KSP 2.3.12 + Paging 3 (`paging-compose 3.3.6`, `room-paging`), Retrofit 3 + Moshi (reflection), Coil 3, `play-services-auth` 22 `AuthorizationClient` (`drive.readonly` + `email`), `reorderable` 3.1.0, AGP 9.4.1, Gradle 9.8.
 - **Shared Toolchain & Environment:**
   - `JAVA_HOME`: Android Studio's bundled `jbr`
@@ -165,3 +165,14 @@ Started 2026-10-08 from user-pasted spec. NEW app, explicitly independent of Son
       - In-memory session cache `missingDiscographyCache` in `LibraryViewModel` for instant transitions between screens.
       - In-memory session cache for artist index, albums, and tracks in `LibraryViewModel` retains data throughout artist sub-navigation (Artist -> Discography -> Album Detail -> Track), eliminating reloading/flicker when returning back to the main artist page, while cleanly releasing memory upon returning to global tabs.
       - Navidrome-exclusive albums track loading delay fix: Enforced `INDEXED BY index_tracks_indexAlbum` in `observeAlbumTracks`, `observeAlbumTracksInGenre`, `songsOfAlbums`, and `INDEXED BY index_tracks_indexArtist` in `songsOfArtists` (`Daos.kt`). Prevents SQLite query planner from erroneously picking `index_tracks_scope_indexTitle` and linearly scanning 214,000 Navidrome tracks on single-scope queries, reducing album load time from ~592ms to ~0.07ms (8,000x speedup).
+  - 1.33.0 (`versionCode = 84`, Room DB `v25`, release APK installed on device):
+    - GitHub Issue #10: Nebula (Torbox Add-on) Stream Source:
+      - Integrated Nebula/Torbox as an on-demand lossless FLAC streaming source for catalog music not owned in the user's library (`data/nebula/`, `NebulaAccount`, `NebulaClient`, `NebulaUrls`, `NebulaCard` in Sources).
+      - Sonos casting for transient tracks: HTTP relay support (`TrackServer`), custom UPnP DIDL-Lite metadata with `res@duration` header fallback, and Sonos player queue mirroring for external streams.
+      - Full player integration: Now Playing, queue management, seek bar, lockscreen media controls, and notification.
+    - GitHub Issue #14: LRCLIB synced and plain lyrics lookup for transient Nebula tracks reconstructed from `MediaItem`.
+    - Extended feature integration for transient / streamed tracks (`scope = Track.SCOPE_STREAM`):
+      - Home screen integration: streamed tracks count towards Most Played, Replay (year/month stats), and Recently Played / Recently Played Albums once listened to >=50%.
+      - Favourites: liking a transient track persists it into Room with `scope = Track.SCOPE_STREAM` and syncs love/unlove to Last.fm.
+      - Playlists: adding streamed tracks from catalog albums / discography to existing or new playlists upserts them to Room without polluting the owned music library index.
+      - Navigation: tapping Album or Artist from Now Playing, queue, or track menu correctly opens the Deezer/Apple Catalog album or catalog artist view for streamed tracks.
