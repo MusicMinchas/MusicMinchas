@@ -99,6 +99,7 @@ class LibraryIndexer(private val db: AppDatabase, private val scope: CoroutineSc
                                 db.withTransaction {
                                     for (ids in batch.mapNotNull { it.trackId }.distinct().chunked(CHUNK)) {
                                         for (t in dao.tracks(ids)) {
+                                            if (t.scope == Track.SCOPE_STREAM) continue
                                             val (album, artist, genre) = keysOf(t, tags)
                                             val title = if (album.isEmpty()) "" else sortText(t.title)
                                             val scope = Track.scopeOf(t.source)

@@ -93,6 +93,11 @@ class NebulaUrls(
             genre = catalogTrack.genre,
             durationMs = catalogTrack.durationMs,
             artworkUri = catalogTrack.coverUrl,
+            scope = Track.SCOPE_STREAM,
+            metadataState = Track.META_DONE,
+            indexAlbum = Track.albumKeyOf(catalogTrack.album, catalogTrack.albumArtist ?: catalogTrack.artist),
+            indexArtist = catalogTrack.albumArtist ?: catalogTrack.artist.orEmpty(),
+            indexTitle = "",
         )
     }
 }

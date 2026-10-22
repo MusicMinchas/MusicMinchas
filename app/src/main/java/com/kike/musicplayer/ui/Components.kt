@@ -101,7 +101,10 @@ private fun ArtworkPlaceholder() {
 }
 
 /** The favourite songs and how to toggle one; provided once at the top of the UI for the track menus. */
-class Favourites(val ids: Set<String>, val toggle: (trackId: String) -> Unit)
+class Favourites(val ids: Set<String>, val toggle: (trackId: String, track: Track?) -> Unit) {
+    constructor(ids: Set<String>, toggleSingle: (trackId: String) -> Unit) : this(ids, { id, _ -> toggleSingle(id) })
+    fun toggle(trackId: String) = toggle(trackId, null)
+}
 
 val LocalFavourites = compositionLocalOf { Favourites(emptySet()) {} }
 
@@ -169,16 +172,26 @@ val FAVOURITE_RED = Color(0xFFE53935)
 /** The user's playlists and adding songs to them; provided once at the top of the UI. */
 class PlaylistActions(
     val playlists: List<PlaylistView>,
-    val addTo: (playlistId: Long, trackIds: List<String>) -> Unit,
-    val create: (name: String, trackIds: List<String>) -> Unit,
+    val addTo: (playlistId: Long, trackIds: List<String>, tracks: List<Track>) -> Unit,
+    val create: (name: String, trackIds: List<String>, tracks: List<Track>) -> Unit,
     val nextName: () -> String,
-)
+) {
+    constructor(
+        playlists: List<PlaylistView>,
+        addTo: (playlistId: Long, trackIds: List<String>) -> Unit,
+        create: (name: String, trackIds: List<String>) -> Unit,
+        nextName: () -> String,
+    ) : this(playlists, { id, ids, _ -> addTo(id, ids) }, { name, ids, _ -> create(name, ids) }, nextName)
 
-val LocalPlaylists = compositionLocalOf { PlaylistActions(emptyList(), { _, _ -> }, { _, _ -> }, { "" }) }
+    fun addTo(playlistId: Long, trackIds: List<String>) = addTo(playlistId, trackIds, emptyList())
+    fun create(name: String, trackIds: List<String>) = create(name, trackIds, emptyList())
+}
+
+val LocalPlaylists = compositionLocalOf { PlaylistActions(emptyList(), { _, _, _ -> }, { _, _, _ -> }, { "" }) }
 
 /** Picks one of the user's playlists for [trackIds], or names a new one for them. */
 @Composable
-fun AddToPlaylistDialog(trackIds: List<String>, onDismiss: () -> Unit) {
+fun AddToPlaylistDialog(trackIds: List<String>, tracks: List<Track> = emptyList(), onDismiss: () -> Unit) {
     val actions = LocalPlaylists.current
     var newName by remember { mutableStateOf<String?>(null) }
     val name = newName
@@ -187,7 +200,7 @@ fun AddToPlaylistDialog(trackIds: List<String>, onDismiss: () -> Unit) {
             onDismissRequest = onDismiss,
             title = { Text("New playlist") },
             text = { OutlinedTextField(value = name, onValueChange = { newName = it }, singleLine = true) },
-            confirmButton = { TextButton(onClick = { actions.create(name, trackIds); onDismiss() }) { Text("Create") } },
+            confirmButton = { TextButton(onClick = { actions.create(name, trackIds, tracks); onDismiss() }) { Text("Create") } },
             dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
         )
         return
@@ -201,7 +214,7 @@ fun AddToPlaylistDialog(trackIds: List<String>, onDismiss: () -> Unit) {
                     val already = trackIds.size == 1 && p.tracks.any { it.id == trackIds[0] }
                     Text(
                         p.name + if (already) " (already in it)" else "",
-                        Modifier.fillMaxWidth().clickable(enabled = !already) { actions.addTo(p.id, trackIds); onDismiss() }
+                        Modifier.fillMaxWidth().clickable(enabled = !already) { actions.addTo(p.id, trackIds, tracks); onDismiss() }
                             .padding(vertical = 12.dp),
                         color = if (already) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.onSurface,
                         style = MaterialTheme.typography.bodyLarge,
@@ -378,7 +391,7 @@ fun TrackRow(
 ) {
     var menu by remember { mutableStateOf(false) }
     var addToPlaylist by remember { mutableStateOf(false) }
-    if (addToPlaylist) AddToPlaylistDialog(listOf(track.id)) { addToPlaylist = false }
+    if (addToPlaylist) AddToPlaylistDialog(listOf(track.id), listOf(track)) { addToPlaylist = false }
     val favourites = LocalFavourites.current
     val downloads = LocalDownloads.current
     val navigation = LocalNavigation.current
@@ -431,7 +444,7 @@ fun TrackRow(
                 DropdownMenuItem(text = { Text("Add to queue") }, onClick = { menu = false; onAddToQueue() })
                 DropdownMenuItem(
                     text = { Text(if (track.id in favourites.ids) "Remove from Favourites" else "Add to Favourites") },
-                    onClick = { menu = false; favourites.toggle(track.id) },
+                    onClick = { menu = false; favourites.toggle(track.id, track) },
                 )
                 DropdownMenuItem(text = { Text("Add to playlist…") }, onClick = { menu = false; addToPlaylist = true })
                 onRemoveFromPlaylist?.let { remove ->

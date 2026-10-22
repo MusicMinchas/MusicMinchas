@@ -86,6 +86,8 @@ data class Track(
         const val SCOPE_LOCAL = 0
         const val SCOPE_SERVER = 1
         const val SCOPE_DRIVE = 2
+        /** Streamed tracks (e.g. Nebula / catalog) kept for favourites, playlists and play history. */
+        const val SCOPE_STREAM = 3
         val SCOPES = listOf(SCOPE_LOCAL, SCOPE_DRIVE, SCOPE_SERVER)
         /** The user's own files (the server's songs can't play yet). */
         val OWN_SCOPES = listOf(SCOPE_LOCAL, SCOPE_DRIVE)
@@ -93,6 +95,7 @@ data class Track(
         fun scopeOf(source: String) = when (source) {
             SOURCE_SUBSONIC -> SCOPE_SERVER
             SOURCE_DRIVE -> SCOPE_DRIVE
+            SOURCE_NEBULA -> SCOPE_STREAM
             else -> SCOPE_LOCAL
         }
 

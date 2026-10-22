@@ -27,7 +27,7 @@ class TrackMatcher(tracks: List<Track>) {
     init {
         // Own copies first, so they come first in every list below.
         for (t in tracks.sortedBy { it.fromServer }) {
-            if (t.durationMs < 0) continue // unplayable (DRM)
+            if (t.durationMs < 0 || t.scope == Track.SCOPE_STREAM) continue // unplayable (DRM) or external stream
             t.mbRecordingId?.let { byMbid.putIfAbsent(it, t) }
             for (artist in listOfNotNull(t.artist, t.albumArtist).distinct()) {
                 exact.getOrPut(key(basic(artist), basic(t.title))) { mutableListOf() } += t

@@ -40,6 +40,7 @@ class LibraryIndexerTest {
         assertEquals(Track.SCOPE_SERVER, Track.scopeOf(Track.SOURCE_SUBSONIC))
         assertEquals(Track.SCOPE_DRIVE, Track.scopeOf(Track.SOURCE_DRIVE))
         assertEquals(Track.SCOPE_LOCAL, Track.scopeOf(Track.SOURCE_SAF))
+        assertEquals(Track.SCOPE_STREAM, Track.scopeOf(Track.SOURCE_NEBULA))
     }
 
     @Test

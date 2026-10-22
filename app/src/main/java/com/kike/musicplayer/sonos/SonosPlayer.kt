@@ -18,6 +18,7 @@ import com.kike.musicplayer.data.db.TrackDao
 import com.kike.musicplayer.data.db.getByIds
 import com.kike.musicplayer.data.nebula.NebulaUrls
 import com.kike.musicplayer.playback.PlaybackService
+import com.kike.musicplayer.playback.toTransientTrack
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -574,45 +575,8 @@ class SonosPlayer(
         Sonos.setPlayMode(ip, mode)
     }
 
-    private fun trackFor(item: MediaItem, dbTracks: Map<String, Track>): Track? {
-        val id = trackIdOf(item)
-        dbTracks[id]?.let { return it }
-
-        val meta = item.mediaMetadata
-        val title = meta.title?.toString() ?: return null
-        val artist = meta.artist?.toString() ?: ""
-        val uri = item.localConfiguration?.uri?.toString()
-            ?: item.requestMetadata.mediaUri?.toString()
-            ?: if (id.startsWith("nebula:")) {
-                NebulaUrls.uriFor(artist, meta.albumTitle?.toString(), title, id.removePrefix("nebula:"))
-            } else return null
-
-        val source = when {
-            uri.startsWith("nebula:") || id.startsWith("nebula:") -> Track.SOURCE_NEBULA
-            uri.startsWith("subsonic:") || id.startsWith("subsonic:") -> Track.SOURCE_SUBSONIC
-            uri.startsWith("https://") -> Track.SOURCE_DRIVE
-            else -> Track.SOURCE_SAF
-        }
-
-        return Track(
-            id = id,
-            source = source,
-            uri = uri,
-            fileName = "$title.flac",
-            mimeType = if (source == Track.SOURCE_NEBULA) "audio/flac" else "audio/mpeg",
-            sizeBytes = null,
-            title = title,
-            artist = artist,
-            album = meta.albumTitle?.toString(),
-            albumArtist = meta.albumArtist?.toString(),
-            trackNumber = meta.trackNumber,
-            discNumber = meta.discNumber,
-            year = meta.recordingYear,
-            genre = null,
-            durationMs = meta.durationMs ?: 0L,
-            artworkUri = meta.artworkUri?.toString(),
-        )
-    }
+    private fun trackFor(item: MediaItem, dbTracks: Map<String, Track>): Track? =
+        dbTracks[trackIdOf(item)] ?: item.toTransientTrack()
 
     private fun queueItem(base: String, entryId: Long, track: Track): SonosQueueItem {
         val url = server.trackUrl(base, entryId, track)

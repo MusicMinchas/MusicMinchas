@@ -170,7 +170,7 @@ class AppContainer(app: Application) {
         nebulaUrls,
     )
 
-    val downloader = Downloader(app, database.tracks(), driveHttp, subsonicUrls, appScope).also { it.verify() }
+    val downloader = Downloader(app, database.tracks(), driveHttp, subsonicUrls, nebulaUrls, appScope).also { it.verify() }
 
     val lastFm = LastFm(app, LastFmClient(baseHttp, moshi, BuildConfig.LASTFM_API_KEY, BuildConfig.LASTFM_SECRET), "lastfm$suffix")
 

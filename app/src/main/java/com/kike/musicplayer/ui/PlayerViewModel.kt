@@ -20,6 +20,8 @@ import com.kike.musicplayer.data.db.Track
 import com.kike.musicplayer.sonos.SonosGroup
 import com.kike.musicplayer.playback.PlaybackService
 import com.kike.musicplayer.playback.toMediaItem
+import com.kike.musicplayer.playback.toTransientTrack
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -61,7 +63,7 @@ data class PlayerUiState(
 )
 
 /** UI-side MediaController, connected asynchronously to [PlaybackService]. */
-class PlayerViewModel(app: Application) : AndroidViewModel(app) {
+class PlayerViewModel(private val app: Application) : AndroidViewModel(app) {
     private val controllerFuture: ListenableFuture<MediaController> =
         MediaController.Builder(app, SessionToken(app, ComponentName(app, PlaybackService::class.java)))
             // Media3 drops the device volume commands while the player is local and doesn't restore
@@ -212,13 +214,20 @@ class PlayerViewModel(app: Application) : AndroidViewModel(app) {
         .map { list -> list.mapTo(HashSet()) { it.trackId } }
         .stateIn(viewModelScope, SharingStarted.Eagerly, emptySet())
 
-    fun toggleFavourite(trackId: String) {
+    fun toggleFavourite(trackId: String, track: Track? = null) {
         val add = trackId !in favourites.value
-        viewModelScope.launch {
-            if (add) favouriteDao.insert(Favourite(trackId, System.currentTimeMillis())) else favouriteDao.delete(trackId)
+        viewModelScope.launch(Dispatchers.IO) {
+            if (add) {
+                val t = track ?: app.container.database.tracks().get(trackId) ?: transientTrackFor(trackId, trackId)
+                if (t != null && (t.source == Track.SOURCE_NEBULA || t.scope == Track.SCOPE_STREAM)) {
+                    app.container.database.tracks().upsert(t.copy(scope = Track.SCOPE_STREAM, metadataState = Track.META_DONE))
+                }
+                favouriteDao.insert(Favourite(trackId, System.currentTimeMillis()))
+            } else {
+                favouriteDao.delete(trackId)
+            }
+            getApplication<Application>().container.scrobbler.love(trackId, add)
         }
-        // Loved / unloved on Last.fm too, when connected.
-        getApplication<Application>().container.scrobbler.love(trackId, add)
     }
 
     // ---- Lyrics ----
@@ -229,48 +238,20 @@ class PlayerViewModel(app: Application) : AndroidViewModel(app) {
     private var lyricsFor: String? = null
 
         private fun transientTrackFor(mediaId: String, trackId: String): Track? {
+
         val c = controller ?: return null
+
         val item = c.currentMediaItem?.takeIf { it.mediaId == mediaId || PlaybackService.trackIdOf(it.mediaId) == trackId }
+
             ?: (0 until c.mediaItemCount).map { c.getMediaItemAt(it) }.firstOrNull { it.mediaId == mediaId || PlaybackService.trackIdOf(it.mediaId) == trackId }
+
             ?: return null
 
-        val meta = item.mediaMetadata
-        val title = meta.title?.toString() ?: return null
-        val artist = meta.artist?.toString() ?: ""
-        val uri = item.localConfiguration?.uri?.toString()
-            ?: item.requestMetadata.mediaUri?.toString()
-            ?: ""
+        return item.toTransientTrack()
 
-        val source = when {
-            uri.startsWith("nebula:") || mediaId.startsWith("nebula:") || trackId.startsWith("nebula:") -> Track.SOURCE_NEBULA
-            uri.startsWith("subsonic:") || mediaId.startsWith("subsonic:") || trackId.startsWith("subsonic:") -> Track.SOURCE_SUBSONIC
-            uri.startsWith("https://") -> Track.SOURCE_DRIVE
-            else -> Track.SOURCE_SAF
-        }
-
-        val duration = meta.durationMs
-            ?: c.duration.takeIf { it != C.TIME_UNSET && it > 0 }
-            ?: 0L
-
-        return Track(
-            id = trackId,
-            source = source,
-            uri = uri,
-            fileName = "$title.flac",
-            mimeType = if (source == Track.SOURCE_NEBULA) "audio/flac" else "audio/mpeg",
-            sizeBytes = null,
-            title = title,
-            artist = artist,
-            album = meta.albumTitle?.toString(),
-            albumArtist = meta.albumArtist?.toString(),
-            trackNumber = meta.trackNumber,
-            discNumber = meta.discNumber,
-            year = meta.recordingYear,
-            genre = null,
-            durationMs = duration,
-            artworkUri = meta.artworkUri?.toString(),
-        )
     }
+
+
 
     /** Looks up the lyrics of the song with this media id (cached after the first time). */
     fun loadLyrics(mediaId: String) {

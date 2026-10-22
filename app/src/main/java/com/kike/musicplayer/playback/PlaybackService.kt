@@ -148,7 +148,17 @@ class PlaybackService : MediaLibraryService(), CastHost {
             reportedToServer = false
             startedAt = System.currentTimeMillis()
             val entry = PlayHistory(trackId = trackIdOf(id), playedAt = startedAt)
-            container.scrobbler.nowPlaying(trackIdOf(id))
+            val currentItem = player.currentMediaItem
+            val trackId = trackIdOf(id)
+            scope.launch(Dispatchers.IO) {
+                if (trackId.startsWith("nebula:") || currentItem?.mediaId?.startsWith("nebula:") == true) {
+                    val db = container.database.tracks()
+                    if (db.get(trackId) == null) {
+                        currentItem?.toTransientTrack()?.let { db.upsert(it) }
+                    }
+                }
+                container.scrobbler.nowPlaying(trackId)
+            }
             rowId = scope.async(Dispatchers.IO) { historyDao.insert(entry) }
         }
 
