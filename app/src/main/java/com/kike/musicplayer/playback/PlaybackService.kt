@@ -153,8 +153,12 @@ class PlaybackService : MediaLibraryService(), CastHost {
             scope.launch(Dispatchers.IO) {
                 if (trackId.startsWith("nebula:") || currentItem?.mediaId?.startsWith("nebula:") == true) {
                     val db = container.database.tracks()
-                    if (db.get(trackId) == null) {
-                        currentItem?.toTransientTrack()?.let { db.upsert(it) }
+                    val existing = db.get(trackId)
+                    val transient = currentItem?.toTransientTrack()
+                    if (existing == null) {
+                        transient?.let { db.upsert(it) }
+                    } else if (transient != null && (existing.mbReleaseId == null || existing.mbReleaseId != transient.mbReleaseId) && transient.mbReleaseId != null) {
+                        db.upsert(existing.copy(mbReleaseId = transient.mbReleaseId, uri = transient.uri))
                     }
                 }
                 container.scrobbler.nowPlaying(trackId)

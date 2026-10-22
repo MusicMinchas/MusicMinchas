@@ -569,6 +569,15 @@ interface LibraryIndexDao {
     @Query("DELETE FROM album_index WHERE scope = :scope AND `key` IN (:keys)")
     suspend fun deleteAlbums(keys: List<String>, scope: Int)
 
+    @Query("DELETE FROM album_index WHERE scope = :scope")
+    suspend fun deleteAlbumScope(scope: Int)
+
+    @Query("DELETE FROM artist_index WHERE scope = :scope")
+    suspend fun deleteArtistScope(scope: Int)
+
+    @Query("DELETE FROM genre_index WHERE scope = :scope")
+    suspend fun deleteGenreScope(scope: Int)
+
     @Query(
         "SELECT indexArtist AS name, scope, COUNT(*) AS trackCount, COUNT(DISTINCT indexAlbum) AS albumCount " +
             "FROM tracks WHERE indexArtist IN (:names) GROUP BY indexArtist, scope"

@@ -5,8 +5,16 @@ import androidx.media3.common.MediaItem
 import androidx.media3.common.MediaMetadata
 import com.kike.musicplayer.data.db.Track
 
-fun Track.toMediaItem(mediaId: String = id): MediaItem =
-    MediaItem.Builder()
+fun Track.toMediaItem(mediaId: String = id): MediaItem {
+    val catAlbumId = mbReleaseId ?: if (source == Track.SOURCE_NEBULA) com.kike.musicplayer.data.nebula.NebulaUrls.parseParams(uri)["albumId"] else null
+    val extras = android.os.Bundle().apply {
+        catAlbumId?.let { putString("albumId", it) }
+        mbRecordingId?.let { putString("recordingId", it) }
+        putString("originalUri", uri)
+        putString("source", source)
+        putInt("scope", scope)
+    }
+    return MediaItem.Builder()
         .setMediaId(mediaId)
         .setUri(localUri ?: uri) // the downloaded copy when there is one
         .setRequestMetadata(
@@ -28,9 +36,11 @@ fun Track.toMediaItem(mediaId: String = id): MediaItem =
                 .setIsBrowsable(false)
                 .setIsPlayable(true)
                 .setMediaType(MediaMetadata.MEDIA_TYPE_MUSIC)
+                .setExtras(extras)
                 .build()
         )
         .build()
+}
 
 fun browsableItem(id: String, title: String, subtitle: String? = null, artworkUri: String? = null, type: Int) =
     MediaItem.Builder()
@@ -56,27 +66,33 @@ fun MediaItem.toTransientTrack(): Track? {
     val title = meta.title?.toString() ?: return null
     val artist = meta.artist?.toString() ?: ""
     val id = PlaybackService.trackIdOf(mediaId)
-    val uri = localConfiguration?.uri?.toString()
+    val extras = meta.extras
+    val origUri = extras?.getString("originalUri")
+    val catAlbumId = extras?.getString("albumId")
+    val uri = origUri
+        ?: localConfiguration?.uri?.toString()
         ?: requestMetadata.mediaUri?.toString()
         ?: if (id.startsWith("nebula:")) {
-            com.kike.musicplayer.data.nebula.NebulaUrls.uriFor(artist, meta.albumTitle?.toString(), title, id.removePrefix("nebula:"))
+            com.kike.musicplayer.data.nebula.NebulaUrls.uriFor(artist, meta.albumTitle?.toString(), title, id.removePrefix("nebula:"), catAlbumId)
         } else ""
 
-    val source = when {
+    val source = extras?.getString("source") ?: when {
         uri.startsWith("nebula:") || id.startsWith("nebula:") -> Track.SOURCE_NEBULA
         uri.startsWith("subsonic:") || id.startsWith("subsonic:") -> Track.SOURCE_SUBSONIC
         uri.startsWith("https://") -> Track.SOURCE_DRIVE
         else -> Track.SOURCE_SAF
     }
 
+    val effectiveCatAlbumId = catAlbumId
+        ?: if (source == Track.SOURCE_NEBULA) com.kike.musicplayer.data.nebula.NebulaUrls.parseParams(uri)["albumId"] else null
+
     val albumTitle = meta.albumTitle?.toString()
     val albumArtist = meta.albumArtist?.toString()
-    val catAlbumId = if (source == Track.SOURCE_NEBULA) com.kike.musicplayer.data.nebula.NebulaUrls.parseParams(uri)["albumId"] else null
 
     return Track(
         id = id,
         source = source,
-        scope = Track.SCOPE_STREAM,
+        scope = extras?.getInt("scope") ?: Track.SCOPE_STREAM,
         uri = uri,
         fileName = "$title.flac",
         mimeType = if (source == Track.SOURCE_NEBULA) "audio/flac" else "audio/mpeg",
@@ -91,7 +107,7 @@ fun MediaItem.toTransientTrack(): Track? {
         genre = null,
         durationMs = meta.durationMs ?: 0L,
         artworkUri = meta.artworkUri?.toString(),
-        mbReleaseId = catAlbumId,
+        mbReleaseId = effectiveCatAlbumId,
         metadataState = Track.META_DONE,
         indexAlbum = Track.albumKeyOf(albumTitle, albumArtist ?: artist),
         indexArtist = albumArtist ?: artist,
