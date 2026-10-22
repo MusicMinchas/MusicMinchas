@@ -414,13 +414,7 @@ private fun ColumnScope.NowPlayingDetails(
             }
         }
     }
-    val baseTrack = trackId?.let(LocalNavigation.current.track) ?: s.current?.toTransientTrack()
-    val extrasAlbumId = s.current?.mediaMetadata?.extras?.getString("albumId")
-    val track = if (baseTrack != null && baseTrack.mbReleaseId == null && extrasAlbumId != null) {
-        baseTrack.copy(mbReleaseId = extrasAlbumId)
-    } else {
-        baseTrack
-    }
+    val track = trackId?.let(LocalNavigation.current.track) ?: s.current?.toTransientTrack()
     val albumKey = track?.albumKey ?: meta?.albumTitle?.toString()?.let { com.kike.musicplayer.data.db.Track.albumKeyOf(it, meta.albumArtist?.toString() ?: meta.artist?.toString() ?: "") }
     ArtistAlbumText(
         meta?.artist?.toString(), listOf(track?.artist, track?.albumArtist),

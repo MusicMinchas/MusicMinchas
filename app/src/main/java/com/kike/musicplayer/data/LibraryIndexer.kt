@@ -51,10 +51,6 @@ class LibraryIndexer(private val db: AppDatabase, private val scope: CoroutineSc
     @OptIn(FlowPreview::class)
     fun start(indexedVersion: Int, onReindexQueued: (Int) -> Unit) {
         scope.launch {
-            // Purge any stale scope=3 (streamed) rows that accidentally got into library indices
-            dao.deleteAlbumScope(Track.SCOPE_STREAM)
-            dao.deleteArtistScope(Track.SCOPE_STREAM)
-            dao.deleteGenreScope(Track.SCOPE_STREAM)
             if (indexedVersion < VERSION) {
                 dao.markAllDirty()
                 onReindexQueued(VERSION)
