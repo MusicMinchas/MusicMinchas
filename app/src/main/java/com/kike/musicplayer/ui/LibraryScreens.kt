@@ -796,9 +796,9 @@ fun AlbumScreen(
     contentPadding: PaddingValues,
 ) {
     val player by playerVm.state.collectAsState()
-    val albumOrNull by remember(albumKey) { libraryVm.album(albumKey) }.collectAsState(null)
+    val albumOrNull by remember(albumKey) { libraryVm.album(albumKey) }.collectAsState(libraryVm.cachedAlbumIndex(albumKey))
     val extraCovers by libraryVm.albumCoverUrls.collectAsState()
-    val allTracks by remember(albumKey, genreKey) { libraryVm.albumTracks(albumKey, genreKey) }.collectAsState(emptyList())
+    val allTracks by remember(albumKey, genreKey) { libraryVm.albumTracks(albumKey, genreKey) }.collectAsState(libraryVm.cachedAlbumTracks(albumKey))
     // The album in several sources: each song once (own copy first), or one source's copy.
     var source by rememberSaveable(albumKey) { mutableStateOf<Int?>(null) }
     val tracks = remember(allTracks, source) { songsFromSource(allTracks, source) }

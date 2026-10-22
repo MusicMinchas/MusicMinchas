@@ -316,7 +316,7 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
                 val saved = savedMixes.load()
                 val asked = requests > mixRequestsDone
                 val fresh = saved != null && saved.scopes == scopes && System.currentTimeMillis() - saved.madeAt < MIX_LIFETIME_MS
-                if (!asked && fresh) return@runCatching savedMixesWithTracks(saved!!)
+                if (!asked && fresh) return@runCatching savedMixesWithTracks(saved)
                 val made = makeMixes(scopes)
                 // Nothing made yet (e.g. the library is still loading): try again on the next change.
                 if (made.isNotEmpty()) {
@@ -391,6 +391,17 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
             }?.key
     }
 
+    /** Looks up an album in the Deezer & Apple Music catalog matching [artist] and [title]. */
+    suspend fun findCatalogAlbum(artist: String, title: String): com.kike.musicplayer.data.catalog.CatalogAlbum? =
+        kotlinx.coroutines.withContext(Dispatchers.IO) {
+            val query = "$artist $title".trim()
+            if (query.length < 2) return@withContext null
+            container.catalog.searchCatalog(query).albums.firstOrNull {
+                com.kike.musicplayer.data.discover.Names.releaseKey(it.title) == com.kike.musicplayer.data.discover.Names.releaseKey(title) &&
+                    (com.kike.musicplayer.data.discover.Names.comparable(it.artist) == com.kike.musicplayer.data.discover.Names.comparable(artist) || artist.isBlank())
+            }
+        }
+
     /**
      * Matches catalog tracks against the user's library using [TrackMatcher], which prefers the
      * user's own copy (Local / Google Drive) over Navidrome and ignores edition suffixes.
@@ -412,11 +423,26 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     /** Fetches the tracklist of a catalog album and matches each song against the user's library. */
+    private val catalogAlbumCache = java.util.concurrent.ConcurrentHashMap<String, Pair<List<com.kike.musicplayer.data.catalog.CatalogTrack>, Map<String, Track>>>()
+
+    fun cachedCatalogAlbumTracks(albumId: String): Pair<List<com.kike.musicplayer.data.catalog.CatalogTrack>, Map<String, Track>>? =
+        catalogAlbumCache[albumId]
+
+    fun clearCatalogAlbumCache() {
+        catalogAlbumCache.clear()
+    }
+
     suspend fun catalogAlbumTracks(
         album: com.kike.musicplayer.data.catalog.CatalogAlbum,
+        forceRefresh: Boolean = false,
     ): Pair<List<com.kike.musicplayer.data.catalog.CatalogTrack>, Map<String, Track>> {
+        if (!forceRefresh) {
+            catalogAlbumCache[album.id]?.let { return it }
+        }
         val tracks = container.catalog.albumTracks(album)
-        return tracks to matchCatalogTracks(tracks, exactAlbumOnly = true)
+        val result = tracks to matchCatalogTracks(tracks, exactAlbumOnly = true)
+        catalogAlbumCache[album.id] = result
+        return result
     }
 
     /** Fetches top songs and discography albums for a catalog artist and matches top songs against the library. */
@@ -542,6 +568,12 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
         cachedArtistTracks = emptyList()
         cachedMissingArtist = null
         cachedMissingDiscography = emptyList()
+    }
+
+    fun clearActiveAlbumCache() {
+        cachedAlbumKey = null
+        cachedAlbumIndex = null
+        cachedAlbumTracks = emptyList()
     }
 
     /** Returns studio/live albums by [artistName] on Deezer/Apple Music that are not already in [ownedTitles]. */
@@ -791,11 +823,23 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
         return generateSequence(userPlaylists.value.size + 1) { it + 1 }.map { "Playlist $it" }.first { it !in taken }
     }
 
-    fun createPlaylist(name: String, trackIds: List<String>) = viewModelScope.launch {
+    fun createPlaylist(name: String, trackIds: List<String>, tracks: List<Track> = emptyList()) = viewModelScope.launch(Dispatchers.IO) {
+        val streamTracks = tracks.filter { it.source == Track.SOURCE_NEBULA || it.scope == Track.SCOPE_STREAM }
+            .map { it.copy(scope = Track.SCOPE_STREAM, metadataState = Track.META_DONE) }
+        if (streamTracks.isNotEmpty()) {
+            database.tracks().upsertAll(streamTracks)
+        }
         playlistDao.create(name.trim().ifEmpty { nextPlaylistName() }, trackIds)
     }
 
-    fun addToPlaylist(playlistId: Long, trackIds: List<String>) = viewModelScope.launch { playlistDao.append(playlistId, trackIds) }
+    fun addToPlaylist(playlistId: Long, trackIds: List<String>, tracks: List<Track> = emptyList()) = viewModelScope.launch(Dispatchers.IO) {
+        val streamTracks = tracks.filter { it.source == Track.SOURCE_NEBULA || it.scope == Track.SCOPE_STREAM }
+            .map { it.copy(scope = Track.SCOPE_STREAM, metadataState = Track.META_DONE) }
+        if (streamTracks.isNotEmpty()) {
+            database.tracks().upsertAll(streamTracks)
+        }
+        playlistDao.append(playlistId, trackIds)
+    }
 
     fun deletePlaylist(playlistId: Long) = viewModelScope.launch { playlistDao.delete(playlistId) }
     fun renamePlaylist(playlistId: Long, name: String) = viewModelScope.launch {
@@ -854,13 +898,31 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
     fun genreAlbumPages(key: String): Flow<PagingData<AlbumIndex>> =
         detail(browse.observeGenreScopes(key)) { s -> Pager(paging) { browse.genreAlbums(key, s) }.flow }
 
+    private var cachedAlbumKey: String? = null
+    private var cachedAlbumIndex: AlbumIndex? = null
+    private var cachedAlbumTracks: List<Track> = emptyList()
+
+    fun cachedAlbumIndex(key: String): AlbumIndex? =
+        if (cachedAlbumKey == key) cachedAlbumIndex else null
+
+    fun cachedAlbumTracks(key: String): List<Track> =
+        if (cachedAlbumKey == key) cachedAlbumTracks else emptyList()
+
     fun album(key: String): Flow<AlbumIndex?> = detail(browse.observeAlbumScopes(key)) { browse.observeAlbum(key, it) }
+        .onEach {
+            if (cachedAlbumKey != key) {
+                cachedAlbumKey = key
+                cachedAlbumTracks = emptyList()
+            }
+            cachedAlbumIndex = it
+        }
 
     /** The album's songs in album order; only those of [genreKey] when given. */
     fun albumTracks(key: String, genreKey: String? = null): Flow<List<Track>> =
         detail(browse.observeAlbumScopes(key)) { s ->
             if (genreKey == null) browse.observeAlbumTracks(key, s) else browse.observeAlbumTracksInGenre(key, genreKey, s)
         }.map { it.sortedWith(albumTrackOrder) }
+            .onEach { if (cachedAlbumKey == key && genreKey == null) cachedAlbumTracks = it }
 
     private var cachedArtistName: String? = null
     private var cachedArtistIndex: com.kike.musicplayer.data.db.ArtistIndex? = null
@@ -928,6 +990,17 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
         browse.observeArtistPlayCounts(SUGGESTED_ARTISTS + 50), followedArtists,
     ) { counts, followed -> counts.map { it.name }.filter { it !in followed }.take(SUGGESTED_ARTISTS) }
         .stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
+
+    // ---- Nebula add-on ----
+
+    private val nebula = container.nebula
+    val nebulaState = nebula.state
+    val nebulaUrls = container.nebulaUrls
+
+    fun connectNebula(manifestUrl: String) =
+        viewModelScope.launch { nebula.connect(manifestUrl) }
+
+    fun disconnectNebula() = nebula.disconnect()
 
     // ---- Subsonic / Navidrome server ----
 

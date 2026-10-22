@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Bolt
 import androidx.compose.material.icons.filled.Cloud
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.DownloadDone
@@ -100,20 +101,26 @@ private fun ArtworkPlaceholder() {
 }
 
 /** The favourite songs and how to toggle one; provided once at the top of the UI for the track menus. */
-class Favourites(val ids: Set<String>, val toggle: (trackId: String) -> Unit)
+class Favourites(val ids: Set<String>, val toggle: (trackId: String, track: Track?) -> Unit) {
+    constructor(ids: Set<String>, toggleSingle: (trackId: String) -> Unit) : this(ids, { id, _ -> toggleSingle(id) })
+    fun toggle(trackId: String) = toggle(trackId, null)
+}
 
 val LocalFavourites = compositionLocalOf { Favourites(emptySet()) {} }
 
 /** Opening artist and album pages from anywhere; provided once at the top of the UI. */
 class Navigation(
-    /** Opens the page of the first of these names that is an artist in the library. */
-    val openArtist: (names: List<String?>) -> Unit,
-    val openAlbum: (albumKey: String) -> Unit,
+    /** Opens the page of the first of these names that is an artist in the library, or catalog artist if unowned. */
+    val openArtist: (names: List<String?>, track: Track?) -> Unit,
+    val openAlbum: (albumKey: String, track: Track?) -> Unit,
     /** The library track with this id (for screens that only have the playing media item). */
     val track: (trackId: String) -> Track?,
-)
+) {
+    fun openArtist(names: List<String?>) = openArtist(names, null)
+    fun openAlbum(albumKey: String) = openAlbum(albumKey, null)
+}
 
-val LocalNavigation = compositionLocalOf { Navigation({}, {}, { null }) }
+val LocalNavigation = compositionLocalOf { Navigation({ _, _ -> }, { _, _ -> }, { null }) }
 
 /**
  * "Artist · Album" in which the artist name opens the artist page and the album name the album
@@ -126,6 +133,7 @@ fun ArtistAlbumText(
     artistNames: List<String?>,
     album: String? = null,
     albumKey: String? = null,
+    track: Track? = null,
     modifier: Modifier = Modifier,
     style: TextStyle = MaterialTheme.typography.bodySmall,
     color: Color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -140,13 +148,13 @@ fun ArtistAlbumText(
         val parts = mutableListOf<AnnotatedString.Builder.() -> Unit>()
         artist?.let { name ->
             parts += {
-                if (links) withLink(LinkAnnotation.Clickable("artist", LINK_STYLE) { nav.openArtist(artistNames + name) }) { append(name) }
+                if (links) withLink(LinkAnnotation.Clickable("artist", LINK_STYLE) { nav.openArtist(artistNames + name, track) }) { append(name) }
                 else append(name)
             }
         }
         album?.let { title ->
             parts += {
-                if (links && albumKey != null) withLink(LinkAnnotation.Clickable("album", LINK_STYLE) { nav.openAlbum(albumKey) }) { append(title) }
+                if (links && albumKey != null) withLink(LinkAnnotation.Clickable("album", LINK_STYLE) { nav.openAlbum(albumKey, track) }) { append(title) }
                 else append(title)
             }
         }
@@ -168,16 +176,26 @@ val FAVOURITE_RED = Color(0xFFE53935)
 /** The user's playlists and adding songs to them; provided once at the top of the UI. */
 class PlaylistActions(
     val playlists: List<PlaylistView>,
-    val addTo: (playlistId: Long, trackIds: List<String>) -> Unit,
-    val create: (name: String, trackIds: List<String>) -> Unit,
+    val addTo: (playlistId: Long, trackIds: List<String>, tracks: List<Track>) -> Unit,
+    val create: (name: String, trackIds: List<String>, tracks: List<Track>) -> Unit,
     val nextName: () -> String,
-)
+) {
+    constructor(
+        playlists: List<PlaylistView>,
+        addTo: (playlistId: Long, trackIds: List<String>) -> Unit,
+        create: (name: String, trackIds: List<String>) -> Unit,
+        nextName: () -> String,
+    ) : this(playlists, { id, ids, _ -> addTo(id, ids) }, { name, ids, _ -> create(name, ids) }, nextName)
 
-val LocalPlaylists = compositionLocalOf { PlaylistActions(emptyList(), { _, _ -> }, { _, _ -> }, { "" }) }
+    fun addTo(playlistId: Long, trackIds: List<String>) = addTo(playlistId, trackIds, emptyList())
+    fun create(name: String, trackIds: List<String>) = create(name, trackIds, emptyList())
+}
+
+val LocalPlaylists = compositionLocalOf { PlaylistActions(emptyList(), { _, _, _ -> }, { _, _, _ -> }, { "" }) }
 
 /** Picks one of the user's playlists for [trackIds], or names a new one for them. */
 @Composable
-fun AddToPlaylistDialog(trackIds: List<String>, onDismiss: () -> Unit) {
+fun AddToPlaylistDialog(trackIds: List<String>, tracks: List<Track> = emptyList(), onDismiss: () -> Unit) {
     val actions = LocalPlaylists.current
     var newName by remember { mutableStateOf<String?>(null) }
     val name = newName
@@ -186,7 +204,7 @@ fun AddToPlaylistDialog(trackIds: List<String>, onDismiss: () -> Unit) {
             onDismissRequest = onDismiss,
             title = { Text("New playlist") },
             text = { OutlinedTextField(value = name, onValueChange = { newName = it }, singleLine = true) },
-            confirmButton = { TextButton(onClick = { actions.create(name, trackIds); onDismiss() }) { Text("Create") } },
+            confirmButton = { TextButton(onClick = { actions.create(name, trackIds, tracks); onDismiss() }) { Text("Create") } },
             dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
         )
         return
@@ -200,7 +218,7 @@ fun AddToPlaylistDialog(trackIds: List<String>, onDismiss: () -> Unit) {
                     val already = trackIds.size == 1 && p.tracks.any { it.id == trackIds[0] }
                     Text(
                         p.name + if (already) " (already in it)" else "",
-                        Modifier.fillMaxWidth().clickable(enabled = !already) { actions.addTo(p.id, trackIds); onDismiss() }
+                        Modifier.fillMaxWidth().clickable(enabled = !already) { actions.addTo(p.id, trackIds, tracks); onDismiss() }
                             .padding(vertical = 12.dp),
                         color = if (already) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.onSurface,
                         style = MaterialTheme.typography.bodyLarge,
@@ -313,12 +331,14 @@ fun scopeIcon(scope: Int): ImageVector = when (scope) {
 fun sourceIcon(source: String): ImageVector = when (source) {
     Track.SOURCE_DRIVE -> Icons.Default.Cloud
     Track.SOURCE_SUBSONIC -> SubmarineIcon
+    Track.SOURCE_NEBULA -> Icons.Default.Bolt
     else -> Icons.Default.Folder
 }
 
 fun sourceName(source: String): String = when (source) {
     Track.SOURCE_DRIVE -> "Google Drive"
     Track.SOURCE_SUBSONIC -> "Navidrome"
+    Track.SOURCE_NEBULA -> "Nebula"
     else -> "On this device"
 }
 
@@ -375,7 +395,7 @@ fun TrackRow(
 ) {
     var menu by remember { mutableStateOf(false) }
     var addToPlaylist by remember { mutableStateOf(false) }
-    if (addToPlaylist) AddToPlaylistDialog(listOf(track.id)) { addToPlaylist = false }
+    if (addToPlaylist) AddToPlaylistDialog(listOf(track.id), listOf(track)) { addToPlaylist = false }
     val favourites = LocalFavourites.current
     val downloads = LocalDownloads.current
     val navigation = LocalNavigation.current
@@ -428,7 +448,7 @@ fun TrackRow(
                 DropdownMenuItem(text = { Text("Add to queue") }, onClick = { menu = false; onAddToQueue() })
                 DropdownMenuItem(
                     text = { Text(if (track.id in favourites.ids) "Remove from Favourites" else "Add to Favourites") },
-                    onClick = { menu = false; favourites.toggle(track.id) },
+                    onClick = { menu = false; favourites.toggle(track.id, track) },
                 )
                 DropdownMenuItem(text = { Text("Add to playlist…") }, onClick = { menu = false; addToPlaylist = true })
                 onRemoveFromPlaylist?.let { remove ->
@@ -436,10 +456,10 @@ fun TrackRow(
                 }
                 DropdownMenuItem(
                     text = { Text("Go to Artist") },
-                    onClick = { menu = false; navigation.openArtist(listOf(track.artist, track.albumArtist)) },
+                    onClick = { menu = false; navigation.openArtist(listOf(track.artist, track.albumArtist), track) },
                 )
                 if (track.album != null) {
-                    DropdownMenuItem(text = { Text("Go to Album") }, onClick = { menu = false; navigation.openAlbum(track.albumKey) })
+                    DropdownMenuItem(text = { Text("Go to Album") }, onClick = { menu = false; navigation.openAlbum(track.albumKey, track) })
                 }
                 if (track.isRemote) when (track.downloadState) {
                     Track.DOWNLOADED -> DropdownMenuItem(text = { Text("Remove download") }, onClick = { menu = false; downloads.remove(track) })

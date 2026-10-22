@@ -38,6 +38,7 @@ class Downloader(
     private val dao: TrackDao,
     private val driveHttp: OkHttpClient,
     private val serverUrls: SubsonicUrls,
+    private val nebulaUrls: com.kike.musicplayer.data.nebula.NebulaUrls? = null,
     private val scope: CoroutineScope,
 ) {
     private val mutex = Mutex()
@@ -193,7 +194,11 @@ class Downloader(
             },
         ) ?: throw IOException("MediaStore refused $folder$name")
         try {
-            val url = if (track.source == Track.SOURCE_SUBSONIC) serverUrls.download(track.uri) ?: throw IOException("Not signed in to the server") else track.uri
+            val url = when (track.source) {
+                Track.SOURCE_SUBSONIC -> serverUrls.download(track.uri) ?: throw IOException("Not signed in to the server")
+                Track.SOURCE_NEBULA -> nebulaUrls?.resolve(track.uri) ?: throw IOException("Couldn't resolve Nebula stream")
+                else -> track.uri
+            }
             driveHttp.newCall(Request.Builder().url(url).build()).execute().use { response ->
                 if (!response.isSuccessful) throw IOException("HTTP ${response.code}")
                 val total = response.body.contentLength().takeIf { it > 0 } ?: track.sizeBytes ?: 0

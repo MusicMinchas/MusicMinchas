@@ -148,7 +148,17 @@ class PlaybackService : MediaLibraryService(), CastHost {
             reportedToServer = false
             startedAt = System.currentTimeMillis()
             val entry = PlayHistory(trackId = trackIdOf(id), playedAt = startedAt)
-            container.scrobbler.nowPlaying(trackIdOf(id))
+            val currentItem = player.currentMediaItem
+            val trackId = trackIdOf(id)
+            scope.launch(Dispatchers.IO) {
+                if (trackId.startsWith("nebula:") || currentItem?.mediaId?.startsWith("nebula:") == true) {
+                    val db = container.database.tracks()
+                    if (db.get(trackId) == null) {
+                        currentItem?.toTransientTrack()?.let { db.upsert(it) }
+                    }
+                }
+                container.scrobbler.nowPlaying(trackId)
+            }
             rowId = scope.async(Dispatchers.IO) { historyDao.insert(entry) }
         }
 
@@ -190,10 +200,13 @@ class PlaybackService : MediaLibraryService(), CastHost {
         // content:// goes to ContentDataSource; https (Drive) goes through OkHttp with the OAuth interceptor;
         // server songs ("subsonic:<id>") get a freshly signed stream URL as they're opened.
         val urls = container.subsonicUrls
+        val nebulaUrls = container.nebulaUrls
         val dataSourceFactory = ResolvingDataSource.Factory(
             DefaultDataSource.Factory(this, OkHttpDataSource.Factory(container.driveHttp)),
         ) { spec ->
-            urls.resolve(spec.uri.toString())?.let { spec.withUri(android.net.Uri.parse(it)) } ?: spec
+            urls.resolve(spec.uri.toString())?.let { spec.withUri(android.net.Uri.parse(it)) }
+                ?: nebulaUrls.resolve(spec.uri.toString())?.let { spec.withUri(android.net.Uri.parse(it)) }
+                ?: spec
         }
 
         player = ExoPlayer.Builder(this)

@@ -146,4 +146,12 @@ class TrackMatcherTest {
         // When exactAlbumOnly is false (playlists/scrobbles), it can fall back to the off-album copy if not on the requested album.
         assertEquals("d-hits", matcher.match("Queen", "Fat Bottomed Girls", "A Night at the Opera", null, exactAlbumOnly = false)?.id)
     }
+
+    @Test
+    fun `streamed tracks with SCOPE_STREAM are ignored by TrackMatcher`() {
+        val streamTrack = track("nebula:123", "Queen", "Stone Cold Crazy", album = "Sheer Heart Attack")
+            .copy(source = Track.SOURCE_NEBULA, scope = Track.SCOPE_STREAM)
+        val matcher = TrackMatcher(listOf(streamTrack))
+        assertNull(matcher.match("Queen", "Stone Cold Crazy", "Sheer Heart Attack", null))
+    }
 }

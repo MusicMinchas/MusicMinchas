@@ -26,6 +26,9 @@ import com.kike.musicplayer.data.subsonic.SubsonicClient
 import com.kike.musicplayer.data.subsonic.SubsonicCoverMapper
 import com.kike.musicplayer.data.subsonic.SubsonicLibrary
 import com.kike.musicplayer.data.subsonic.SubsonicUrls
+import com.kike.musicplayer.data.nebula.NebulaAccount
+import com.kike.musicplayer.data.nebula.NebulaClient
+import com.kike.musicplayer.data.nebula.NebulaUrls
 import com.kike.musicplayer.data.subsonic.ServerPlays
 import com.kike.musicplayer.data.subsonic.ServerMatch
 import com.kike.musicplayer.data.subsonic.ServerCollections
@@ -156,14 +159,18 @@ class AppContainer(app: Application) {
     val serverPlays = ServerPlays(subsonic, database, serverMatch, appScope).also { it.flush() }
 
     /** Lets Sonos fetch tracks from the phone while casting. */
+    val nebula = NebulaAccount(app, NebulaClient(baseHttp, moshi), "nebula$suffix")
+    val nebulaUrls = NebulaUrls(nebula)
+
     val trackServer = TrackServer(
         app, database.tracks(),
         // Sonos reads ahead in bursts and then pauses for minutes; a normal read timeout would drop the relay.
         driveHttp.newBuilder().readTimeout(10, TimeUnit.MINUTES).build(),
         subsonicUrls,
+        nebulaUrls,
     )
 
-    val downloader = Downloader(app, database.tracks(), driveHttp, subsonicUrls, appScope).also { it.verify() }
+    val downloader = Downloader(app, database.tracks(), driveHttp, subsonicUrls, nebulaUrls, appScope).also { it.verify() }
 
     val lastFm = LastFm(app, LastFmClient(baseHttp, moshi, BuildConfig.LASTFM_API_KEY, BuildConfig.LASTFM_SECRET), "lastfm$suffix")
 

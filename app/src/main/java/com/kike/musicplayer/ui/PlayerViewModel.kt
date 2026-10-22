@@ -6,6 +6,7 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import androidx.media3.common.C
 import androidx.media3.common.DeviceInfo
+import androidx.media3.common.Format
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MimeTypes
 import androidx.media3.common.Player
@@ -19,6 +20,8 @@ import com.kike.musicplayer.data.db.Track
 import com.kike.musicplayer.sonos.SonosGroup
 import com.kike.musicplayer.playback.PlaybackService
 import com.kike.musicplayer.playback.toMediaItem
+import com.kike.musicplayer.playback.toTransientTrack
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -53,13 +56,14 @@ data class PlayerUiState(
     val queueSize: Int = 0,
     /** e.g. "FLAC · 44.1 kHz · 2 ch" */
     val formatInfo: String? = null,
+    val sampleRate: Int? = null,
     val error: String? = null,
     /** Speaker volume (0-100) while playing on a remote device such as Sonos, else null. */
     val remoteVolume: Int? = null,
 )
 
 /** UI-side MediaController, connected asynchronously to [PlaybackService]. */
-class PlayerViewModel(app: Application) : AndroidViewModel(app) {
+class PlayerViewModel(private val app: Application) : AndroidViewModel(app) {
     private val controllerFuture: ListenableFuture<MediaController> =
         MediaController.Builder(app, SessionToken(app, ComponentName(app, PlaybackService::class.java)))
             // Media3 drops the device volume commands while the player is local and doesn't restore
@@ -96,6 +100,7 @@ class PlayerViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     private fun refresh(p: Player) {
+        val format = selectedAudioFormat(p)
         _state.value = PlayerUiState(
             connected = true,
             current = p.currentMediaItem,
@@ -108,7 +113,8 @@ class PlayerViewModel(app: Application) : AndroidViewModel(app) {
             currentIndex = p.currentMediaItemIndex,
             upNext = upNext(p),
             queueSize = p.mediaItemCount,
-            formatInfo = formatInfo(p),
+            formatInfo = formatInfo(format),
+            sampleRate = format?.sampleRate?.takeIf { it > 0 },
             error = p.playerError?.let(::playbackErrorText),
             remoteVolume = p.deviceVolume.takeIf { p.deviceInfo.playbackType == DeviceInfo.PLAYBACK_TYPE_REMOTE },
         )
@@ -128,11 +134,13 @@ class PlayerViewModel(app: Application) : AndroidViewModel(app) {
         return result
     }
 
-    private fun formatInfo(p: Player): String? {
-        val format = p.currentTracks.groups
+    private fun selectedAudioFormat(p: Player): Format? =
+        p.currentTracks.groups
             .firstOrNull { it.type == C.TRACK_TYPE_AUDIO && it.isSelected }
             ?.let { g -> (0 until g.length).firstOrNull { g.isTrackSelected(it) }?.let(g::getTrackFormat) }
-            ?: return null
+
+    private fun formatInfo(format: Format?): String? {
+        if (format == null) return null
         val codec = when (format.sampleMimeType) {
             MimeTypes.AUDIO_FLAC -> "FLAC"
             MimeTypes.AUDIO_ALAC -> "ALAC"
@@ -206,13 +214,20 @@ class PlayerViewModel(app: Application) : AndroidViewModel(app) {
         .map { list -> list.mapTo(HashSet()) { it.trackId } }
         .stateIn(viewModelScope, SharingStarted.Eagerly, emptySet())
 
-    fun toggleFavourite(trackId: String) {
+    fun toggleFavourite(trackId: String, track: Track? = null) {
         val add = trackId !in favourites.value
-        viewModelScope.launch {
-            if (add) favouriteDao.insert(Favourite(trackId, System.currentTimeMillis())) else favouriteDao.delete(trackId)
+        viewModelScope.launch(Dispatchers.IO) {
+            if (add) {
+                val t = track ?: app.container.database.tracks().get(trackId) ?: transientTrackFor(trackId, trackId)
+                if (t != null && (t.source == Track.SOURCE_NEBULA || t.scope == Track.SCOPE_STREAM)) {
+                    app.container.database.tracks().upsert(t.copy(scope = Track.SCOPE_STREAM, metadataState = Track.META_DONE))
+                }
+                favouriteDao.insert(Favourite(trackId, System.currentTimeMillis()))
+            } else {
+                favouriteDao.delete(trackId)
+            }
+            getApplication<Application>().container.scrobbler.love(trackId, add)
         }
-        // Loved / unloved on Last.fm too, when connected.
-        getApplication<Application>().container.scrobbler.love(trackId, add)
     }
 
     // ---- Lyrics ----
@@ -222,14 +237,32 @@ class PlayerViewModel(app: Application) : AndroidViewModel(app) {
     val lyrics: StateFlow<LyricsState> = _lyrics.asStateFlow()
     private var lyricsFor: String? = null
 
+        private fun transientTrackFor(mediaId: String, trackId: String): Track? {
+
+        val c = controller ?: return null
+
+        val item = c.currentMediaItem?.takeIf { it.mediaId == mediaId || PlaybackService.trackIdOf(it.mediaId) == trackId }
+
+            ?: (0 until c.mediaItemCount).map { c.getMediaItemAt(it) }.firstOrNull { it.mediaId == mediaId || PlaybackService.trackIdOf(it.mediaId) == trackId }
+
+            ?: return null
+
+        return item.toTransientTrack()
+
+    }
+
+
+
     /** Looks up the lyrics of the song with this media id (cached after the first time). */
     fun loadLyrics(mediaId: String) {
-        if (lyricsFor == mediaId) return
+        if (lyricsFor == mediaId && _lyrics.value !is LyricsState.None) return
         lyricsFor = mediaId
         _lyrics.value = LyricsState.Loading
         val container = getApplication<Application>().container
         viewModelScope.launch {
-            val track = container.database.tracks().get(PlaybackService.trackIdOf(mediaId))
+            val trackId = PlaybackService.trackIdOf(mediaId)
+            val track = container.database.tracks().get(trackId)
+                ?: transientTrackFor(mediaId, trackId)
             val found = track?.let { container.lyrics.lyrics(it) }
             if (lyricsFor == mediaId) _lyrics.value = found?.let { LyricsState.Found(it) } ?: LyricsState.None
         }

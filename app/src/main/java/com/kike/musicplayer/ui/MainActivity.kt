@@ -56,7 +56,7 @@ private sealed interface Screen {
     /** An album; opened from a genre ([genreKey]), it shows only that genre's songs. */
     data class AlbumDetail(val key: String, val genreKey: String? = null) : Screen
     data class ArtistDetail(val name: String) : Screen
-    data class ArtistDiscography(val artistName: String, val initialTab: Int = 0) : Screen
+    data class ArtistDiscography(val artistName: String, val initialTab: Int = 0, val source: Int? = null) : Screen
     data object NowPlaying : Screen
     data object Queue : Screen
     data object Sources : Screen
@@ -186,20 +186,90 @@ class MainActivity : ComponentActivity() {
                 libraryVm.clearActiveArtistCache()
             }
         }
+        val hasAlbumInStack = backStack.any { it is Screen.AlbumDetail }
+        LaunchedEffect(hasAlbumInStack) {
+            if (!hasAlbumInStack) {
+                libraryVm.clearActiveAlbumCache()
+            }
+        }
+        val hasCatalogAlbumInStack = backStack.any { it is Screen.CatalogAlbumDetail }
+        LaunchedEffect(hasCatalogAlbumInStack) {
+            if (!hasCatalogAlbumInStack) {
+                libraryVm.clearCatalogAlbumCache()
+            }
+        }
         val scope = rememberCoroutineScope()
         val navigation = Navigation(
-            openArtist = { names ->
+            openArtist = { names, track ->
                 scope.launch {
-                    libraryVm.firstArtist(names)?.let { name ->
-                        if ((screen as? Screen.ArtistDetail)?.name != name) push(Screen.ArtistDetail(name))
+                    val owned = libraryVm.firstArtist(names)
+                    if (owned != null) {
+                        if ((screen as? Screen.ArtistDetail)?.name != owned) push(Screen.ArtistDetail(owned))
+                    } else {
+                        val artistName = track?.albumArtist ?: track?.artist ?: names.filterNotNull().firstOrNull()
+                        if (artistName != null) {
+                            val catArtist = com.kike.musicplayer.data.catalog.CatalogArtist(
+                                id = "search:$artistName",
+                                name = artistName,
+                                pictureUrl = track?.artworkUri,
+                                source = com.kike.musicplayer.data.catalog.CatalogPlaylist.SOURCE_DEEZER,
+                            )
+                            if ((screen as? Screen.CatalogArtistDetail)?.artist?.name != artistName) {
+                                push(Screen.CatalogArtistDetail(catArtist))
+                            }
+                        }
                     }
                 }
             },
-            openAlbum = { key -> if ((screen as? Screen.AlbumDetail)?.key != key) push(Screen.AlbumDetail(key)) },
+            openAlbum = { key, track ->
+                scope.launch {
+                    val artist = track?.albumArtist ?: track?.artist ?: key.substringAfter('|', "")
+                    val title = track?.album ?: key.substringBefore('|')
+                    val isStream = track?.scope == com.kike.musicplayer.data.db.Track.SCOPE_STREAM ||
+                        track?.source == com.kike.musicplayer.data.db.Track.SOURCE_NEBULA ||
+                        track?.id?.startsWith("nebula:") == true
+
+                    if (isStream) {
+                        val catAlbumId = track?.mbReleaseId
+                            ?: track?.uri?.let { com.kike.musicplayer.data.nebula.NebulaUrls.parseParams(it)["albumId"] }
+                        val catAlbum = if (catAlbumId != null) {
+                            com.kike.musicplayer.data.catalog.CatalogAlbum(
+                                id = catAlbumId,
+                                title = track.album ?: title,
+                                artist = track.albumArtist ?: track.artist ?: artist,
+                                year = track.year,
+                                coverUrl = track.artworkUri,
+                                genre = track.genre,
+                                trackCount = null,
+                                source = if (catAlbumId.startsWith("ap:")) com.kike.musicplayer.data.catalog.CatalogPlaylist.SOURCE_APPLE else com.kike.musicplayer.data.catalog.CatalogPlaylist.SOURCE_DEEZER,
+                            )
+                        } else {
+                            libraryVm.findCatalogAlbum(artist, title)
+                        }
+                        if (catAlbum != null) {
+                            if ((screen as? Screen.CatalogAlbumDetail)?.album?.id != catAlbum.id) {
+                                push(Screen.CatalogAlbumDetail(catAlbum))
+                            }
+                            return@launch
+                        }
+                    }
+
+                    // Owned music path
+                    val ownedKey = libraryVm.albumInLibrary(artist, title) ?: key
+                    if ((screen as? Screen.AlbumDetail)?.key != ownedKey) {
+                        push(Screen.AlbumDetail(ownedKey))
+                    }
+                }
+            },
             track = { trackCache[it] },
         )
         CompositionLocalProvider(
-            LocalPlaylists provides PlaylistActions(userPlaylists, libraryVm::addToPlaylist, libraryVm::createPlaylist, libraryVm::nextPlaylistName),
+            LocalPlaylists provides PlaylistActions(
+                playlists = userPlaylists,
+                addTo = { id, ids, tracks -> libraryVm.addToPlaylist(id, ids, tracks) },
+                create = { name, ids, tracks -> libraryVm.createPlaylist(name, ids, tracks) },
+                nextName = libraryVm::nextPlaylistName,
+            ),
             LocalNavigation provides navigation,
             LocalFavourites provides Favourites(favouriteIds, playerVm::toggleFavourite),
             LocalDownloads provides Downloads(downloadProgress, libraryVm::download, libraryVm::removeDownload),
@@ -234,7 +304,7 @@ class MainActivity : ComponentActivity() {
                         is Screen.ArtistDetail -> ArtistScreen(
                             screen.name, libraryVm, playerVm,
                             onOpenAlbum = { push(Screen.AlbumDetail(it)) },
-                            onOpenArtistDiscography = { artistName, tab -> push(Screen.ArtistDiscography(artistName, tab)) },
+                            onOpenArtistDiscography = { artistName, tab, source -> push(Screen.ArtistDiscography(artistName, tab, source)) },
                             onOpenCatalogAlbum = { push(Screen.CatalogAlbumDetail(it)) },
                             onBack = ::pop,
                             contentPadding = padding,
@@ -242,6 +312,7 @@ class MainActivity : ComponentActivity() {
                         is Screen.ArtistDiscography -> ArtistDiscographyScreen(
                             artistName = screen.artistName,
                             initialTab = screen.initialTab,
+                            initialSource = screen.source,
                             libraryVm = libraryVm,
                             playerVm = playerVm,
                             onOpenAlbum = { push(Screen.AlbumDetail(it)) },

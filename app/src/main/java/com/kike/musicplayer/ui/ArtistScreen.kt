@@ -69,7 +69,7 @@ fun ArtistScreen(
     libraryVm: LibraryViewModel,
     playerVm: PlayerViewModel,
     onOpenAlbum: (String) -> Unit,
-    onOpenArtistDiscography: (artistName: String, initialTab: Int) -> Unit,
+    onOpenArtistDiscography: (artistName: String, initialTab: Int, source: Int?) -> Unit,
     onOpenCatalogAlbum: (com.kike.musicplayer.data.catalog.CatalogAlbum) -> Unit,
     onBack: () -> Unit,
     contentPadding: PaddingValues,
@@ -143,7 +143,7 @@ fun ArtistScreen(
                 item {
                     SectionTitle(
                         text = "Albums (${albums.size})",
-                        onClick = { onOpenArtistDiscography(artist.name, 0) },
+                        onClick = { onOpenArtistDiscography(artist.name, 0, source) },
                     )
                 }
                 item {
@@ -172,7 +172,7 @@ fun ArtistScreen(
                 item {
                     SectionTitle(
                         text = "More on Deezer & Apple Music (${missingAlbums.size})",
-                        onClick = { onOpenArtistDiscography(artist.name, 1) },
+                        onClick = { onOpenArtistDiscography(artist.name, 1, source) },
                     )
                 }
                 item {

@@ -7,6 +7,7 @@ import android.util.Base64
 import android.util.Log
 import com.kike.musicplayer.data.db.Track
 import com.kike.musicplayer.data.subsonic.SubsonicUrls
+import com.kike.musicplayer.data.nebula.NebulaUrls
 import com.kike.musicplayer.data.db.TrackDao
 import com.kike.musicplayer.data.db.getByIds
 import kotlinx.coroutines.runBlocking
@@ -37,6 +38,7 @@ class TrackServer(
     private val dao: TrackDao,
     private val driveHttp: OkHttpClient,
     private val serverUrls: SubsonicUrls,
+    private val nebulaUrls: NebulaUrls? = null,
 ) {
     private val token = ByteArray(12).also { SecureRandom().nextBytes(it) }.joinToString("") { "%02x".format(it) }
     private var server: ServerSocket? = null
@@ -116,6 +118,7 @@ class TrackServer(
                     .mapNotNull { line -> line.split(':', limit = 2).takeIf { it.size == 2 }?.let { it[0].trim().lowercase() to it[1].trim() } }
                     .toMap()
                 val (method, target) = requestLine.split(' ').let { (it.getOrNull(0) ?: "") to (it.getOrNull(1) ?: "") }
+                Log.i(TAG, "--> Sonos Request: $method $target, range=${headers["range"]}")
                 val parts = target.substringBefore('?').split('/')
                 val out = BufferedOutputStream(socket.getOutputStream(), 64 * 1024)
                 if (parts.size < 4 || parts[2] != token || method !in setOf("GET", "HEAD")) {
@@ -135,11 +138,13 @@ class TrackServer(
     private fun serveTrack(out: OutputStream, method: String, trackId: String?, range: String?) {
         val track = trackOf(trackId) ?: return respondStatus(out, 404)
         val mime = mimeOf(track)
+        Log.i(TAG, "serveTrack: id=$trackId, title='${track.title}', source=${track.source}")
         // Drive and server songs not on the phone are relayed from where they live.
         val remote = when {
             track.localUri != null -> null
             track.source == Track.SOURCE_DRIVE -> track.uri
             track.source == Track.SOURCE_SUBSONIC -> serverUrls.resolve(track.uri) ?: return respondStatus(out, 503)
+            track.source == Track.SOURCE_NEBULA -> nebulaUrls?.resolve(track.uri) ?: return respondStatus(out, 503)
             else -> null
         }
         if (remote != null) {
@@ -153,9 +158,14 @@ class TrackServer(
             val response = executeRemote(request, ok200 = true) ?: return respondStatus(out, 502)
             response.use { res ->
                 val total = res.header("Content-Range")?.substringAfter('/')?.toLongOrNull()
+                    ?: res.body.contentLength().takeIf { it > 0 }
+                if (total != null && track.sizeBytes == null) {
+                    cachedTracks[track.id] = track.copy(sizeBytes = total)
+                }
                 if (method == "HEAD") {
                     return writeHead(out, 200, mime, total ?: track.sizeBytes, null)
                 }
+                Log.i(TAG, "serveTrack streaming to Sonos: remoteCode=${res.code}, len=${res.body.contentLength()}, range=${res.header("Content-Range")}")
                 writeHead(out, res.code, mime, res.body.contentLength().takeIf { it >= 0 }, res.header("Content-Range"))
                 copy(res.body.byteStream(), out)
             }
@@ -197,6 +207,9 @@ class TrackServer(
         val key = "${track.id}#$index"
         val (block, total) = synchronized(blockLocks.computeIfAbsent(key) { Any() }) {
             blocks.get(key) ?: fetchBlock(remote, index)?.also { blocks.put(key, it) } ?: return false
+        }
+        if (total > 0 && track.sizeBytes == null) {
+            cachedTracks[track.id] = track.copy(sizeBytes = total)
         }
         val from = (start - index * BLOCK).toInt()
         if (from >= block.size) return false
@@ -310,6 +323,7 @@ class TrackServer(
             append("Connection: close\r\n\r\n")
         }
         out.write(head.toByteArray(Charsets.ISO_8859_1))
+        out.flush()
     }
 
     private fun respondStatus(out: OutputStream, code: Int) {
