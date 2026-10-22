@@ -186,6 +186,18 @@ class MainActivity : ComponentActivity() {
                 libraryVm.clearActiveArtistCache()
             }
         }
+        val hasAlbumInStack = backStack.any { it is Screen.AlbumDetail }
+        LaunchedEffect(hasAlbumInStack) {
+            if (!hasAlbumInStack) {
+                libraryVm.clearActiveAlbumCache()
+            }
+        }
+        val hasCatalogAlbumInStack = backStack.any { it is Screen.CatalogAlbumDetail }
+        LaunchedEffect(hasCatalogAlbumInStack) {
+            if (!hasCatalogAlbumInStack) {
+                libraryVm.clearCatalogAlbumCache()
+            }
+        }
         val scope = rememberCoroutineScope()
         val navigation = Navigation(
             openArtist = { names ->

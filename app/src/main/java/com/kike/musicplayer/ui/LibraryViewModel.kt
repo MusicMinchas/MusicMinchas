@@ -557,10 +557,12 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
         cachedArtistTracks = emptyList()
         cachedMissingArtist = null
         cachedMissingDiscography = emptyList()
+    }
+
+    fun clearActiveAlbumCache() {
         cachedAlbumKey = null
         cachedAlbumIndex = null
         cachedAlbumTracks = emptyList()
-        catalogAlbumCache.clear()
     }
 
     /** Returns studio/live albums by [artistName] on Deezer/Apple Music that are not already in [ownedTitles]. */
