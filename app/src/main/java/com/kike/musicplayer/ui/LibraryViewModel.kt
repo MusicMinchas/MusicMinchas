@@ -823,11 +823,23 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
         return generateSequence(userPlaylists.value.size + 1) { it + 1 }.map { "Playlist $it" }.first { it !in taken }
     }
 
-    fun createPlaylist(name: String, trackIds: List<String>) = viewModelScope.launch {
+    fun createPlaylist(name: String, trackIds: List<String>, tracks: List<Track> = emptyList()) = viewModelScope.launch(Dispatchers.IO) {
+        val streamTracks = tracks.filter { it.source == Track.SOURCE_NEBULA || it.scope == Track.SCOPE_STREAM }
+            .map { it.copy(scope = Track.SCOPE_STREAM, metadataState = Track.META_DONE) }
+        if (streamTracks.isNotEmpty()) {
+            database.tracks().upsertAll(streamTracks)
+        }
         playlistDao.create(name.trim().ifEmpty { nextPlaylistName() }, trackIds)
     }
 
-    fun addToPlaylist(playlistId: Long, trackIds: List<String>) = viewModelScope.launch { playlistDao.append(playlistId, trackIds) }
+    fun addToPlaylist(playlistId: Long, trackIds: List<String>, tracks: List<Track> = emptyList()) = viewModelScope.launch(Dispatchers.IO) {
+        val streamTracks = tracks.filter { it.source == Track.SOURCE_NEBULA || it.scope == Track.SCOPE_STREAM }
+            .map { it.copy(scope = Track.SCOPE_STREAM, metadataState = Track.META_DONE) }
+        if (streamTracks.isNotEmpty()) {
+            database.tracks().upsertAll(streamTracks)
+        }
+        playlistDao.append(playlistId, trackIds)
+    }
 
     fun deletePlaylist(playlistId: Long) = viewModelScope.launch { playlistDao.delete(playlistId) }
     fun renamePlaylist(playlistId: Long, name: String) = viewModelScope.launch {

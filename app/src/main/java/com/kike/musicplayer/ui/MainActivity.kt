@@ -264,7 +264,12 @@ class MainActivity : ComponentActivity() {
             track = { trackCache[it] },
         )
         CompositionLocalProvider(
-            LocalPlaylists provides PlaylistActions(userPlaylists, libraryVm::addToPlaylist, libraryVm::createPlaylist, libraryVm::nextPlaylistName),
+            LocalPlaylists provides PlaylistActions(
+                playlists = userPlaylists,
+                addTo = { id, ids, tracks -> libraryVm.addToPlaylist(id, ids, tracks) },
+                create = { name, ids, tracks -> libraryVm.createPlaylist(name, ids, tracks) },
+                nextName = libraryVm::nextPlaylistName,
+            ),
             LocalNavigation provides navigation,
             LocalFavourites provides Favourites(favouriteIds, playerVm::toggleFavourite),
             LocalDownloads provides Downloads(downloadProgress, libraryVm::download, libraryVm::removeDownload),
