@@ -72,6 +72,7 @@ import androidx.compose.material.icons.filled.CastConnected
 import androidx.compose.material.icons.filled.Speaker
 import androidx.compose.material.icons.filled.PhoneAndroid
 import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material.icons.automirrored.filled.VolumeDown
 import androidx.compose.material.icons.automirrored.filled.VolumeUp
 import androidx.compose.material3.ModalBottomSheet
@@ -542,6 +543,8 @@ private fun CastSheet(playerVm: PlayerViewModel, onDismiss: () -> Unit) {
     val discovering by playerVm.castDiscovering.collectAsState()
     val active by playerVm.castActive.collectAsState()
     val message by playerVm.castMessage.collectAsState()
+    val playerState by playerVm.state.collectAsState()
+    val isHighResUnsupported = (playerState.sampleRate ?: 0) > 48000
     LaunchedEffect(Unit) { playerVm.discoverSpeakers() }
 
     ModalBottomSheet(onDismissRequest = onDismiss) {
@@ -551,12 +554,45 @@ private fun CastSheet(playerVm: PlayerViewModel, onDismiss: () -> Unit) {
                 if (discovering) CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp)
                 else TextButton(onClick = { playerVm.discoverSpeakers() }) { Text("Search again") }
             }
+            if (isHighResUnsupported) {
+                val rateStr = playerState.sampleRate?.let { " (%.1f kHz)".format(it / 1000.0).replace(".0 ", " ") } ?: ""
+                Surface(
+                    color = MaterialTheme.colorScheme.errorContainer,
+                    shape = RoundedCornerShape(12.dp),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 24.dp, vertical = 6.dp),
+                ) {
+                    Row(
+                        Modifier.padding(12.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    ) {
+                        Icon(
+                            Icons.Default.Warning,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.onErrorContainer,
+                            modifier = Modifier.size(22.dp),
+                        )
+                        Text(
+                            "Sample rates higher than 48 kHz$rateStr are not supported by Sonos.",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onErrorContainer,
+                        )
+                    }
+                }
+            }
             CastRow(Icons.Default.PhoneAndroid, "This phone", selected = active == null) {
                 playerVm.stopCasting()
                 onDismiss()
             }
-            groups.forEach { group ->
-                CastRow(Icons.Default.Speaker, group.name, selected = active?.uuid == group.uuid) {
+                        groups.forEach { group ->
+                CastRow(
+                    icon = Icons.Default.Speaker,
+                    label = group.name,
+                    selected = active?.uuid == group.uuid,
+                    enabled = !isHighResUnsupported,
+                ) {
                     if (active?.uuid != group.uuid) playerVm.castTo(group)
                     onDismiss()
                 }
@@ -574,15 +610,34 @@ private fun CastSheet(playerVm: PlayerViewModel, onDismiss: () -> Unit) {
 }
 
 @Composable
-private fun CastRow(icon: ImageVector, label: String, selected: Boolean, onClick: () -> Unit) {
+private fun CastRow(
+    icon: ImageVector,
+    label: String,
+    selected: Boolean,
+    enabled: Boolean = true,
+    onClick: () -> Unit,
+) {
+    val contentColor = when {
+        !enabled -> MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f)
+        selected -> MaterialTheme.colorScheme.primary
+        else -> MaterialTheme.colorScheme.onSurface
+    }
+    val iconTint = when {
+        !enabled -> MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f)
+        selected -> MaterialTheme.colorScheme.primary
+        else -> MaterialTheme.colorScheme.onSurfaceVariant
+    }
     Row(
-        Modifier.fillMaxWidth().clickable(onClick = onClick).padding(horizontal = 24.dp, vertical = 14.dp),
+        Modifier
+            .fillMaxWidth()
+            .clickable(enabled = enabled, onClick = onClick)
+            .padding(horizontal = 24.dp, vertical = 14.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Icon(icon, null, tint = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant)
+        Icon(icon, null, tint = iconTint)
         Spacer(Modifier.width(16.dp))
-        Text(label, Modifier.weight(1f), color = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface)
-        if (selected) Icon(Icons.Default.Check, "Selected", tint = MaterialTheme.colorScheme.primary)
+        Text(label, Modifier.weight(1f), color = contentColor)
+        if (selected) Icon(Icons.Default.Check, "Selected", tint = iconTint)
     }
 }
 

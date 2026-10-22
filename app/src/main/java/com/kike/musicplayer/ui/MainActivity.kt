@@ -56,7 +56,7 @@ private sealed interface Screen {
     /** An album; opened from a genre ([genreKey]), it shows only that genre's songs. */
     data class AlbumDetail(val key: String, val genreKey: String? = null) : Screen
     data class ArtistDetail(val name: String) : Screen
-    data class ArtistDiscography(val artistName: String, val initialTab: Int = 0) : Screen
+    data class ArtistDiscography(val artistName: String, val initialTab: Int = 0, val source: Int? = null) : Screen
     data object NowPlaying : Screen
     data object Queue : Screen
     data object Sources : Screen
@@ -234,7 +234,7 @@ class MainActivity : ComponentActivity() {
                         is Screen.ArtistDetail -> ArtistScreen(
                             screen.name, libraryVm, playerVm,
                             onOpenAlbum = { push(Screen.AlbumDetail(it)) },
-                            onOpenArtistDiscography = { artistName, tab -> push(Screen.ArtistDiscography(artistName, tab)) },
+                            onOpenArtistDiscography = { artistName, tab, source -> push(Screen.ArtistDiscography(artistName, tab, source)) },
                             onOpenCatalogAlbum = { push(Screen.CatalogAlbumDetail(it)) },
                             onBack = ::pop,
                             contentPadding = padding,
@@ -242,6 +242,7 @@ class MainActivity : ComponentActivity() {
                         is Screen.ArtistDiscography -> ArtistDiscographyScreen(
                             artistName = screen.artistName,
                             initialTab = screen.initialTab,
+                            initialSource = screen.source,
                             libraryVm = libraryVm,
                             playerVm = playerVm,
                             onOpenAlbum = { push(Screen.AlbumDetail(it)) },

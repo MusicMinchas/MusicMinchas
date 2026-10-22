@@ -31,6 +31,8 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -71,6 +73,7 @@ sealed interface DiscographyItem {
 fun ArtistDiscographyScreen(
     artistName: String,
     initialTab: Int = 0,
+    initialSource: Int? = null,
     libraryVm: LibraryViewModel,
     playerVm: PlayerViewModel,
     onOpenAlbum: (String) -> Unit,
@@ -83,6 +86,13 @@ fun ArtistDiscographyScreen(
     val catalogEnabled by libraryVm.catalogEnabled.collectAsState()
     val extraCovers by libraryVm.albumCoverUrls.collectAsState()
     var selectedTab by remember(initialTab) { mutableIntStateOf(initialTab.coerceIn(0, 2)) }
+    var source by rememberSaveable(artistName) { mutableStateOf(initialSource) }
+
+    val tracks = remember(allTracks, source) { songsFromSource(allTracks, source) }
+    val shownAlbums = remember(tracks) { tracks.mapTo(HashSet()) { it.indexAlbum } }
+    val filteredOwnedAlbums = remember(ownedAlbums, shownAlbums, source) {
+        if (source == null) ownedAlbums else ownedAlbums.filter { it.key in shownAlbums }
+    }
 
     val missingAlbumsState by produceState<List<CatalogAlbum>?>(null, artistName, ownedAlbums.size, catalogEnabled) {
         if (!catalogEnabled) {
@@ -95,8 +105,8 @@ fun ArtistDiscographyScreen(
 
     val missingAlbums = missingAlbumsState ?: emptyList()
 
-    val allDiscography = remember(ownedAlbums, missingAlbums) {
-        val ownedItems = ownedAlbums.map { DiscographyItem.Owned(it) }
+    val allDiscography = remember(filteredOwnedAlbums, missingAlbums) {
+        val ownedItems = filteredOwnedAlbums.map { DiscographyItem.Owned(it) }
         val missingItems = missingAlbums.map { DiscographyItem.Missing(it) }
         (ownedItems + missingItems).sortedWith(
             compareByDescending<DiscographyItem> { it.year ?: 0 }.thenBy { it.title.lowercase() }
@@ -127,7 +137,7 @@ fun ArtistDiscographyScreen(
             FilterChip(
                 selected = selectedTab == 0,
                 onClick = { selectedTab = 0 },
-                label = { Text("In Library (${ownedAlbums.size})") },
+                label = { Text("In Library (${filteredOwnedAlbums.size})") },
             )
             if (catalogEnabled) {
                 FilterChip(
@@ -149,19 +159,21 @@ fun ArtistDiscographyScreen(
             }
         }
 
+        SourceChips(allTracks, source, { source = it }, Modifier.padding(vertical = 4.dp))
+
         // Action row for owned music
-        if (selectedTab == 0 && allTracks.isNotEmpty()) {
+        if (selectedTab == 0 && tracks.isNotEmpty()) {
             PlayShuffleRow(
-                onPlay = { playerVm.playTracks(allTracks, 0) },
-                onShuffle = { playerVm.playTracks(allTracks, 0, shuffle = true) },
-                enabled = allTracks.isNotEmpty(),
+                onPlay = { playerVm.playTracks(tracks, 0) },
+                onShuffle = { playerVm.playTracks(tracks, 0, shuffle = true) },
+                enabled = tracks.isNotEmpty(),
             )
         }
 
         when (selectedTab) {
             0 -> {
                 // In Library Tab
-                if (ownedAlbums.isEmpty()) {
+                if (filteredOwnedAlbums.isEmpty()) {
                     Box(Modifier.fillMaxSize().padding(32.dp), contentAlignment = Alignment.Center) {
                         Text("No albums in your library for this artist.", style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
@@ -173,7 +185,7 @@ fun ArtistDiscographyScreen(
                         verticalArrangement = Arrangement.spacedBy(16.dp),
                         modifier = Modifier.fillMaxSize(),
                     ) {
-                        items(ownedAlbums, key = { it.key }) { album ->
+                        items(filteredOwnedAlbums, key = { it.key }) { album ->
                             DiscographyOwnedCard(
                                 album = album,
                                 cover = album.artworkUri ?: extraCovers[album.key],

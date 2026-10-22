@@ -6,6 +6,7 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import androidx.media3.common.C
 import androidx.media3.common.DeviceInfo
+import androidx.media3.common.Format
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MimeTypes
 import androidx.media3.common.Player
@@ -53,6 +54,7 @@ data class PlayerUiState(
     val queueSize: Int = 0,
     /** e.g. "FLAC · 44.1 kHz · 2 ch" */
     val formatInfo: String? = null,
+    val sampleRate: Int? = null,
     val error: String? = null,
     /** Speaker volume (0-100) while playing on a remote device such as Sonos, else null. */
     val remoteVolume: Int? = null,
@@ -96,6 +98,7 @@ class PlayerViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     private fun refresh(p: Player) {
+        val format = selectedAudioFormat(p)
         _state.value = PlayerUiState(
             connected = true,
             current = p.currentMediaItem,
@@ -108,7 +111,8 @@ class PlayerViewModel(app: Application) : AndroidViewModel(app) {
             currentIndex = p.currentMediaItemIndex,
             upNext = upNext(p),
             queueSize = p.mediaItemCount,
-            formatInfo = formatInfo(p),
+            formatInfo = formatInfo(format),
+            sampleRate = format?.sampleRate?.takeIf { it > 0 },
             error = p.playerError?.let(::playbackErrorText),
             remoteVolume = p.deviceVolume.takeIf { p.deviceInfo.playbackType == DeviceInfo.PLAYBACK_TYPE_REMOTE },
         )
@@ -128,11 +132,13 @@ class PlayerViewModel(app: Application) : AndroidViewModel(app) {
         return result
     }
 
-    private fun formatInfo(p: Player): String? {
-        val format = p.currentTracks.groups
+    private fun selectedAudioFormat(p: Player): Format? =
+        p.currentTracks.groups
             .firstOrNull { it.type == C.TRACK_TYPE_AUDIO && it.isSelected }
             ?.let { g -> (0 until g.length).firstOrNull { g.isTrackSelected(it) }?.let(g::getTrackFormat) }
-            ?: return null
+
+    private fun formatInfo(format: Format?): String? {
+        if (format == null) return null
         val codec = when (format.sampleMimeType) {
             MimeTypes.AUDIO_FLAC -> "FLAC"
             MimeTypes.AUDIO_ALAC -> "ALAC"

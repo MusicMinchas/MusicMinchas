@@ -412,11 +412,26 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     /** Fetches the tracklist of a catalog album and matches each song against the user's library. */
+    private val catalogAlbumCache = java.util.concurrent.ConcurrentHashMap<String, Pair<List<com.kike.musicplayer.data.catalog.CatalogTrack>, Map<String, Track>>>()
+
+    fun cachedCatalogAlbumTracks(albumId: String): Pair<List<com.kike.musicplayer.data.catalog.CatalogTrack>, Map<String, Track>>? =
+        catalogAlbumCache[albumId]
+
+    fun clearCatalogAlbumCache() {
+        catalogAlbumCache.clear()
+    }
+
     suspend fun catalogAlbumTracks(
         album: com.kike.musicplayer.data.catalog.CatalogAlbum,
+        forceRefresh: Boolean = false,
     ): Pair<List<com.kike.musicplayer.data.catalog.CatalogTrack>, Map<String, Track>> {
+        if (!forceRefresh) {
+            catalogAlbumCache[album.id]?.let { return it }
+        }
         val tracks = container.catalog.albumTracks(album)
-        return tracks to matchCatalogTracks(tracks, exactAlbumOnly = true)
+        val result = tracks to matchCatalogTracks(tracks, exactAlbumOnly = true)
+        catalogAlbumCache[album.id] = result
+        return result
     }
 
     /** Fetches top songs and discography albums for a catalog artist and matches top songs against the library. */
@@ -542,6 +557,10 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
         cachedArtistTracks = emptyList()
         cachedMissingArtist = null
         cachedMissingDiscography = emptyList()
+        cachedAlbumKey = null
+        cachedAlbumIndex = null
+        cachedAlbumTracks = emptyList()
+        catalogAlbumCache.clear()
     }
 
     /** Returns studio/live albums by [artistName] on Deezer/Apple Music that are not already in [ownedTitles]. */
@@ -854,13 +873,31 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
     fun genreAlbumPages(key: String): Flow<PagingData<AlbumIndex>> =
         detail(browse.observeGenreScopes(key)) { s -> Pager(paging) { browse.genreAlbums(key, s) }.flow }
 
+    private var cachedAlbumKey: String? = null
+    private var cachedAlbumIndex: AlbumIndex? = null
+    private var cachedAlbumTracks: List<Track> = emptyList()
+
+    fun cachedAlbumIndex(key: String): AlbumIndex? =
+        if (cachedAlbumKey == key) cachedAlbumIndex else null
+
+    fun cachedAlbumTracks(key: String): List<Track> =
+        if (cachedAlbumKey == key) cachedAlbumTracks else emptyList()
+
     fun album(key: String): Flow<AlbumIndex?> = detail(browse.observeAlbumScopes(key)) { browse.observeAlbum(key, it) }
+        .onEach {
+            if (cachedAlbumKey != key) {
+                cachedAlbumKey = key
+                cachedAlbumTracks = emptyList()
+            }
+            cachedAlbumIndex = it
+        }
 
     /** The album's songs in album order; only those of [genreKey] when given. */
     fun albumTracks(key: String, genreKey: String? = null): Flow<List<Track>> =
         detail(browse.observeAlbumScopes(key)) { s ->
             if (genreKey == null) browse.observeAlbumTracks(key, s) else browse.observeAlbumTracksInGenre(key, genreKey, s)
         }.map { it.sortedWith(albumTrackOrder) }
+            .onEach { if (cachedAlbumKey == key && genreKey == null) cachedAlbumTracks = it }
 
     private var cachedArtistName: String? = null
     private var cachedArtistIndex: com.kike.musicplayer.data.db.ArtistIndex? = null

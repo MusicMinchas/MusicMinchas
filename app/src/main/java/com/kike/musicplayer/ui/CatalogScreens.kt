@@ -98,16 +98,19 @@ fun CatalogAlbumScreen(
 ) {
     val player by playerVm.state.collectAsState()
     val scope = rememberCoroutineScope()
-    var loading by remember(album.id) { mutableStateOf(true) }
-    var tracks by remember(album.id) { mutableStateOf<List<CatalogTrack>>(emptyList()) }
-    var matched by remember(album.id) { mutableStateOf<Map<String, Track>>(emptyMap()) }
+    val cached = remember(album.id) { libraryVm.cachedCatalogAlbumTracks(album.id) }
+    var loading by remember(album.id) { mutableStateOf(cached == null) }
+    var tracks by remember(album.id) { mutableStateOf(cached?.first ?: emptyList()) }
+    var matched by remember(album.id) { mutableStateOf(cached?.second ?: emptyMap()) }
 
     LaunchedEffect(album.id) {
-        loading = true
+        if (cached == null) {
+            loading = true
         val (list, map) = libraryVm.catalogAlbumTracks(album)
         tracks = list
         matched = map
         loading = false
+        }
     }
 
     val ownedTracks = remember(tracks, matched) { tracks.mapNotNull { matched[it.id] } }
