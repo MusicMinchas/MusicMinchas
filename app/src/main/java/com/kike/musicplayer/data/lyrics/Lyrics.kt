@@ -77,8 +77,8 @@ class LyricsRepository(
     private suspend fun search(artist: String, title: String, durationSec: Long?): Map<*, *>? {
         val url = "$BASE/search".toHttpUrl().newBuilder()
             .addQueryParameter("artist_name", artist)
-            // "(feat. …)", "(Remastered)" and the like are often missing on LRCLIB.
-            .addQueryParameter("track_name", title.replace(Regex("\\s*[(\\[][^)\\]]*(feat|remaster|bonus|version)[^)\\]]*[)\\]]", RegexOption.IGNORE_CASE), ""))
+            // "(feat. …)", "(Remastered)", "- Remastered" and the like are often missing on LRCLIB.
+            .addQueryParameter("track_name", cleanTitle(title))
             .build()
         val results = (request(url.toString()) as? List<*>).orEmpty().filterIsInstance<Map<*, *>>()
             .filter { TrackMatcher.looseArtist(it["artistName"] as? String ?: "") == TrackMatcher.looseArtist(artist) }
@@ -130,5 +130,8 @@ class LyricsRepository(
 
         /** Index of the line being sung at [positionMs], or -1 before the first. */
         fun currentLine(lines: List<LyricLine>, positionMs: Long): Int = lines.indexOfLast { it.timeMs <= positionMs }
+
+        fun cleanTitle(title: String): String =
+            title.replace(Regex("\\s*[(\\[][^)\\]]*(feat|remaster|bonus|version|live|deluxe)[^)\\]]*[)\\]]|\\s*-\\s*(remaster|live|deluxe|bonus|version).*", RegexOption.IGNORE_CASE), "").trim()
     }
 }

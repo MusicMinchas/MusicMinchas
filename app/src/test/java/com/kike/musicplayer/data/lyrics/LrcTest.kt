@@ -34,4 +34,12 @@ class LrcTest {
         assertEquals(1, currentLine(lines, 29_999))
         assertEquals(2, currentLine(lines, 200_000))
     }
+
+    @Test
+    fun `cleanTitle strips remaster and version suffixes`() {
+        assertEquals("Stone Cold Crazy", LyricsRepository.cleanTitle("Stone Cold Crazy - Remastered 2011"))
+        assertEquals("Stone Cold Crazy", LyricsRepository.cleanTitle("Stone Cold Crazy (Remastered)"))
+        assertEquals("Stone Cold Crazy", LyricsRepository.cleanTitle("Stone Cold Crazy [Live at the Rainbow]"))
+        assertEquals("Under Pressure", LyricsRepository.cleanTitle("Under Pressure (feat. David Bowie)"))
+    }
 }

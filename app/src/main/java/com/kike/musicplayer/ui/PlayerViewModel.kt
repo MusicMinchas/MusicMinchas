@@ -228,14 +228,60 @@ class PlayerViewModel(app: Application) : AndroidViewModel(app) {
     val lyrics: StateFlow<LyricsState> = _lyrics.asStateFlow()
     private var lyricsFor: String? = null
 
+        private fun transientTrackFor(mediaId: String, trackId: String): Track? {
+        val c = controller ?: return null
+        val item = c.currentMediaItem?.takeIf { it.mediaId == mediaId || PlaybackService.trackIdOf(it.mediaId) == trackId }
+            ?: (0 until c.mediaItemCount).map { c.getMediaItemAt(it) }.firstOrNull { it.mediaId == mediaId || PlaybackService.trackIdOf(it.mediaId) == trackId }
+            ?: return null
+
+        val meta = item.mediaMetadata
+        val title = meta.title?.toString() ?: return null
+        val artist = meta.artist?.toString() ?: ""
+        val uri = item.localConfiguration?.uri?.toString()
+            ?: item.requestMetadata.mediaUri?.toString()
+            ?: ""
+
+        val source = when {
+            uri.startsWith("nebula:") || mediaId.startsWith("nebula:") || trackId.startsWith("nebula:") -> Track.SOURCE_NEBULA
+            uri.startsWith("subsonic:") || mediaId.startsWith("subsonic:") || trackId.startsWith("subsonic:") -> Track.SOURCE_SUBSONIC
+            uri.startsWith("https://") -> Track.SOURCE_DRIVE
+            else -> Track.SOURCE_SAF
+        }
+
+        val duration = meta.durationMs
+            ?: c.duration.takeIf { it != C.TIME_UNSET && it > 0 }
+            ?: 0L
+
+        return Track(
+            id = trackId,
+            source = source,
+            uri = uri,
+            fileName = "$title.flac",
+            mimeType = if (source == Track.SOURCE_NEBULA) "audio/flac" else "audio/mpeg",
+            sizeBytes = null,
+            title = title,
+            artist = artist,
+            album = meta.albumTitle?.toString(),
+            albumArtist = meta.albumArtist?.toString(),
+            trackNumber = meta.trackNumber,
+            discNumber = meta.discNumber,
+            year = meta.recordingYear,
+            genre = null,
+            durationMs = duration,
+            artworkUri = meta.artworkUri?.toString(),
+        )
+    }
+
     /** Looks up the lyrics of the song with this media id (cached after the first time). */
     fun loadLyrics(mediaId: String) {
-        if (lyricsFor == mediaId) return
+        if (lyricsFor == mediaId && _lyrics.value !is LyricsState.None) return
         lyricsFor = mediaId
         _lyrics.value = LyricsState.Loading
         val container = getApplication<Application>().container
         viewModelScope.launch {
-            val track = container.database.tracks().get(PlaybackService.trackIdOf(mediaId))
+            val trackId = PlaybackService.trackIdOf(mediaId)
+            val track = container.database.tracks().get(trackId)
+                ?: transientTrackFor(mediaId, trackId)
             val found = track?.let { container.lyrics.lyrics(it) }
             if (lyricsFor == mediaId) _lyrics.value = found?.let { LyricsState.Found(it) } ?: LyricsState.None
         }
