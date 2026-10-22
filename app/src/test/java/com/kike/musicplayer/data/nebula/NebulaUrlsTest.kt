@@ -81,6 +81,8 @@ class NebulaUrlsTest {
         assertEquals(1972, track.year)
         assertEquals(256000L, track.durationMs)
         assertEquals("https://example.com/starman.jpg", track.artworkUri)
+        assertEquals("tidal:album:999", track.mbReleaseId)
+        assertEquals("tidal:album:999", NebulaUrls.parseParams(track.uri)["albumId"])
         assertTrue(track.isRemote)
     }
 

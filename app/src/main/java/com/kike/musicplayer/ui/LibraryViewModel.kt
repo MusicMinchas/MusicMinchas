@@ -391,6 +391,17 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
             }?.key
     }
 
+    /** Looks up an album in the Deezer & Apple Music catalog matching [artist] and [title]. */
+    suspend fun findCatalogAlbum(artist: String, title: String): com.kike.musicplayer.data.catalog.CatalogAlbum? =
+        kotlinx.coroutines.withContext(Dispatchers.IO) {
+            val query = "$artist $title".trim()
+            if (query.length < 2) return@withContext null
+            container.catalog.searchCatalog(query).albums.firstOrNull {
+                com.kike.musicplayer.data.discover.Names.releaseKey(it.title) == com.kike.musicplayer.data.discover.Names.releaseKey(title) &&
+                    (com.kike.musicplayer.data.discover.Names.comparable(it.artist) == com.kike.musicplayer.data.discover.Names.comparable(artist) || artist.isBlank())
+            }
+        }
+
     /**
      * Matches catalog tracks against the user's library using [TrackMatcher], which prefers the
      * user's own copy (Local / Google Drive) over Navidrome and ignores edition suffixes.

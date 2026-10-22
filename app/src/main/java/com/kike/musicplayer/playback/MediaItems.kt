@@ -71,6 +71,7 @@ fun MediaItem.toTransientTrack(): Track? {
 
     val albumTitle = meta.albumTitle?.toString()
     val albumArtist = meta.albumArtist?.toString()
+    val catAlbumId = if (source == Track.SOURCE_NEBULA) com.kike.musicplayer.data.nebula.NebulaUrls.parseParams(uri)["albumId"] else null
 
     return Track(
         id = id,
@@ -90,6 +91,7 @@ fun MediaItem.toTransientTrack(): Track? {
         genre = null,
         durationMs = meta.durationMs ?: 0L,
         artworkUri = meta.artworkUri?.toString(),
+        mbReleaseId = catAlbumId,
         metadataState = Track.META_DONE,
         indexAlbum = Track.albumKeyOf(albumTitle, albumArtist ?: artist),
         indexArtist = albumArtist ?: artist,

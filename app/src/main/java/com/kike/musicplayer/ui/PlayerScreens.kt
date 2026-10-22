@@ -1,5 +1,7 @@
 package com.kike.musicplayer.ui
 
+import com.kike.musicplayer.playback.toTransientTrack
+
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.background
 import androidx.compose.foundation.shape.CircleShape
@@ -412,10 +414,12 @@ private fun ColumnScope.NowPlayingDetails(
             }
         }
     }
-    val track = trackId?.let(LocalNavigation.current.track)
+    val track = trackId?.let(LocalNavigation.current.track) ?: s.current?.toTransientTrack()
+    val albumKey = track?.albumKey ?: meta?.albumTitle?.toString()?.let { com.kike.musicplayer.data.db.Track.albumKeyOf(it, meta.albumArtist?.toString() ?: meta.artist?.toString() ?: "") }
     ArtistAlbumText(
         meta?.artist?.toString(), listOf(track?.artist, track?.albumArtist),
-        meta?.albumTitle?.toString(), track?.albumKey,
+        meta?.albumTitle?.toString(), albumKey,
+        track = track,
         style = MaterialTheme.typography.bodyLarge, textAlign = TextAlign.Center,
     )
     val group = castTo

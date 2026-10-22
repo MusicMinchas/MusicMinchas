@@ -110,14 +110,17 @@ val LocalFavourites = compositionLocalOf { Favourites(emptySet()) {} }
 
 /** Opening artist and album pages from anywhere; provided once at the top of the UI. */
 class Navigation(
-    /** Opens the page of the first of these names that is an artist in the library. */
-    val openArtist: (names: List<String?>) -> Unit,
-    val openAlbum: (albumKey: String) -> Unit,
+    /** Opens the page of the first of these names that is an artist in the library, or catalog artist if unowned. */
+    val openArtist: (names: List<String?>, track: Track?) -> Unit,
+    val openAlbum: (albumKey: String, track: Track?) -> Unit,
     /** The library track with this id (for screens that only have the playing media item). */
     val track: (trackId: String) -> Track?,
-)
+) {
+    fun openArtist(names: List<String?>) = openArtist(names, null)
+    fun openAlbum(albumKey: String) = openAlbum(albumKey, null)
+}
 
-val LocalNavigation = compositionLocalOf { Navigation({}, {}, { null }) }
+val LocalNavigation = compositionLocalOf { Navigation({ _, _ -> }, { _, _ -> }, { null }) }
 
 /**
  * "Artist · Album" in which the artist name opens the artist page and the album name the album
@@ -130,6 +133,7 @@ fun ArtistAlbumText(
     artistNames: List<String?>,
     album: String? = null,
     albumKey: String? = null,
+    track: Track? = null,
     modifier: Modifier = Modifier,
     style: TextStyle = MaterialTheme.typography.bodySmall,
     color: Color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -144,13 +148,13 @@ fun ArtistAlbumText(
         val parts = mutableListOf<AnnotatedString.Builder.() -> Unit>()
         artist?.let { name ->
             parts += {
-                if (links) withLink(LinkAnnotation.Clickable("artist", LINK_STYLE) { nav.openArtist(artistNames + name) }) { append(name) }
+                if (links) withLink(LinkAnnotation.Clickable("artist", LINK_STYLE) { nav.openArtist(artistNames + name, track) }) { append(name) }
                 else append(name)
             }
         }
         album?.let { title ->
             parts += {
-                if (links && albumKey != null) withLink(LinkAnnotation.Clickable("album", LINK_STYLE) { nav.openAlbum(albumKey) }) { append(title) }
+                if (links && albumKey != null) withLink(LinkAnnotation.Clickable("album", LINK_STYLE) { nav.openAlbum(albumKey, track) }) { append(title) }
                 else append(title)
             }
         }
@@ -452,10 +456,10 @@ fun TrackRow(
                 }
                 DropdownMenuItem(
                     text = { Text("Go to Artist") },
-                    onClick = { menu = false; navigation.openArtist(listOf(track.artist, track.albumArtist)) },
+                    onClick = { menu = false; navigation.openArtist(listOf(track.artist, track.albumArtist), track) },
                 )
                 if (track.album != null) {
-                    DropdownMenuItem(text = { Text("Go to Album") }, onClick = { menu = false; navigation.openAlbum(track.albumKey) })
+                    DropdownMenuItem(text = { Text("Go to Album") }, onClick = { menu = false; navigation.openAlbum(track.albumKey, track) })
                 }
                 if (track.isRemote) when (track.downloadState) {
                     Track.DOWNLOADED -> DropdownMenuItem(text = { Text("Remove download") }, onClick = { menu = false; downloads.remove(track) })

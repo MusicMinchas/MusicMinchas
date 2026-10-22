@@ -68,18 +68,19 @@ class NebulaUrls(
             }.toMap()
         }
 
-        fun uriFor(artist: String, album: String?, title: String, trackId: String? = null): String {
+        fun uriFor(artist: String, album: String?, title: String, trackId: String? = null, albumId: String? = null): String {
             val encArtist = URLEncoder.encode(artist.trim(), "UTF-8")
             val encTitle = URLEncoder.encode(title.trim(), "UTF-8")
             val albumParam = if (!album.isNullOrBlank()) "&album=${URLEncoder.encode(album.trim(), "UTF-8")}" else ""
             val idParam = if (!trackId.isNullOrBlank()) "&id=${URLEncoder.encode(trackId.trim(), "UTF-8")}" else ""
-            return "nebula:stream?artist=$encArtist&title=$encTitle$albumParam$idParam"
+            val albumIdParam = if (!albumId.isNullOrBlank()) "&albumId=${URLEncoder.encode(albumId.trim(), "UTF-8")}" else ""
+            return "nebula:stream?artist=$encArtist&title=$encTitle$albumParam$idParam$albumIdParam"
         }
 
         fun trackFor(catalogTrack: CatalogTrack): Track = Track(
             id = "nebula:${catalogTrack.id}",
             source = Track.SOURCE_NEBULA,
-            uri = uriFor(catalogTrack.artist, catalogTrack.album, catalogTrack.title, catalogTrack.id),
+            uri = uriFor(catalogTrack.artist, catalogTrack.album, catalogTrack.title, catalogTrack.id, catalogTrack.albumId),
             fileName = "${catalogTrack.title}.flac",
             mimeType = "audio/flac",
             sizeBytes = null,
@@ -93,6 +94,7 @@ class NebulaUrls(
             genre = catalogTrack.genre,
             durationMs = catalogTrack.durationMs,
             artworkUri = catalogTrack.coverUrl,
+            mbReleaseId = catalogTrack.albumId,
             scope = Track.SCOPE_STREAM,
             metadataState = Track.META_DONE,
             indexAlbum = Track.albumKeyOf(catalogTrack.album, catalogTrack.albumArtist ?: catalogTrack.artist),

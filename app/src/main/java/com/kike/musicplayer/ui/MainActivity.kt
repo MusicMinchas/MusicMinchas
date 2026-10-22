@@ -200,14 +200,71 @@ class MainActivity : ComponentActivity() {
         }
         val scope = rememberCoroutineScope()
         val navigation = Navigation(
-            openArtist = { names ->
+            openArtist = { names, track ->
                 scope.launch {
-                    libraryVm.firstArtist(names)?.let { name ->
-                        if ((screen as? Screen.ArtistDetail)?.name != name) push(Screen.ArtistDetail(name))
+                    val owned = libraryVm.firstArtist(names)
+                    if (owned != null) {
+                        if ((screen as? Screen.ArtistDetail)?.name != owned) push(Screen.ArtistDetail(owned))
+                    } else {
+                        val artistName = track?.albumArtist ?: track?.artist ?: names.filterNotNull().firstOrNull()
+                        if (artistName != null) {
+                            val catArtist = com.kike.musicplayer.data.catalog.CatalogArtist(
+                                id = "search:$artistName",
+                                name = artistName,
+                                pictureUrl = track?.artworkUri,
+                                source = com.kike.musicplayer.data.catalog.CatalogPlaylist.SOURCE_DEEZER,
+                            )
+                            if ((screen as? Screen.CatalogArtistDetail)?.artist?.name != artistName) {
+                                push(Screen.CatalogArtistDetail(catArtist))
+                            }
+                        }
                     }
                 }
             },
-            openAlbum = { key -> if ((screen as? Screen.AlbumDetail)?.key != key) push(Screen.AlbumDetail(key)) },
+            openAlbum = { key, track ->
+                scope.launch {
+                    val catAlbumId = track?.mbReleaseId ?: track?.uri?.let { com.kike.musicplayer.data.nebula.NebulaUrls.parseParams(it)["albumId"] }
+                    if (catAlbumId != null && (track?.scope == com.kike.musicplayer.data.db.Track.SCOPE_STREAM || track?.source == com.kike.musicplayer.data.db.Track.SOURCE_NEBULA)) {
+                        val catAlbum = com.kike.musicplayer.data.catalog.CatalogAlbum(
+                            id = catAlbumId,
+                            title = track.album ?: key.substringBefore('|'),
+                            artist = track.albumArtist ?: track.artist ?: key.substringAfter('|', ""),
+                            year = track.year,
+                            coverUrl = track.artworkUri,
+                            genre = track.genre,
+                            trackCount = null,
+                            source = if (catAlbumId.startsWith("ap:")) com.kike.musicplayer.data.catalog.CatalogPlaylist.SOURCE_APPLE else com.kike.musicplayer.data.catalog.CatalogPlaylist.SOURCE_DEEZER,
+                        )
+                        if ((screen as? Screen.CatalogAlbumDetail)?.album?.id != catAlbum.id) {
+                            push(Screen.CatalogAlbumDetail(catAlbum))
+                        }
+                    } else {
+                        val artist = track?.albumArtist ?: track?.artist ?: key.substringAfter('|', "")
+                        val title = track?.album ?: key.substringBefore('|')
+                        val ownedKey = libraryVm.albumInLibrary(artist, title)
+                        if (ownedKey != null) {
+                            if ((screen as? Screen.AlbumDetail)?.key != ownedKey) {
+                                push(Screen.AlbumDetail(ownedKey))
+                            }
+                        } else if (track?.scope == com.kike.musicplayer.data.db.Track.SCOPE_STREAM || track?.source == com.kike.musicplayer.data.db.Track.SOURCE_NEBULA) {
+                            val catAlbum = libraryVm.findCatalogAlbum(artist, title)
+                            if (catAlbum != null) {
+                                if ((screen as? Screen.CatalogAlbumDetail)?.album?.id != catAlbum.id) {
+                                    push(Screen.CatalogAlbumDetail(catAlbum))
+                                }
+                            } else {
+                                if ((screen as? Screen.AlbumDetail)?.key != key) {
+                                    push(Screen.AlbumDetail(key))
+                                }
+                            }
+                        } else {
+                            if ((screen as? Screen.AlbumDetail)?.key != key) {
+                                push(Screen.AlbumDetail(key))
+                            }
+                        }
+                    }
+                }
+            },
             track = { trackCache[it] },
         )
         CompositionLocalProvider(
