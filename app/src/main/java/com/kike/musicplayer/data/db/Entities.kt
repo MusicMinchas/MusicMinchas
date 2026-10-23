@@ -429,3 +429,23 @@ data class SavedCatalogPlaylist(
     val cachedMatchesJson: String? = null,
     @ColumnInfo(defaultValue = "0") val lastPlayedAt: Long = 0L,
 )
+
+/**
+ * For saved catalog playlists with no custom artwork, extracts up to 4 distinct album cover URLs
+ * from the cached tracks JSON to generate a 2x2 cover mosaic.
+ */
+fun SavedCatalogPlaylist.mosaicCovers(): List<String> {
+    if (!coverUrl.isNullOrBlank() && !com.kike.musicplayer.data.catalog.isDefaultCatalogCover(coverUrl)) return emptyList()
+    val json = cachedTracksJson ?: return emptyList()
+    val regex = Regex(""""coverUrl":\s*"([^"]+)"""")
+    val covers = mutableListOf<String>()
+    for (match in regex.findAll(json)) {
+        val u = match.groupValues[1]
+        val normalized = com.kike.musicplayer.data.catalog.normalizeArtworkUrl(u) as? String ?: u
+        if (normalized.isNotBlank() && normalized !in covers) {
+            covers.add(normalized)
+            if (covers.size >= 4) break
+        }
+    }
+    return covers
+}

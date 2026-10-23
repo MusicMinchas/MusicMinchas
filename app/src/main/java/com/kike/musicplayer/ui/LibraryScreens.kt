@@ -114,6 +114,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.kike.musicplayer.data.db.Track
+import com.kike.musicplayer.data.db.mosaicCovers
 
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.WindowInsets
@@ -690,7 +691,7 @@ private fun SearchResultsList(
                         Modifier.fillMaxWidth().clickable { onOpenCatalogPlaylist(playlist) }.padding(horizontal = 16.dp, vertical = 6.dp),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
-                        Artwork(playlist.coverUrl, size = 48.dp)
+                        PlaylistCover(playlist.coverUrl, playlist.mosaicCovers, size = 48.dp, shape = RoundedCornerShape(6.dp))
                         Column(Modifier.padding(start = 12.dp)) {
                             Text(playlist.title, maxLines = 1, overflow = TextOverflow.Ellipsis)
                             val sub = buildList {
@@ -1142,7 +1143,8 @@ private fun PlaylistsTab(
                         horizontalArrangement = Arrangement.spacedBy(12.dp),
                     ) {
                         applePlaylists.take(10).forEach { playlist ->
-                            val catPl = remember(playlist) {
+                            val mosaic = remember(playlist.id, playlist.cachedTracksJson) { playlist.mosaicCovers() }
+                            val catPl = remember(playlist, mosaic) {
                                 com.kike.musicplayer.data.catalog.CatalogPlaylist(
                                     id = playlist.id,
                                     title = playlist.title,
@@ -1150,6 +1152,7 @@ private fun PlaylistsTab(
                                     trackCount = playlist.trackCount,
                                     coverUrl = playlist.coverUrl,
                                     source = playlist.source,
+                                    mosaicCovers = mosaic,
                                 )
                             }
                             CatalogPlaylistCard(
@@ -1159,6 +1162,7 @@ private fun PlaylistsTab(
                                     add(count(playlist.trackCount, "song"))
                                 }.joinToString(" · "),
                                 coverUrl = playlist.coverUrl,
+                                mosaicCovers = mosaic,
                                 onOpen = { onOpenCatalogPlaylist(catPl) },
                                 modifier = Modifier.width(160.dp),
                             )
@@ -1195,7 +1199,8 @@ private fun PlaylistsTab(
                         horizontalArrangement = Arrangement.spacedBy(12.dp),
                     ) {
                         deezerPlaylists.take(10).forEach { playlist ->
-                            val catPl = remember(playlist) {
+                            val mosaic = remember(playlist.id, playlist.cachedTracksJson) { playlist.mosaicCovers() }
+                            val catPl = remember(playlist, mosaic) {
                                 com.kike.musicplayer.data.catalog.CatalogPlaylist(
                                     id = playlist.id,
                                     title = playlist.title,
@@ -1203,6 +1208,7 @@ private fun PlaylistsTab(
                                     trackCount = playlist.trackCount,
                                     coverUrl = playlist.coverUrl,
                                     source = playlist.source,
+                                    mosaicCovers = mosaic,
                                 )
                             }
                             CatalogPlaylistCard(
@@ -1212,6 +1218,7 @@ private fun PlaylistsTab(
                                     add(count(playlist.trackCount, "song"))
                                 }.joinToString(" · "),
                                 coverUrl = playlist.coverUrl,
+                                mosaicCovers = mosaic,
                                 onOpen = { onOpenCatalogPlaylist(catPl) },
                                 modifier = Modifier.width(160.dp),
                             )
@@ -1276,12 +1283,18 @@ internal fun CatalogPlaylistCard(
     title: String,
     subtitle: String,
     coverUrl: String?,
+    mosaicCovers: List<String> = emptyList(),
     onOpen: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     Column(modifier.clickable(onClick = onOpen)) {
         Box(Modifier.fillMaxWidth().aspectRatio(1f)) {
-            Artwork(coverUrl, Modifier.fillMaxSize(), shape = RoundedCornerShape(12.dp))
+            PlaylistCover(
+                coverUrl = coverUrl,
+                mosaicCovers = mosaicCovers,
+                modifier = Modifier.fillMaxSize(),
+                shape = RoundedCornerShape(12.dp),
+            )
         }
         Text(
             title,

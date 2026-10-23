@@ -11,6 +11,7 @@ import okhttp3.Response
 import okhttp3.ResponseBody.Companion.toResponseBody
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
+import com.kike.musicplayer.data.db.mosaicCovers
 import org.junit.Assert.fail
 import org.junit.Test
 
@@ -244,5 +245,93 @@ class CatalogClientPlaylistTest {
         assertTrue(appleResult.playlist.title.contains("80s Hits Essentials"))
         assertTrue(appleResult.tracks.isNotEmpty())
         println("Resolved live Apple Music: ${appleResult.playlist.title} with ${appleResult.tracks.size} tracks")
+    }
+
+
+    @Test
+    fun normalizeArtworkUrlHandlesVariousFormats() {
+        // 1. Social card 1200x630 -> 600x600 square
+        val social = "https://is1-ssl.mzstatic.com/image/thumb/Features116/v4/17/10/9c/17109c78-a9f2-05bf-662d-3cd126e47458/82ff49a3-d0ce-497d-bd29-1be6b257f000.png/1200x630SC.DN02-60.jpg?l=en-US"
+        assertEquals(
+            "https://is1-ssl.mzstatic.com/image/thumb/Features116/v4/17/10/9c/17109c78-a9f2-05bf-662d-3cd126e47458/82ff49a3-d0ce-497d-bd29-1be6b257f000.png/600x600SC.DN02-60.jpg?l=en-US",
+            normalizeArtworkUrl(social)
+        )
+
+        // 2. Social card with wp (wallpaper border) -> 600x600cc.jpg (full bleed cover crop)
+        val wallpaper = "https://is1-ssl.mzstatic.com/image/thumb/Podcasts125/v4/bf/12/34/mza_123.jpg/1200x630wp-60.jpg"
+        assertEquals(
+            "https://is1-ssl.mzstatic.com/image/thumb/Podcasts125/v4/bf/12/34/mza_123.jpg/600x600cc.jpg",
+            normalizeArtworkUrl(wallpaper)
+        )
+
+        // 3. Template {w}x{h} -> 600x600 and {f} -> jpg
+        val template = "https://is1-ssl.mzstatic.com/image/thumb/Features116/v4/art/{w}x{h}SC.DN02.{f}?l=en-US"
+        assertEquals(
+            "https://is1-ssl.mzstatic.com/image/thumb/Features116/v4/art/600x600SC.DN02.jpg?l=en-US",
+            normalizeArtworkUrl(template)
+        )
+
+        // 4. Already square (1000x1000) preserved
+        val square = "https://is1-ssl.mzstatic.com/image/thumb/Music125/v4/thriller/1000x1000bb.jpg"
+        assertEquals(square, normalizeArtworkUrl(square))
+
+        // 5. Non-mzstatic URL preserved
+        val dz = "https://e-cdns-images.dzcdn.net/images/cover/500x500.jpg"
+        assertEquals(dz, normalizeArtworkUrl(dz))
+
+        // 6. Unescapes &amp; to & in query parameters
+        val dynamicGen = "https://is1-ssl.mzstatic.com/image/thumb/gen/1200x630AM.PDCXS16-60.jpg?c1=F2A39D&amp;c2=FFDC40&amp;signature=db8"
+        assertEquals(
+            "https://is1-ssl.mzstatic.com/image/thumb/gen/600x600AM.PDCXS16-60.jpg?c1=F2A39D&c2=FFDC40&signature=db8",
+            normalizeArtworkUrl(dynamicGen)
+        )
+    }
+
+    @Test
+    fun defaultCatalogCoverDetection() {
+        assertTrue(isDefaultCatalogCover("https://music.apple.com/assets/meta/apple-music-60.png"))
+        assertTrue(isDefaultCatalogCover("https://music.apple.com/assets/meta/apple-music-1200.png"))
+        assertTrue(isDefaultCatalogCover("https://api.deezer.com/playlist//image"))
+        assertTrue(isDefaultCatalogCover(null))
+        assertTrue(isDefaultCatalogCover(""))
+        org.junit.Assert.assertFalse(isDefaultCatalogCover("https://is1-ssl.mzstatic.com/art1/600x600bb.jpg"))
+    }
+
+    @Test
+    fun savedCatalogPlaylistMosaicCoversExtractsDistinctCovers() {
+        val tracksJson = """
+            [
+              {"id":"ap:1","title":"Song 1","coverUrl":"https://is1-ssl.mzstatic.com/art1/{w}x{h}bb.{f}"},
+              {"id":"ap:2","title":"Song 2","coverUrl":"https://is1-ssl.mzstatic.com/art1/{w}x{h}bb.{f}"},
+              {"id":"ap:3","title":"Song 3","coverUrl":"https://is1-ssl.mzstatic.com/art2/{w}x{h}bb.{f}"},
+              {"id":"ap:4","title":"Song 4","coverUrl":"https://is1-ssl.mzstatic.com/art3/{w}x{h}bb.{f}"},
+              {"id":"ap:5","title":"Song 5","coverUrl":"https://is1-ssl.mzstatic.com/art4/{w}x{h}bb.{f}"},
+              {"id":"ap:6","title":"Song 6","coverUrl":"https://is1-ssl.mzstatic.com/art5/{w}x{h}bb.{f}"}
+            ]
+        """.trimIndent()
+
+        val plWithoutCover = com.kike.musicplayer.data.db.SavedCatalogPlaylist(
+            id = "ap:onthego",
+            title = "On-The-Go 1",
+            creator = "User",
+            trackCount = 6,
+            coverUrl = null,
+            cachedTracksJson = tracksJson,
+        )
+
+        val covers = plWithoutCover.mosaicCovers()
+        assertEquals(4, covers.size)
+        assertEquals("https://is1-ssl.mzstatic.com/art1/600x600bb.jpg", covers[0])
+        assertEquals("https://is1-ssl.mzstatic.com/art2/600x600bb.jpg", covers[1])
+        assertEquals("https://is1-ssl.mzstatic.com/art3/600x600bb.jpg", covers[2])
+        assertEquals("https://is1-ssl.mzstatic.com/art4/600x600bb.jpg", covers[3])
+
+        // When playlist has an explicit cover, mosaicCovers returns emptyList
+        val plWithCover = plWithoutCover.copy(coverUrl = "https://is1-ssl.mzstatic.com/art_main/600x600.jpg")
+        assertTrue(plWithCover.mosaicCovers().isEmpty())
+
+        // When playlist has Apple default placeholder cover, mosaicCovers extracts covers
+        val plWithDefaultCover = plWithoutCover.copy(coverUrl = "https://music.apple.com/assets/meta/apple-music-60.png")
+        assertEquals(4, plWithDefaultCover.mosaicCovers().size)
     }
 }

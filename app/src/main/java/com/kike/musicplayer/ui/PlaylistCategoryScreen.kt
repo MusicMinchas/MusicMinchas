@@ -42,6 +42,7 @@ import androidx.compose.ui.unit.dp
 import com.kike.musicplayer.data.catalog.CatalogPlaylist
 import com.kike.musicplayer.data.db.SavedCatalogPlaylist
 import com.kike.musicplayer.data.db.Track
+import com.kike.musicplayer.data.db.mosaicCovers
 
 private fun count(n: Int, noun: String) = if (n == 1) "1 $noun" else "$n ${noun}s"
 
@@ -210,7 +211,8 @@ fun PlaylistCategoryScreen(
                         modifier = Modifier.fillMaxSize(),
                     ) {
                         items(sorted, key = { "cat-pl:" + it.id }) { playlist ->
-                            val catPl = remember(playlist) {
+                            val mosaic = remember(playlist.id, playlist.cachedTracksJson) { playlist.mosaicCovers() }
+                            val catPl = remember(playlist, mosaic) {
                                 CatalogPlaylist(
                                     id = playlist.id,
                                     title = playlist.title,
@@ -218,10 +220,11 @@ fun PlaylistCategoryScreen(
                                     trackCount = playlist.trackCount,
                                     coverUrl = playlist.coverUrl,
                                     source = playlist.source,
+                                    mosaicCovers = mosaic,
                                 )
                             }
                             Column(Modifier.clickable { onOpenCatalogPlaylist(catPl) }) {
-                                Artwork(playlist.coverUrl, Modifier.fillMaxWidth().aspectRatio(1f), shape = RoundedCornerShape(12.dp))
+                                PlaylistCover(playlist.coverUrl, mosaic, Modifier.fillMaxWidth().aspectRatio(1f), shape = RoundedCornerShape(12.dp))
                                 Row(
                                     Modifier.fillMaxWidth().padding(top = 8.dp),
                                     verticalAlignment = Alignment.CenterVertically,

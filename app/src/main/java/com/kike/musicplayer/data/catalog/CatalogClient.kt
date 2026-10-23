@@ -58,11 +58,41 @@ data class CatalogPlaylist(
     val trackCount: Int,
     val coverUrl: String?,
     val source: String = SOURCE_DEEZER,
+    val mosaicCovers: List<String> = emptyList(),
 ) {
     companion object {
         const val SOURCE_DEEZER = "deezer"
         const val SOURCE_APPLE = "apple"
     }
+}
+
+fun isDefaultCatalogCover(url: String?): Boolean {
+    if (url.isNullOrBlank()) return true
+    return url.contains("assets/meta") || url.contains("apple-music-") || url.contains("/playlist//")
+}
+
+/**
+ * Normalizes Apple Music mzstatic image URLs to 600x600 square full-bleed artwork,
+ * removing social card letterboxing (such as 1200x630 or wallpaper preview wp) and replacing dimension templates ({w}x{h}).
+ */
+fun normalizeArtworkUrl(uri: Any?): Any? {
+    val str = uri as? String ?: (uri as? android.net.Uri)?.toString() ?: return uri
+    val unescaped = if (str.contains("&amp;")) str.replace("&amp;", "&") else str
+    if (unescaped.contains("mzstatic.com")) {
+        var res = unescaped.replace("{w}x{h}", "600x600").replace("{f}", "jpg")
+        res = Regex("""/\d+x\d+wp(?:-\d+)?\.([a-zA-Z0-9]+)""").replace(res) { match ->
+            "/600x600cc.${match.groupValues[1]}"
+        }
+        val regex = Regex("""/(\d+)x(\d+)([A-Za-z0-9._-]*)""")
+        val result = regex.replace(res) { match ->
+            val w = match.groupValues[1]
+            val h = match.groupValues[2]
+            val rest = match.groupValues[3]
+            if (w != h) "/600x600$rest" else match.value
+        }
+        return if (uri is android.net.Uri) android.net.Uri.parse(result) else result
+    }
+    return if (uri is android.net.Uri) android.net.Uri.parse(unescaped) else unescaped
 }
 
 data class ResolvedPlaylist(
@@ -392,10 +422,14 @@ class CatalogClient(
         val nbTracks = (json["nb_tracks"] as? Number)?.toInt() ?: 0
         val coverUrl = ((json["picture_xl"] as? String)
             ?: (json["picture_big"] as? String)
-            ?: (json["picture_medium"] as? String))?.takeIf { "/playlist//" !in it }
+            ?: (json["picture_medium"] as? String))?.takeIf { !isDefaultCatalogCover(it) }
 
         val tracksData = (json["tracks"] as? Map<*, *>)?.get("data") as? List<*>
         val tracks = tracksData?.mapNotNull { (it as? Map<*, *>)?.let { map -> parseDeezerTrack(map) } }.orEmpty()
+
+        val mosaic = if (coverUrl.isNullOrBlank()) {
+            tracks.mapNotNull { it.coverUrl }.filter { it.isNotBlank() }.distinct().take(4)
+        } else emptyList()
 
         val playlist = CatalogPlaylist(
             id = "dz:$id",
@@ -404,6 +438,7 @@ class CatalogClient(
             trackCount = if (nbTracks > 0) nbTracks else tracks.size,
             coverUrl = coverUrl,
             source = CatalogPlaylist.SOURCE_DEEZER,
+            mosaicCovers = mosaic,
         )
         return ResolvedPlaylist(playlist, tracks)
     }
@@ -452,9 +487,14 @@ class CatalogClient(
         }
 
         val ogImageRegex = Regex("""property="og:image"\s+content="([^"]+)"""")
-        val coverUrl = ogImageRegex.find(html)?.groupValues?.get(1)
+        val rawCoverUrl = ogImageRegex.find(html)?.groupValues?.get(1)?.replace("&amp;", "&")?.takeIf { !isDefaultCatalogCover(it) }
+        val coverUrl = rawCoverUrl?.let { normalizeArtworkUrl(it) as? String ?: it }
 
         val tracks = parseApplePlaylistTracksFromHtml(html)
+
+        val mosaic = if (coverUrl.isNullOrBlank()) {
+            tracks.mapNotNull { it.coverUrl }.filter { it.isNotBlank() }.distinct().take(4)
+        } else emptyList()
 
         val playlist = CatalogPlaylist(
             id = "ap:$id",
@@ -463,6 +503,7 @@ class CatalogClient(
             trackCount = tracks.size,
             coverUrl = coverUrl,
             source = CatalogPlaylist.SOURCE_APPLE,
+            mosaicCovers = mosaic,
         )
         return ResolvedPlaylist(playlist, tracks)
     }
@@ -521,7 +562,7 @@ class CatalogClient(
                         val artwork = obj["artwork"] as? Map<*, *>
                         val dict = artwork?.get("dictionary") as? Map<*, *>
                         val artUrl = dict?.get("url") as? String
-                        val coverUrl = artUrl?.replace("{w}x{h}bb.{f}", "1000x1000bb.jpg")
+                        val coverUrl = artUrl?.replace("{w}x{h}", "1000x1000")?.replace("{f}", "jpg")
                             ?: (obj["thumbnailUrl"] as? String)
 
                         out.add(

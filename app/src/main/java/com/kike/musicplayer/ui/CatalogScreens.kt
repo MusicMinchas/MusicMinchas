@@ -570,7 +570,12 @@ fun CatalogPlaylistScreen(
                     Modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 8.dp),
                     horizontalAlignment = Alignment.CenterHorizontally,
                 ) {
-                    Artwork(playlist.coverUrl, size = 160.dp, shape = RoundedCornerShape(12.dp))
+                    val mosaic = remember(playlist.coverUrl, playlist.mosaicCovers, tracks) {
+                        if (!playlist.coverUrl.isNullOrBlank() && !com.kike.musicplayer.data.catalog.isDefaultCatalogCover(playlist.coverUrl)) emptyList()
+                        else if (playlist.mosaicCovers.isNotEmpty()) playlist.mosaicCovers
+                        else tracks.mapNotNull { it.coverUrl }.filter { it.isNotBlank() }.distinct().take(4)
+                    }
+                    PlaylistCover(playlist.coverUrl, mosaic, size = 160.dp, shape = RoundedCornerShape(12.dp))
                     Spacer(Modifier.height(12.dp))
                     Text(
                         playlist.title,

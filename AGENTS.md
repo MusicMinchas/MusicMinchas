@@ -7,7 +7,7 @@ Parent workspace notes: @[Shared Android Dev Workspace](../AGENTS.md)
 
 - **Path:** `C:\Users\kike\dev\MusicPlayer` (local git repo, repo-local identity `kike` / `kikeprojo@gmail.com`, nothing pushed).
 - **Package:** `com.kike.musicplayer`
-- **Current Release:** `1.34.0` (`versionCode = 85`, Room DB `v26`, `minSdk = 30`, `targetSdk = 36`, `compileSdk = 37`). Merged to `master`, tag `v1.34.0`.
+- **Current Release:** `1.34.1` (`versionCode = 86`, Room DB `v26`, `minSdk = 30`, `targetSdk = 36`, `compileSdk = 37`). Merged to `master`, tag `v1.34.1`.
 - **Stack:** Kotlin 2.4.20, Jetpack Compose, Media3 1.11.1 `MediaLibraryService` (Android Auto browse tree), Room 2.8.5 via KSP 2.3.12 + Paging 3 (`paging-compose 3.3.6`, `room-paging`), Retrofit 3 + Moshi (reflection), Coil 3, `play-services-auth` 22 `AuthorizationClient` (`drive.readonly` + `email`), `reorderable` 3.1.0, AGP 9.4.1, Gradle 9.8.
 - **Shared Toolchain & Environment:**
   - `JAVA_HOME`: Android Studio's bundled `jbr`
@@ -188,3 +188,6 @@ Started 2026-10-08 from user-pasted spec. NEW app, explicitly independent of Son
         - Right chevron navigation on category headers and "More…" card (when > 10 items) opening a 2-column vertically scrolling grid view (`PlaylistCategoryScreen.kt`).
         - Context menus for catalog and personal playlists (Rename, Delete, Remove from saved, Download).
       - Room migration `25 -> 26`: Added `lastPlayedAt` column to `playlists` and `saved_catalog_playlists`. Pre-migration backup saved to `C:\Users\kike\dev\db-backup\2026-10-23-pre-1.34.0\music.db`.
+  - 1.34.1 (`versionCode = 86`, Room DB `v26`, release APK installed on device):
+    - Apple Music playlist artwork normalization: rewrites letterboxed social card URLs (1200x630, `wp` wallpaper transforms) to dynamic 600x600 center-crop full-bleed covers (`600x600cc.jpg`), unescapes HTML `&amp;` entities in dynamic Apple signature URLs.
+    - Dynamic 2x2 cover mosaic for coverless catalog playlists: detects default/empty Apple placeholders (`isDefaultCatalogCover`) and generates a dynamic 4-cover mosaic across catalog playlist cards, category grid, and playlist detail header.

@@ -79,15 +79,55 @@ import androidx.compose.foundation.layout.Arrangement
 
 @Composable
 fun Artwork(uri: Any?, modifier: Modifier = Modifier, size: Dp? = null, shape: Shape = RoundedCornerShape(6.dp)) {
+    val normalized = remember(uri) { com.kike.musicplayer.data.catalog.normalizeArtworkUrl(uri) }
     val m = (if (size != null) modifier.size(size) else modifier).clip(shape)
     SubcomposeAsyncImage(
-        model = uri,
+        model = normalized,
         contentDescription = null,
         contentScale = ContentScale.Crop,
         modifier = m,
         loading = { ArtworkPlaceholder() },
         error = { ArtworkPlaceholder() },
     )
+}
+
+/**
+ * Renders a playlist cover:
+ * - If [coverUrl] is present, displays the single normalized artwork.
+ * - If [coverUrl] is null or blank, generates a 2x2 mosaic of [mosaicCovers] (or a single cover if 1..3, or placeholder if 0),
+ *   matching the behavior of Recently Played, Recently Played Albums, and user playlists.
+ */
+@Composable
+fun PlaylistCover(
+    coverUrl: String?,
+    mosaicCovers: List<String> = emptyList(),
+    modifier: Modifier = Modifier,
+    size: Dp? = null,
+    shape: Shape = RoundedCornerShape(12.dp),
+) {
+    if (!coverUrl.isNullOrBlank() && !com.kike.musicplayer.data.catalog.isDefaultCatalogCover(coverUrl)) {
+        Artwork(coverUrl, modifier = modifier, size = size, shape = shape)
+    } else {
+        val nonNullCovers = mosaicCovers.filter { it.isNotBlank() }.distinct()
+        val m = (if (size != null) modifier.size(size) else modifier).clip(shape)
+        if (nonNullCovers.size >= 4) {
+            Box(m) {
+                Column(Modifier.fillMaxSize()) {
+                    for (rowCovers in nonNullCovers.take(4).chunked(2)) {
+                        Row(Modifier.weight(1f).fillMaxWidth()) {
+                            rowCovers.forEach {
+                                Artwork(it, Modifier.weight(1f).fillMaxSize(), shape = RoundedCornerShape(0.dp))
+                            }
+                        }
+                    }
+                }
+            }
+        } else if (nonNullCovers.isNotEmpty()) {
+            Artwork(nonNullCovers.first(), modifier = modifier, size = size, shape = shape)
+        } else {
+            Artwork(null, modifier = modifier, size = size, shape = shape)
+        }
+    }
 }
 
 @Composable
