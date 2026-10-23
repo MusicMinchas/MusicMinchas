@@ -44,6 +44,8 @@ import com.kike.musicplayer.recommend.UNKNOWN_GENRE
 import com.kike.musicplayer.recommend.artistTagMap
 import com.kike.musicplayer.recommend.ReplayPeriod
 import com.kike.musicplayer.recommend.mostPlayed
+import com.kike.musicplayer.recommend.heavyRotation
+import com.kike.musicplayer.recommend.heavyRotationCandidateIds
 import com.kike.musicplayer.recommend.replay
 import com.kike.musicplayer.playback.albumTrackOrder
 import kotlinx.coroutines.Dispatchers
@@ -127,6 +129,7 @@ data class Playlists(
     /** Albums of the sources switched on, by when their newest song was added, newest first. */
     val addedAlbums: List<Album> = emptyList(),
     /** Counted plays (half the track listened), most first. */
+    val heavyRotation: List<Ranked<Track>> = emptyList(),
     val mostPlayed: List<Ranked<Track>> = emptyList(),
     /** Favourite songs, most recently added first. */
     val favourites: List<Track> = emptyList(),
@@ -259,11 +262,13 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
 
     /** Recently played, recent albums, most played and favourites: only their songs are read. */
     private suspend fun buildPlaylists(history: List<PlayHistory>, favourites: List<Favourite>): Playlists {
-        val stats = ListeningStats(history, System.currentTimeMillis())
+        val now = System.currentTimeMillis()
+        val stats = ListeningStats(history, now)
         // Like everywhere else, a play counts once half the song was listened to (the playing one joins then).
         val recentIds = history.asSequence().filter { it.counted }.map { it.trackId }.distinct().take(RECENT_LOOKUP).toList()
         val topIds = stats.plays.entries.sortedByDescending { it.value }.take(MOST_PLAYED_LOOKUP).map { it.key }
-        val byId = database.tracks().getByIds((recentIds + topIds + favourites.map { it.trackId }).toSet())
+        val heavyRotationIds = heavyRotationCandidateIds(history, now, candidateLimit = 150)
+        val byId = database.tracks().getByIds((recentIds + topIds + heavyRotationIds + favourites.map { it.trackId }).toSet())
             .filter { it.durationMs >= 0 }.associateBy { it.id }
         // Each album once (lists are keyed by album), from the source it was played from.
         val albumKeys = recentIds.mapNotNull { id -> byId[id]?.let { it.scope to it.albumKey } }
@@ -271,6 +276,7 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
         return Playlists(
             recentTracks = recentIds.mapNotNull { byId[it] }.take(RECENT_TRACKS),
             recentAlbums = albumsWithTracks(albumKeys),
+            heavyRotation = heavyRotation(byId, history, now),
             mostPlayed = mostPlayed(byId, stats),
             favourites = favourites.mapNotNull { byId[it.trackId] },
         )

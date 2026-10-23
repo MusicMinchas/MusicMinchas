@@ -2,6 +2,7 @@ package com.kike.musicplayer.recommend
 
 import com.kike.musicplayer.data.db.PlayHistory
 import com.kike.musicplayer.data.db.Track
+import com.kike.musicplayer.data.lastfm.TrackMatcher
 import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneId
@@ -63,6 +64,134 @@ fun mostPlayed(tracks: Map<String, Track>, stats: ListeningStats, limit: Int = 5
         .sortedWith(compareByDescending<Map.Entry<String, Int>> { it.value }.thenByDescending { stats.lastPlayed[it.key] ?: 0 })
         .mapNotNull { (id, n) -> tracks[id]?.let { Ranked(it, n) } }
         .take(limit)
+
+const val HEAVY_ROTATION_WINDOW_DAYS = 30
+const val HEAVY_ROTATION_HALF_LIFE_DAYS = 7.0
+const val HEAVY_ROTATION_LIMIT = 25
+const val HEAVY_ROTATION_MAX_PER_ARTIST = 2
+const val HEAVY_ROTATION_MAX_PER_ALBUM = 2
+
+/**
+ * Fast pre-scoring from play history to find the top candidate track IDs for Heavy Rotation
+ * without having to load the entire 30-day track history from the database.
+ */
+fun heavyRotationCandidateIds(history: List<PlayHistory>, now: Long, candidateLimit: Int = 100): List<String> {
+    val cutoff = now - HEAVY_ROTATION_WINDOW_DAYS * ListeningStats.DAY_MS
+    val scores = HashMap<String, Double>()
+    val days = HashMap<String, MutableSet<Long>>()
+    for (h in history) {
+        if (h.playedAt < cutoff) continue
+        val ageDays = (now - h.playedAt) / ListeningStats.DAY_MS.toDouble()
+        if (h.counted) {
+            val w = Math.pow(0.5, ageDays / HEAVY_ROTATION_HALF_LIFE_DAYS)
+            scores.merge(h.trackId, w, Double::plus)
+            days.getOrPut(h.trackId) { HashSet() }.add(h.playedAt / ListeningStats.DAY_MS)
+        } else if (h.listenedMs in 1 until ListeningStats.SKIP_MS) {
+            scores.merge(h.trackId, -0.5, Double::plus)
+        }
+    }
+    return scores.entries
+        .filter { it.value > 0 }
+        .sortedByDescending { (id, score) ->
+            val activeDays = days[id]?.size ?: 1
+            score * (1.0 + 0.15 * (activeDays - 1))
+        }
+        .take(candidateLimit)
+        .map { it.key }
+}
+
+/**
+ * Computes the 25 tracks in 'Heavy Rotation' based on Apple Music momentum:
+ * - 30-day rolling window
+ * - Exponential decay (half-life of 7 days)
+ * - Multi-day consistency multiplier (+15% per additional active day)
+ * - Skip penalty (-0.5) and dislike exclusion
+ * - Canonical song deduplication across sources (own copy wins: Local > Drive > Server > Stream)
+ * - Diversity cap (max 2 tracks per artist, max 2 tracks per album)
+ */
+fun heavyRotation(
+    tracks: Map<String, Track>,
+    history: List<PlayHistory>,
+    now: Long = System.currentTimeMillis(),
+    limit: Int = HEAVY_ROTATION_LIMIT,
+    maxPerArtist: Int = HEAVY_ROTATION_MAX_PER_ARTIST,
+    maxPerAlbum: Int = HEAVY_ROTATION_MAX_PER_ALBUM,
+): List<Ranked<Track>> {
+    val cutoff = now - HEAVY_ROTATION_WINDOW_DAYS * ListeningStats.DAY_MS
+
+    class SongGroup(var bestTrack: Track, var bestPrio: Int) {
+        var score = 0.0
+        var countedPlays = 0
+        val activeDays = HashSet<Long>()
+        var skips = 0
+    }
+
+    fun sourcePriority(t: Track): Int = when (t.scope) {
+        Track.SCOPE_LOCAL -> 0
+        Track.SCOPE_DRIVE -> 1
+        Track.SCOPE_SERVER -> 2
+        else -> 3
+    }
+
+    val groups = HashMap<String, SongGroup>()
+
+    for (h in history) {
+        if (h.playedAt < cutoff) continue
+        val t = tracks[h.trackId] ?: continue
+        if (t.durationMs < 0) continue // unplayable DRM
+
+        val normArtist = TrackMatcher.looseArtist(t.artist ?: t.albumArtist.orEmpty())
+        val normTitle = TrackMatcher.looseTitle(t.title)
+        val key = "$normArtist\u0001$normTitle"
+
+        val prio = sourcePriority(t)
+        val group = groups.getOrPut(key) { SongGroup(t, prio) }
+        if (prio < group.bestPrio) {
+            group.bestTrack = t
+            group.bestPrio = prio
+        }
+
+        val ageDays = (now - h.playedAt) / ListeningStats.DAY_MS.toDouble()
+        if (h.counted) {
+            group.countedPlays++
+            group.activeDays.add(h.playedAt / ListeningStats.DAY_MS)
+            val w = Math.pow(0.5, ageDays / HEAVY_ROTATION_HALF_LIFE_DAYS)
+            group.score += w
+        } else if (h.listenedMs in 1 until ListeningStats.SKIP_MS) {
+            group.skips++
+            group.score -= 0.5
+        }
+    }
+
+    val scored = groups.values.mapNotNull { g ->
+        if (g.countedPlays < 1 || (g.skips >= 2 && g.countedPlays == 0) || g.score <= 0.0) null
+        else {
+            val dayMult = 1.0 + 0.15 * (g.activeDays.size - 1)
+            val finalScore = g.score * dayMult
+            Triple(finalScore, g.bestTrack, g.countedPlays)
+        }
+    }.sortedByDescending { it.first }
+
+    val selected = ArrayList<Ranked<Track>>()
+    val artistCounts = HashMap<String, Int>()
+    val albumCounts = HashMap<String, Int>()
+
+    for ((_, track, plays) in scored) {
+        val artKey = TrackMatcher.looseArtist(track.artist ?: track.albumArtist.orEmpty())
+        val albKey = track.album?.let { TrackMatcher.basic(it) } ?: ""
+
+        if (maxPerArtist > 0 && (artistCounts[artKey] ?: 0) >= maxPerArtist) continue
+        if (maxPerAlbum > 0 && albKey.isNotEmpty() && (albumCounts[albKey] ?: 0) >= maxPerAlbum) continue
+
+        selected.add(Ranked(track, plays))
+        artistCounts.merge(artKey, 1, Int::plus)
+        if (albKey.isNotEmpty()) albumCounts.merge(albKey, 1, Int::plus)
+
+        if (selected.size >= limit) break
+    }
+
+    return selected
+}
 
 /** A Replay period: a whole year, or one month of it (1-12). */
 data class ReplayPeriod(val year: Int, val month: Int? = null)

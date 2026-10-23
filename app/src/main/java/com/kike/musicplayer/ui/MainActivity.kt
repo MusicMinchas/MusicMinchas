@@ -67,6 +67,7 @@ private sealed interface Screen {
     data object AddedAlbums : Screen
     data object Mixes : Screen
     data object Replay : Screen
+    data object HeavyRotation : Screen
     data object MostPlayed : Screen
     data object Favourites : Screen
     data object NewPlaylist : Screen
@@ -289,6 +290,7 @@ class MainActivity : ComponentActivity() {
                             onOpenAddedAlbums = { push(Screen.AddedAlbums) },
                             onOpenMixes = { push(Screen.Mixes) },
                             onOpenReplay = { push(Screen.Replay) },
+                            onOpenHeavyRotation = { push(Screen.HeavyRotation) },
                             onOpenMostPlayed = { push(Screen.MostPlayed) },
                             onOpenFavourites = { push(Screen.Favourites) },
                             onNewPlaylist = { push(Screen.NewPlaylist) },
@@ -352,6 +354,12 @@ class MainActivity : ComponentActivity() {
                         Screen.Queue -> QueueScreen(playerVm, ::pop, padding)
                         Screen.DriveFolders -> DriveFolderPickerScreen(libraryVm, ::pop, padding)
                         Screen.RecentTracks -> TrackListScreen("Recently Played", playlists.recentTracks, playerVm, ::pop, padding)
+                        Screen.HeavyRotation -> {
+                            val counts = playlists.heavyRotation.associate { it.item.id to it.plays }
+                            TrackListScreen("Heavy Rotation", playlists.heavyRotation.map { it.item }, playerVm, ::pop, padding) { t ->
+                                counts[t.id]?.let { if (it == 1) "1 play this month" else "$it plays this month" }
+                            }
+                        }
                         Screen.MostPlayed -> {
                             val counts = playlists.mostPlayed.associate { it.item.id to it.plays }
                             TrackListScreen("Most Played", playlists.mostPlayed.map { it.item }, playerVm, ::pop, padding) { t ->

@@ -136,6 +136,7 @@ fun LibraryScreen(
     onOpenAddedAlbums: () -> Unit,
     onOpenMixes: () -> Unit,
     onOpenReplay: () -> Unit,
+    onOpenHeavyRotation: () -> Unit = {},
     onOpenMostPlayed: () -> Unit,
     onOpenFavourites: () -> Unit,
     onNewPlaylist: () -> Unit,
@@ -251,7 +252,7 @@ fun LibraryScreen(
         tabStates.SaveableStateProvider(LIBRARY_TABS[tab]) {
             when (LIBRARY_TABS[tab]) {
                 "Home" -> HomeTab(
-                    libraryVm, playerVm, onOpenReplay, onOpenMostPlayed, onOpenFavourites, onOpenRecentTracks,
+                    libraryVm, playerVm, onOpenReplay, onOpenHeavyRotation, onOpenMostPlayed, onOpenFavourites, onOpenRecentTracks,
                     onOpenMix, onOpenMixes, onOpenRecentAlbums, onOpenAddedAlbums, onOpenAlbum,
                 )
                 "Discover" -> DiscoverTab(libraryVm, onOpenArtist, onOpenAlbum, onOpenFollowing)
@@ -270,6 +271,7 @@ fun LibraryScreen(
                         onOpenRecentTracks = onOpenRecentTracks,
                         onOpenRecentAlbums = onOpenRecentAlbums,
                         onOpenAddedAlbums = onOpenAddedAlbums,
+                        onOpenHeavyRotation = onOpenHeavyRotation,
                         onOpenMostPlayed = onOpenMostPlayed,
                         onOpenFavourites = onOpenFavourites,
                         onNewPlaylist = onNewPlaylist,
@@ -978,6 +980,7 @@ private fun PlaylistsTab(
     onOpenRecentTracks: () -> Unit,
     onOpenRecentAlbums: () -> Unit,
     onOpenAddedAlbums: () -> Unit,
+    onOpenHeavyRotation: () -> Unit,
     onOpenMostPlayed: () -> Unit,
     onOpenFavourites: () -> Unit,
     onNewPlaylist: () -> Unit,
@@ -1025,6 +1028,7 @@ private fun PlaylistsTab(
     val recent = playlists.recentTracks
     val albums = playlists.recentAlbums.flatMap { it.tracks }
     val added = playlists.addedAlbums.flatMap { it.tracks }
+    val rotation = playlists.heavyRotation.map { it.item }
     val most = playlists.mostPlayed.map { it.item }
     val favourites = playlists.favourites
 
@@ -1070,6 +1074,9 @@ private fun PlaylistsTab(
                     CollectionCard("Recently Added Albums",
                         if (added.isEmpty()) "Nothing added yet" else count(playlists.addedAlbums.size, "album"),
                         added, onOpenAddedAlbums, { playerVm.playTracks(added, 0) }, card)
+                    CollectionCard("Heavy Rotation",
+                        if (rotation.isEmpty()) "Your current favorites" else count(rotation.size, "song"),
+                        rotation, onOpenHeavyRotation, { playerVm.playTracks(rotation, 0) }, card)
                     CollectionCard("Most Played", if (most.isEmpty()) "Nothing played yet" else count(most.size, "song"),
                         most, onOpenMostPlayed, { playerVm.playTracks(most, 0) }, card)
                     CollectionCard("Favourite Songs", if (favourites.isEmpty()) "Tap the heart on a song" else count(favourites.size, "song"),

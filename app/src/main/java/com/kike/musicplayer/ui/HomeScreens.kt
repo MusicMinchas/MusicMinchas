@@ -65,6 +65,7 @@ fun HomeTab(
     libraryVm: LibraryViewModel,
     playerVm: PlayerViewModel,
     onOpenReplay: () -> Unit,
+    onOpenHeavyRotation: () -> Unit,
     onOpenMostPlayed: () -> Unit,
     onOpenFavourites: () -> Unit,
     onOpenRecentTracks: () -> Unit,
@@ -110,6 +111,14 @@ fun HomeTab(
                         subtitle = if (r == null || r.plays == 0) "Your most played" else "${r.plays} plays",
                         tracks = top, onOpen = onOpenReplay,
                         onPlay = { playerVm.playTracks(top, 0) },
+                        modifier = Modifier.width(MIX_CARD_WIDTH),
+                    )
+                    val rotation = playlists.heavyRotation.map { it.item }
+                    CollectionCard(
+                        title = "Heavy Rotation",
+                        subtitle = if (rotation.isEmpty()) "Your current favorites" else count(rotation.size, "song"),
+                        tracks = rotation, onOpen = onOpenHeavyRotation,
+                        onPlay = { playerVm.playTracks(rotation, 0) },
                         modifier = Modifier.width(MIX_CARD_WIDTH),
                     )
                     CollectionCard(
