@@ -416,6 +416,9 @@ interface PlaylistDao {
         insertEntries(trackIds.mapIndexed { i, t -> PlaylistTrack(id, i, t) })
         return id
     }
+
+    @Query("UPDATE playlists SET lastPlayedAt = :timestamp WHERE id = :playlistId")
+    suspend fun updateLastPlayed(playlistId: Long, timestamp: Long = System.currentTimeMillis())
 }
 
 @Dao
@@ -848,4 +851,7 @@ interface SavedCatalogPlaylistDao {
 
     @Query("UPDATE saved_catalog_playlists SET trackCount = :trackCount, cachedTracksJson = :cachedTracksJson, matchedCount = :matchedCount, cachedMatchesJson = :cachedMatchesJson, lastRefreshedAt = :lastRefreshedAt WHERE id = :id")
     suspend fun updateTracksAndMatches(id: String, trackCount: Int, cachedTracksJson: String, matchedCount: Int, cachedMatchesJson: String?, lastRefreshedAt: Long)
+
+    @Query("UPDATE saved_catalog_playlists SET lastPlayedAt = :timestamp WHERE id = :id")
+    suspend fun updateLastPlayed(id: String, timestamp: Long = System.currentTimeMillis())
 }

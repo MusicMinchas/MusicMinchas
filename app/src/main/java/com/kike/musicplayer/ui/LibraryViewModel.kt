@@ -133,7 +133,7 @@ data class Playlists(
 )
 
 /** A user playlist with its songs (those still in the library), in order. */
-data class PlaylistView(val id: Long, val name: String, val tracks: List<Track>)
+data class PlaylistView(val id: Long, val name: String, val tracks: List<Track>, val lastPlayedAt: Long = 0L, val createdAt: Long = 0L)
 
 class LibraryViewModel(app: Application) : AndroidViewModel(app) {
     private val container = app.container
@@ -556,6 +556,23 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
+    suspend fun importPlaylistFromUrl(url: String): Result<com.kike.musicplayer.data.catalog.CatalogPlaylist> = withContext(Dispatchers.IO) {
+        runCatching {
+            val resolved = container.catalog.resolvePlaylistUrl(url)
+            val matched = matchCatalogTracks(resolved.tracks)
+            saveCatalogPlaylist(resolved.playlist, resolved.tracks, matched)
+            resolved.playlist
+        }
+    }
+
+    fun recordPlaylistPlayed(playlistId: Long) = viewModelScope.launch(Dispatchers.IO) {
+        playlistDao.updateLastPlayed(playlistId)
+    }
+
+    fun recordCatalogPlaylistPlayed(id: String) = viewModelScope.launch(Dispatchers.IO) {
+        container.database.savedCatalogPlaylists().updateLastPlayed(id)
+    }
+
     // Single-artist cache: only retains missing catalog albums for the currently active artist,
     // avoiding unbounded memory growth across different artist visits.
     private var cachedMissingArtist: String? = null
@@ -813,7 +830,7 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
         .mapLatest { (playlists, entries) ->
             val byId = database.tracks().getByIds(entries.mapTo(HashSet()) { it.trackId }).associateBy { it.id }
             val songs = entries.groupBy({ it.playlistId }, { it.trackId })
-            playlists.map { p -> PlaylistView(p.id, p.name, songs[p.id].orEmpty().mapNotNull { byId[it] }) }
+            playlists.map { p -> PlaylistView(p.id, p.name, songs[p.id].orEmpty().mapNotNull { byId[it] }, p.lastPlayedAt, p.createdAt) }
         }
         .flowOn(Dispatchers.IO).stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
 

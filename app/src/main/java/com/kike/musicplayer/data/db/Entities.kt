@@ -244,6 +244,7 @@ data class UserPlaylist(
     val serverChanged: String? = null,
     /** Fingerprint of name and songs at the last sync: a different one means it was edited here. */
     val syncedHash: String? = null,
+    @ColumnInfo(defaultValue = "0") val lastPlayedAt: Long = 0L,
 )
 
 /** A song in a user playlist, at [position] (0-based); by track id, so it survives rescans. */
@@ -426,4 +427,5 @@ data class SavedCatalogPlaylist(
     val matchedCount: Int = 0,
     val cachedTracksJson: String? = null,
     val cachedMatchesJson: String? = null,
+    @ColumnInfo(defaultValue = "0") val lastPlayedAt: Long = 0L,
 )

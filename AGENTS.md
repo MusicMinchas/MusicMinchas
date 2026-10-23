@@ -7,7 +7,7 @@ Parent workspace notes: @[Shared Android Dev Workspace](../AGENTS.md)
 
 - **Path:** `C:\Users\kike\dev\MusicPlayer` (local git repo, repo-local identity `kike` / `kikeprojo@gmail.com`, nothing pushed).
 - **Package:** `com.kike.musicplayer`
-- **Current Release:** `1.33.0` (`versionCode = 84`, Room DB `v25`, `minSdk = 30`, `targetSdk = 36`, `compileSdk = 37`). Merged to `master`, tag `v1.33.0`.
+- **Current Release:** `1.34.0` (`versionCode = 85`, Room DB `v26`, `minSdk = 30`, `targetSdk = 36`, `compileSdk = 37`). Merged to `master`, tag `v1.34.0`.
 - **Stack:** Kotlin 2.4.20, Jetpack Compose, Media3 1.11.1 `MediaLibraryService` (Android Auto browse tree), Room 2.8.5 via KSP 2.3.12 + Paging 3 (`paging-compose 3.3.6`, `room-paging`), Retrofit 3 + Moshi (reflection), Coil 3, `play-services-auth` 22 `AuthorizationClient` (`drive.readonly` + `email`), `reorderable` 3.1.0, AGP 9.4.1, Gradle 9.8.
 - **Shared Toolchain & Environment:**
   - `JAVA_HOME`: Android Studio's bundled `jbr`
@@ -176,3 +176,15 @@ Started 2026-10-08 from user-pasted spec. NEW app, explicitly independent of Son
       - Favourites: liking a transient track persists it into Room with `scope = Track.SCOPE_STREAM` and syncs love/unlove to Last.fm.
       - Playlists: adding streamed tracks from catalog albums / discography to existing or new playlists upserts them to Room without polluting the owned music library index.
       - Navigation: tapping Album or Artist from Now Playing, queue, or track menu correctly opens the Deezer/Apple Catalog album or catalog artist view for streamed tracks.
+  - 1.34.0 (`versionCode = 85`, Room DB `v26`, release APK installed on device):
+    - GitHub Issue #15: Import Apple Music & Deezer Playlists by URL & Reorganize Playlists Tab:
+      - Phase 1 (Import by URL):
+        - URL resolver supporting public Apple Music playlist links (parsing embedded state JSON) and Deezer playlist links / shortlinks (`CatalogClient.kt`).
+        - Import dialog accessible via `+` FAB on Playlists tab ("Create new from scratch" vs "Import from Apple Music / Deezer URL").
+        - Automatic library matching + Nebula streaming fallback for unowned tracks, persisted to `saved_catalog_playlists` with 1-week auto-refresh and manual refresh button.
+      - Phase 2 (Playlists Tab Reorganization):
+        - Categorized into "Personal Playlists", "Apple Music", and "Deezer" sections.
+        - Horizontal carousels displaying up to 10 latest played playlists per category (`lastPlayedAt` tracking).
+        - Right chevron navigation on category headers and "More…" card (when > 10 items) opening a 2-column vertically scrolling grid view (`PlaylistCategoryScreen.kt`).
+        - Context menus for catalog and personal playlists (Rename, Delete, Remove from saved, Download).
+      - Room migration `25 -> 26`: Added `lastPlayedAt` column to `playlists` and `saved_catalog_playlists`. Pre-migration backup saved to `C:\Users\kike\dev\db-backup\2026-10-23-pre-1.34.0\music.db`.

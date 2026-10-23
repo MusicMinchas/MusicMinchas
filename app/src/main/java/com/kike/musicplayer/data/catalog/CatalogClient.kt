@@ -65,6 +65,11 @@ data class CatalogPlaylist(
     }
 }
 
+data class ResolvedPlaylist(
+    val playlist: CatalogPlaylist,
+    val tracks: List<CatalogTrack>,
+)
+
 data class CatalogSearchResults(
     val artists: List<CatalogArtist> = emptyList(),
     val albums: List<CatalogAlbum> = emptyList(),
@@ -322,15 +327,237 @@ class CatalogClient(
         }
     }
 
-    /** Tracks inside a public Deezer playlist (`dz:...`). */
+    /** Tracks inside a public catalog playlist (Deezer `dz:...` or Apple Music `ap:...`). */
     suspend fun playlistTracks(playlist: CatalogPlaylist): List<CatalogTrack> = withContext(Dispatchers.IO) {
-        runCatching {
-            val rawId = playlist.id.removePrefix("dz:")
-            val url = "https://api.deezer.com/playlist/$rawId/tracks?limit=200"
-            val data = (deezerJson(url)["data"] as? List<*>)?.mapNotNull { it as? Map<*, *> }.orEmpty()
-            data.mapNotNull { parseDeezerTrack(it) }
-        }.onFailure { Log.w(TAG, "playlistTracks failed for ${playlist.id}: $it") }.getOrDefault(emptyList())
+        if (playlist.source == CatalogPlaylist.SOURCE_APPLE || playlist.id.startsWith("ap:")) {
+            val rawId = playlist.id.removePrefix("ap:")
+            fetchApplePlaylistTracks(rawId)
+        } else {
+            runCatching {
+                val rawId = playlist.id.removePrefix("dz:")
+                val url = "https://api.deezer.com/playlist/$rawId/tracks?limit=200"
+                val data = (deezerJson(url)["data"] as? List<*>)?.mapNotNull { it as? Map<*, *> }.orEmpty()
+                data.mapNotNull { parseDeezerTrack(it) }
+            }.onFailure { Log.w(TAG, "playlistTracks failed for ${playlist.id}: $it") }.getOrDefault(emptyList())
+        }
     }
+
+    /** Resolves a playlist from an Apple Music or Deezer URL, returning its metadata and tracklist. */
+    suspend fun resolvePlaylistUrl(rawUrl: String): ResolvedPlaylist = withContext(Dispatchers.IO) {
+        val trimmed = rawUrl.trim()
+        val normalized = if (!trimmed.startsWith("http://", ignoreCase = true) && !trimmed.startsWith("https://", ignoreCase = true)) {
+            "https://$trimmed"
+        } else {
+            trimmed
+        }
+
+        val finalUrl = when {
+            normalized.contains("deezer.com", ignoreCase = true) ||
+            normalized.contains("music.apple.com", ignoreCase = true) ||
+            normalized.contains("itunes.apple.com", ignoreCase = true) -> normalized
+            else -> resolveRedirects(normalized)
+        }
+
+        when {
+            finalUrl.contains("deezer.com", ignoreCase = true) || finalUrl.contains("deezer.page.link", ignoreCase = true) -> {
+                resolveDeezerPlaylist(finalUrl)
+            }
+            finalUrl.contains("music.apple.com", ignoreCase = true) || finalUrl.contains("itunes.apple.com", ignoreCase = true) -> {
+                resolveApplePlaylist(finalUrl)
+            }
+            else -> throw IllegalArgumentException("Unsupported playlist URL. Please provide an Apple Music or Deezer playlist link.")
+        }
+    }
+
+    private fun resolveRedirects(url: String): String = runCatching {
+        val req = Request.Builder().url(url).header("User-Agent", USER_AGENT).build()
+        http.newCall(req).execute().use { response ->
+            response.request.url.toString()
+        }
+    }.getOrDefault(url)
+
+    private suspend fun resolveDeezerPlaylist(url: String): ResolvedPlaylist {
+        val playlistIdRegex = Regex("""(?:/playlist/|/playlist\?id=)(\d+)""")
+        val id = playlistIdRegex.find(url)?.groupValues?.get(1)
+            ?: throw IllegalArgumentException("Couldn't find Deezer playlist ID in URL.")
+
+        val json = deezerJson("https://api.deezer.com/playlist/$id")
+        if (json.containsKey("error")) {
+            val errMsg = (json["error"] as? Map<*, *>)?.get("message") as? String ?: "Deezer API error"
+            throw java.io.IOException("Deezer playlist error: $errMsg")
+        }
+
+        val title = (json["title"] as? String)?.takeIf { it.isNotBlank() } ?: "Deezer Playlist"
+        val creator = (json["creator"] as? Map<*, *>)?.get("name") as? String
+        val nbTracks = (json["nb_tracks"] as? Number)?.toInt() ?: 0
+        val coverUrl = ((json["picture_xl"] as? String)
+            ?: (json["picture_big"] as? String)
+            ?: (json["picture_medium"] as? String))?.takeIf { "/playlist//" !in it }
+
+        val tracksData = (json["tracks"] as? Map<*, *>)?.get("data") as? List<*>
+        val tracks = tracksData?.mapNotNull { (it as? Map<*, *>)?.let { map -> parseDeezerTrack(map) } }.orEmpty()
+
+        val playlist = CatalogPlaylist(
+            id = "dz:$id",
+            title = title,
+            creator = creator,
+            trackCount = if (nbTracks > 0) nbTracks else tracks.size,
+            coverUrl = coverUrl,
+            source = CatalogPlaylist.SOURCE_DEEZER,
+        )
+        return ResolvedPlaylist(playlist, tracks)
+    }
+
+    private suspend fun resolveApplePlaylist(url: String): ResolvedPlaylist {
+        val playlistIdRegex = Regex("""(pl\.[a-zA-Z0-9_-]+)""")
+        val id = playlistIdRegex.find(url)?.groupValues?.get(1)
+            ?: throw IllegalArgumentException("Couldn't find Apple Music playlist ID in URL.")
+
+        val targetUrl = if (url.contains("music.apple.com")) url else "https://music.apple.com/us/playlist/$id"
+        val req = Request.Builder().url(targetUrl).header("User-Agent", USER_AGENT).build()
+        val html = http.newCall(req).execute().use { resp ->
+            if (!resp.isSuccessful) throw java.io.IOException("HTTP ${resp.code} loading Apple Music playlist")
+            resp.body.string()
+        }
+
+        var title: String? = null
+        val nameRegex = Regex(""""@type"\s*:\s*"MusicPlaylist"[^}]*?"name"\s*:\s*"([^"]+)"""")
+        nameRegex.find(html)?.groupValues?.get(1)?.let {
+            title = unescapeJsonString(it)
+        }
+        if (title.isNullOrBlank()) {
+            val ogTitleRegex = Regex("""property="og:title"\s+content="([^"]+)"""")
+            ogTitleRegex.find(html)?.groupValues?.get(1)?.let {
+                title = it.replace(" on Apple Music", "").replace(" - Playlist - Apple Music", "").trim()
+            }
+        }
+        if (title.isNullOrBlank()) title = "Apple Music Playlist"
+
+        var creator: String? = null
+        val creatorRegex = Regex(""""author"\s*:\s*\{[^}]*?"name"\s*:\s*"([^"]+)"""")
+        creatorRegex.find(html)?.groupValues?.get(1)?.let {
+            creator = unescapeJsonString(it)
+        }
+        if (creator.isNullOrBlank()) {
+            val metaCreatorRegex = Regex("""(?:name|property)="(?:apple:creator|music:creator)"\s+content="([^"]+)"""")
+            metaCreatorRegex.find(html)?.groupValues?.get(1)?.let {
+                creator = it.trim()
+            }
+        }
+        if (creator.isNullOrBlank()) {
+            val metaCreatorRegex2 = Regex("""content="([^"]+)"\s+(?:name|property)="(?:apple:creator|music:creator)"""")
+            metaCreatorRegex2.find(html)?.groupValues?.get(1)?.let {
+                creator = it.trim()
+            }
+        }
+
+        val ogImageRegex = Regex("""property="og:image"\s+content="([^"]+)"""")
+        val coverUrl = ogImageRegex.find(html)?.groupValues?.get(1)
+
+        val tracks = parseApplePlaylistTracksFromHtml(html)
+
+        val playlist = CatalogPlaylist(
+            id = "ap:$id",
+            title = title,
+            creator = creator,
+            trackCount = tracks.size,
+            coverUrl = coverUrl,
+            source = CatalogPlaylist.SOURCE_APPLE,
+        )
+        return ResolvedPlaylist(playlist, tracks)
+    }
+
+    private suspend fun fetchApplePlaylistTracks(rawId: String): List<CatalogTrack> = runCatching {
+        val targetUrl = "https://music.apple.com/us/playlist/$rawId"
+        val req = Request.Builder().url(targetUrl).header("User-Agent", USER_AGENT).build()
+        val html = http.newCall(req).execute().use { resp ->
+            if (!resp.isSuccessful) throw java.io.IOException("HTTP ${resp.code} for $targetUrl")
+            resp.body.string()
+        }
+        parseApplePlaylistTracksFromHtml(html)
+    }.onFailure { Log.w(TAG, "fetchApplePlaylistTracks failed for $rawId: $it") }.getOrDefault(emptyList())
+
+    private fun parseApplePlaylistTracksFromHtml(html: String): List<CatalogTrack> {
+        val tracks = mutableListOf<CatalogTrack>()
+        val seenIds = mutableSetOf<String>()
+
+        val scriptRegex = Regex("""<script[^>]*>(.*?)</script>""", RegexOption.DOT_MATCHES_ALL)
+        for (match in scriptRegex.findAll(html)) {
+            val content = match.groupValues[1].trim()
+            if (content.contains("artistName") && content.contains("title")) {
+                val parsed = runCatching {
+                    moshi.adapter(Map::class.java).fromJson(content)
+                }.getOrNull()
+                if (parsed != null) {
+                    extractAppleTracksFromMap(parsed, seenIds, tracks)
+                    if (tracks.isNotEmpty()) break
+                }
+            }
+        }
+        return tracks
+    }
+
+    private fun extractAppleTracksFromMap(obj: Any?, seenIds: MutableSet<String>, out: MutableList<CatalogTrack>) {
+        when (obj) {
+            is Map<*, *> -> {
+                val title = (obj["title"] as? String)?.takeIf { it.isNotBlank() }
+                val artistName = (obj["artistName"] as? String)?.takeIf { it.isNotBlank() }
+                if (title != null && artistName != null) {
+                    val cd = obj["contentDescriptor"] as? Map<*, *>
+                    val idents = cd?.get("identifiers") as? Map<*, *>
+                    val trackId = (idents?.get("storeAdamID") as? String)
+                        ?: (idents?.get("storeAdamID") as? Number)?.toLong()?.toString()
+                    if (trackId != null && seenIds.add(trackId)) {
+                        val durationMs = (obj["duration"] as? Number)?.toLong() ?: 0L
+                        val tLinks = obj["tertiaryLinks"] as? List<*>
+                        val firstLink = tLinks?.firstOrNull() as? Map<*, *>
+                        val albumTitle = (firstLink?.get("title") as? String) ?: ""
+                        val segue = firstLink?.get("segue") as? Map<*, *>
+                        val dest = segue?.get("destination") as? Map<*, *>
+                        val albumCd = dest?.get("contentDescriptor") as? Map<*, *>
+                        val albumIdents = albumCd?.get("identifiers") as? Map<*, *>
+                        val albumId = (albumIdents?.get("storeAdamID") as? String)
+                            ?: (albumIdents?.get("storeAdamID") as? Number)?.toLong()?.toString()
+                        val artwork = obj["artwork"] as? Map<*, *>
+                        val dict = artwork?.get("dictionary") as? Map<*, *>
+                        val artUrl = dict?.get("url") as? String
+                        val coverUrl = artUrl?.replace("{w}x{h}bb.{f}", "1000x1000bb.jpg")
+                            ?: (obj["thumbnailUrl"] as? String)
+
+                        out.add(
+                            CatalogTrack(
+                                id = "ap:$trackId",
+                                title = title,
+                                artist = artistName,
+                                album = albumTitle,
+                                albumArtist = artistName,
+                                trackNumber = out.size + 1,
+                                discNumber = null,
+                                durationMs = durationMs,
+                                year = null,
+                                genre = null,
+                                coverUrl = coverUrl,
+                                albumId = albumId?.let { "ap:$it" },
+                                source = CatalogPlaylist.SOURCE_APPLE,
+                            )
+                        )
+                    }
+                }
+                for (v in obj.values) {
+                    extractAppleTracksFromMap(v, seenIds, out)
+                }
+            }
+            is List<*> -> {
+                for (item in obj) {
+                    extractAppleTracksFromMap(item, seenIds, out)
+                }
+            }
+        }
+    }
+
+    private fun unescapeJsonString(s: String): String = runCatching {
+        moshi.adapter(String::class.java).fromJson("\"" + s.replace("\"", "\\\"") + "\"") ?: s
+    }.getOrDefault(s)
 
     /** Studio & live album discography for [artistName] from Deezer and Apple Music. */
     suspend fun artistDiscography(artistName: String): List<CatalogAlbum> = withContext(Dispatchers.IO) {
@@ -750,5 +977,6 @@ class CatalogClient(
         private const val DEEZER_INTERVAL_MS = 120L
         /** Apple public iTunes search allows ~20–30 requests / min; 1.2 s spaces sequential calls safely. */
         private const val APPLE_INTERVAL_MS = 1_200L
+        private const val USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
     }
 }

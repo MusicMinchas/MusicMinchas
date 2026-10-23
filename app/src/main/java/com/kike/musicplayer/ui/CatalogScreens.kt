@@ -580,7 +580,8 @@ fun CatalogPlaylistScreen(
                     )
                     val sub = buildList {
                         playlist.creator?.takeIf { it.isNotBlank() }?.let { add("by $it") }
-                        add("Deezer public playlist")
+                        val platform = if (playlist.source == CatalogPlaylist.SOURCE_APPLE || playlist.id.startsWith("ap:")) "Apple Music playlist" else "Deezer public playlist"
+                        add(platform)
                     }.joinToString(" · ")
                     Text(
                         sub,
@@ -602,8 +603,9 @@ fun CatalogPlaylistScreen(
                         )
                     }
                     if (isSaved) {
+                        val categoryName = if (playlist.source == CatalogPlaylist.SOURCE_APPLE || playlist.id.startsWith("ap:")) "Apple Music" else "Deezer"
                         Text(
-                            "Saved in From Deezer",
+                            "Saved in $categoryName",
                             style = MaterialTheme.typography.labelMedium,
                             color = MaterialTheme.colorScheme.primary,
                             modifier = Modifier.padding(top = 4.dp),
@@ -618,7 +620,10 @@ fun CatalogPlaylistScreen(
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Button(
-                        onClick = { playerVm.playTracks(playableTracks, 0) },
+                        onClick = {
+                            libraryVm.recordCatalogPlaylistPlayed(playlist.id)
+                            playerVm.playTracks(playableTracks, 0)
+                        },
                         enabled = playableTracks.isNotEmpty(),
                     ) {
                         Icon(Icons.Default.PlayArrow, null)
@@ -626,7 +631,10 @@ fun CatalogPlaylistScreen(
                         Text("Play")
                     }
                     FilledTonalButton(
-                        onClick = { playerVm.playTracks(playableTracks, 0, shuffle = true) },
+                        onClick = {
+                            libraryVm.recordCatalogPlaylistPlayed(playlist.id)
+                            playerVm.playTracks(playableTracks, 0, shuffle = true)
+                        },
                         enabled = playableTracks.isNotEmpty(),
                     ) {
                         Icon(Icons.Default.Shuffle, null)
@@ -645,7 +653,13 @@ fun CatalogPlaylistScreen(
                     ) {
                         Icon(
                             imageVector = if (isSaved) Icons.Default.Bookmark else Icons.AutoMirrored.Filled.PlaylistAdd,
-                            contentDescription = if (isSaved) "Remove from Deezer Playlists" else "Save to Deezer Playlists",
+                            contentDescription = if (isSaved) {
+                                val catName = if (playlist.source == CatalogPlaylist.SOURCE_APPLE || playlist.id.startsWith("ap:")) "Apple Music" else "Deezer"
+                                "Remove from $catName Playlists"
+                            } else {
+                                val catName = if (playlist.source == CatalogPlaylist.SOURCE_APPLE || playlist.id.startsWith("ap:")) "Apple Music" else "Deezer"
+                                "Save to $catName Playlists"
+                            },
                             tint = if (isSaved) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                     }
@@ -665,7 +679,10 @@ fun CatalogPlaylistScreen(
                         TrackRow(
                             track = libTrack,
                             isCurrent = libTrack.id == player.current?.mediaId,
-                            onClick = { playerVm.playTracks(playableTracks, playIdx) },
+                            onClick = {
+                                libraryVm.recordCatalogPlaylistPlayed(playlist.id)
+                                playerVm.playTracks(playableTracks, playIdx)
+                            },
                             onPlayNext = { playerVm.playNext(libTrack) },
                             onAddToQueue = { playerVm.addToQueue(libTrack) },
                         )
@@ -675,7 +692,10 @@ fun CatalogPlaylistScreen(
                         TrackRow(
                             track = nebTrack,
                             isCurrent = nebTrack.id == player.current?.mediaId,
-                            onClick = { playerVm.playTracks(playableTracks, playIdx) },
+                            onClick = {
+                                libraryVm.recordCatalogPlaylistPlayed(playlist.id)
+                                playerVm.playTracks(playableTracks, playIdx)
+                            },
                             onPlayNext = { playerVm.playNext(nebTrack) },
                             onAddToQueue = { playerVm.addToQueue(nebTrack) },
                         )

@@ -1,5 +1,10 @@
 package com.kike.musicplayer.ui
 
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.material3.Surface
+import androidx.compose.material3.CircularProgressIndicator
+import kotlinx.coroutines.launch
+
 import kotlinx.coroutines.flow.flowOf
 import androidx.compose.runtime.remember
 import androidx.compose.material.icons.filled.MoreVert
@@ -36,6 +41,12 @@ import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.ArrowForward
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
+import androidx.compose.material.icons.filled.Clear
+import androidx.compose.material.icons.filled.ContentPaste
+import androidx.compose.material.icons.filled.Link
+import androidx.compose.material.icons.filled.PlaylistAdd
 import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.KeyboardArrowUp
@@ -134,6 +145,7 @@ fun LibraryScreen(
     onOpenCatalogArtist: (com.kike.musicplayer.data.catalog.CatalogArtist) -> Unit = {},
     onOpenCatalogAlbum: (com.kike.musicplayer.data.catalog.CatalogAlbum) -> Unit = {},
     onOpenCatalogPlaylist: (com.kike.musicplayer.data.catalog.CatalogPlaylist) -> Unit = {},
+    onOpenPlaylistCategory: (PlaylistCategoryType) -> Unit = {},
     contentPadding: PaddingValues,
 ) {
     val playlists by libraryVm.playlists.collectAsState()
@@ -247,13 +259,25 @@ fun LibraryScreen(
                 "Genres" -> GenresTab(libraryVm.genreList.collectAsState().value, onOpenGenre)
                 "Songs" -> SongsTab(libraryVm, playerVm)
                 "Playlists" -> {
-                    val savedDeezer by libraryVm.savedCatalogPlaylists.collectAsState()
+                    val savedPlaylists by libraryVm.savedCatalogPlaylists.collectAsState()
                     PlaylistsTab(
-                        playlists, libraryVm.userPlaylists.collectAsState().value, savedDeezer, playerVm,
-                        onOpenRecentTracks, onOpenRecentAlbums, onOpenAddedAlbums, onOpenMostPlayed, onOpenFavourites, onNewPlaylist, onOpenPlaylist,
-                        onOpenCatalogPlaylist,
-                        libraryVm::deletePlaylist, libraryVm::renamePlaylist,
-                        libraryVm::removeSavedCatalogPlaylist,
+                        playlists = playlists,
+                        userPlaylists = libraryVm.userPlaylists.collectAsState().value,
+                        savedCatalogPlaylists = savedPlaylists,
+                        libraryVm = libraryVm,
+                        playerVm = playerVm,
+                        onOpenRecentTracks = onOpenRecentTracks,
+                        onOpenRecentAlbums = onOpenRecentAlbums,
+                        onOpenAddedAlbums = onOpenAddedAlbums,
+                        onOpenMostPlayed = onOpenMostPlayed,
+                        onOpenFavourites = onOpenFavourites,
+                        onNewPlaylist = onNewPlaylist,
+                        onOpenPlaylist = onOpenPlaylist,
+                        onOpenCatalogPlaylist = onOpenCatalogPlaylist,
+                        onOpenPlaylistCategory = onOpenPlaylistCategory,
+                        onDeletePlaylist = libraryVm::deletePlaylist,
+                        onRenamePlaylist = libraryVm::renamePlaylist,
+                        onRemoveSavedCatalogPlaylist = libraryVm::removeSavedCatalogPlaylist,
                     )
                 }
             }
@@ -947,7 +971,8 @@ fun AlbumListScreen(
 private fun PlaylistsTab(
     playlists: Playlists,
     userPlaylists: List<PlaylistView>,
-    savedDeezerPlaylists: List<com.kike.musicplayer.data.db.SavedCatalogPlaylist>,
+    savedCatalogPlaylists: List<com.kike.musicplayer.data.db.SavedCatalogPlaylist>,
+    libraryVm: LibraryViewModel,
     playerVm: PlayerViewModel,
     onOpenRecentTracks: () -> Unit,
     onOpenRecentAlbums: () -> Unit,
@@ -957,32 +982,76 @@ private fun PlaylistsTab(
     onNewPlaylist: () -> Unit,
     onOpenPlaylist: (Long) -> Unit,
     onOpenCatalogPlaylist: (com.kike.musicplayer.data.catalog.CatalogPlaylist) -> Unit,
+    onOpenPlaylistCategory: (PlaylistCategoryType) -> Unit,
     onDeletePlaylist: (Long) -> Unit,
     onRenamePlaylist: (Long, String) -> Unit,
     onRemoveSavedCatalogPlaylist: (String) -> Unit,
 ) {
-    var collapsedSections by rememberSaveable { mutableStateOf(setOf<String>()) }
-    fun toggle(section: String) {
-        collapsedSections = if (section in collapsedSections) collapsedSections - section else collapsedSections + section
-    }
-    var renaming by remember { mutableStateOf<PlaylistView?>(null) }
-    renaming?.let { p -> RenamePlaylistDialog(p.name, onDismiss = { renaming = null }) { onRenamePlaylist(p.id, it) } }
-    var deleting by remember { mutableStateOf<PlaylistView?>(null) }
-    deleting?.let { p ->
-        AlertDialog(
-            onDismissRequest = { deleting = null },
-            title = { Text("Delete ${p.name}?") },
-            text = { Text("The playlist is deleted; its songs stay in your library.") },
-            confirmButton = { TextButton(onClick = { onDeletePlaylist(p.id); deleting = null }) { Text("Delete") } },
-            dismissButton = { TextButton(onClick = { deleting = null }) { Text("Cancel") } },
+    var showChoiceDialog by remember { mutableStateOf(false) }
+    var showImportDialog by remember { mutableStateOf(false) }
+    val scope = rememberCoroutineScope()
+
+    if (showChoiceDialog) {
+        CreateOrImportPlaylistDialog(
+            onDismiss = { showChoiceDialog = false },
+            onCreateFromScratch = {
+                showChoiceDialog = false
+                onNewPlaylist()
+            },
+            onImportUrl = {
+                showChoiceDialog = false
+                showImportDialog = true
+            },
         )
     }
-    val downloads = LocalDownloads.current
+
+    if (showImportDialog) {
+        ImportPlaylistDialog(
+            onDismiss = { showImportDialog = false },
+            onImport = { url, callback ->
+                scope.launch {
+                    val result = libraryVm.importPlaylistFromUrl(url)
+                    callback(result)
+                }
+            },
+            onSuccess = { importedPlaylist ->
+                showImportDialog = false
+                onOpenCatalogPlaylist(importedPlaylist)
+            },
+        )
+    }
+
     val recent = playlists.recentTracks
     val albums = playlists.recentAlbums.flatMap { it.tracks }
     val added = playlists.addedAlbums.flatMap { it.tracks }
     val most = playlists.mostPlayed.map { it.item }
     val favourites = playlists.favourites
+
+    val sortedPersonal = remember(userPlaylists) {
+        userPlaylists.sortedWith(
+            compareByDescending<PlaylistView> { it.lastPlayedAt }
+                .thenByDescending { it.createdAt }
+        )
+    }
+
+    val applePlaylists = remember(savedCatalogPlaylists) {
+        savedCatalogPlaylists.filter {
+            it.source == com.kike.musicplayer.data.catalog.CatalogPlaylist.SOURCE_APPLE || it.id.startsWith("ap:")
+        }.sortedWith(
+            compareByDescending<com.kike.musicplayer.data.db.SavedCatalogPlaylist> { it.lastPlayedAt }
+                .thenByDescending { it.addedAt }
+        )
+    }
+
+    val deezerPlaylists = remember(savedCatalogPlaylists) {
+        savedCatalogPlaylists.filter {
+            it.source == com.kike.musicplayer.data.catalog.CatalogPlaylist.SOURCE_DEEZER || it.id.startsWith("dz:")
+        }.sortedWith(
+            compareByDescending<com.kike.musicplayer.data.db.SavedCatalogPlaylist> { it.lastPlayedAt }
+                .thenByDescending { it.addedAt }
+        )
+    }
+
     Box(Modifier.fillMaxSize()) {
         LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(top = 16.dp, bottom = 96.dp)) {
             // The automatic playlists, as cards like the Home mixes.
@@ -1006,78 +1075,74 @@ private fun PlaylistsTab(
                         favourites, onOpenFavourites, { playerVm.playTracks(favourites, 0) }, card)
                 }
             }
-            // Section 1: Your Playlists
-            val userCollapsed = "user_playlists" in collapsedSections
+
+            // Category 1: Personal Playlists
             item {
-                ResultsHeader(
-                    text = "Your Playlists",
-                    count = userPlaylists.size,
-                    collapsed = userCollapsed,
-                    onToggle = { toggle("user_playlists") },
+                CategoryHeaderRow(
+                    title = "Personal",
+                    count = sortedPersonal.size,
+                    onOpenCategory = { onOpenPlaylistCategory(PlaylistCategoryType.PERSONAL) },
                 )
             }
-            if (!userCollapsed) {
-                if (userPlaylists.isEmpty()) {
-                    item {
-                        Text(
-                            "Tap + to make a playlist.",
-                            Modifier.padding(horizontal = 16.dp, vertical = 6.dp),
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    }
-                }
-                items(userPlaylists, key = { "pl:" + it.id }) { playlist ->
+            item {
+                if (sortedPersonal.isEmpty()) {
+                    Text(
+                        "Tap + to create a playlist or import from Apple Music / Deezer.",
+                        Modifier.padding(horizontal = 16.dp, vertical = 6.dp),
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                } else {
                     Row(
-                        Modifier.fillMaxWidth().clickable { onOpenPlaylist(playlist.id) }.padding(horizontal = 16.dp, vertical = 8.dp),
-                        verticalAlignment = Alignment.CenterVertically,
+                        Modifier.horizontalScroll(rememberScrollState()).padding(horizontal = 16.dp),
+                        horizontalArrangement = Arrangement.spacedBy(12.dp),
                     ) {
-                        CoverMosaic(playlist.tracks, Modifier.size(72.dp))
-                        Column(Modifier.weight(1f).padding(start = 16.dp)) {
-                            Text(playlist.name, style = MaterialTheme.typography.titleMedium, maxLines = 2, overflow = TextOverflow.Ellipsis)
-                            Text(count(playlist.tracks.size, "song"), style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        sortedPersonal.take(10).forEach { playlist ->
+                            CollectionCard(
+                                title = playlist.name,
+                                subtitle = count(playlist.tracks.size, "song"),
+                                tracks = playlist.tracks,
+                                onOpen = { onOpenPlaylist(playlist.id) },
+                                onPlay = {
+                                    libraryVm.recordPlaylistPlayed(playlist.id)
+                                    playerVm.playTracks(playlist.tracks, 0)
+                                },
+                                modifier = Modifier.width(160.dp),
+                            )
                         }
-                        Box {
-                            var menu by remember { mutableStateOf(false) }
-                            IconButton(onClick = { menu = true }) { Icon(Icons.Default.MoreVert, "More") }
-                            DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
-                                if (playlist.tracks.any { it.source == Track.SOURCE_DRIVE }) {
-                                    DropdownMenuItem(text = { Text("Download") }, onClick = { menu = false; downloads.download(playlist.tracks) })
-                                }
-                                DropdownMenuItem(text = { Text("Rename") }, onClick = { menu = false; renaming = playlist })
-                                DropdownMenuItem(text = { Text("Delete") }, onClick = { menu = false; deleting = playlist })
-                            }
+                        if (sortedPersonal.size > 10) {
+                            MorePlaylistsCard(
+                                totalCount = sortedPersonal.size,
+                                onClick = { onOpenPlaylistCategory(PlaylistCategoryType.PERSONAL) },
+                            )
                         }
                     }
                 }
             }
 
-            // Section 2: From Deezer
-            val deezerCollapsed = "deezer_playlists" in collapsedSections
+            // Category 2: Apple Music Playlists
             item {
-                ResultsHeader(
-                    text = "From Deezer",
-                    count = savedDeezerPlaylists.size,
-                    collapsed = deezerCollapsed,
-                    onToggle = { toggle("deezer_playlists") },
+                CategoryHeaderRow(
+                    title = "Apple Music",
+                    count = applePlaylists.size,
+                    onOpenCategory = { onOpenPlaylistCategory(PlaylistCategoryType.APPLE_MUSIC) },
                 )
             }
-            if (!deezerCollapsed) {
-                if (savedDeezerPlaylists.isEmpty()) {
-                    item {
-                        Text(
-                            "No Deezer playlists saved yet. Search for public playlists on Deezer and tap Save.",
-                            Modifier.padding(horizontal = 16.dp, vertical = 6.dp),
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    }
-                }
-                items(savedDeezerPlaylists, key = { "dz-pl:" + it.id }) { playlist ->
+            item {
+                if (applePlaylists.isEmpty()) {
+                    Text(
+                        "No Apple Music playlists imported yet. Tap + to import an Apple Music playlist.",
+                        Modifier.padding(horizontal = 16.dp, vertical = 6.dp),
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                } else {
                     Row(
-                        Modifier.fillMaxWidth().clickable {
-                            onOpenCatalogPlaylist(
+                        Modifier.horizontalScroll(rememberScrollState()).padding(horizontal = 16.dp),
+                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    ) {
+                        applePlaylists.take(10).forEach { playlist ->
+                            val catPl = remember(playlist) {
                                 com.kike.musicplayer.data.catalog.CatalogPlaylist(
                                     id = playlist.id,
                                     title = playlist.title,
@@ -1086,42 +1151,375 @@ private fun PlaylistsTab(
                                     coverUrl = playlist.coverUrl,
                                     source = playlist.source,
                                 )
+                            }
+                            CatalogPlaylistCard(
+                                title = playlist.title,
+                                subtitle = buildList {
+                                    playlist.creator?.takeIf { it.isNotBlank() }?.let { add("by $it") }
+                                    add(count(playlist.trackCount, "song"))
+                                }.joinToString(" · "),
+                                coverUrl = playlist.coverUrl,
+                                onOpen = { onOpenCatalogPlaylist(catPl) },
+                                modifier = Modifier.width(160.dp),
                             )
-                        }.padding(horizontal = 16.dp, vertical = 8.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        Artwork(playlist.coverUrl, Modifier.size(72.dp))
-                        Column(Modifier.weight(1f).padding(start = 16.dp)) {
-                            Text(playlist.title, style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                            val sub = buildList {
-                                playlist.creator?.takeIf { it.isNotBlank() }?.let { add("by $it") }
-                                add(count(playlist.trackCount, "song"))
-                                if (playlist.matchedCount > 0) add("${playlist.matchedCount} in library")
-                            }.joinToString(" · ")
-                            Text(sub, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
-                        Box {
-                            var menu by remember { mutableStateOf(false) }
-                            IconButton(onClick = { menu = true }) { Icon(Icons.Default.MoreVert, "More") }
-                            DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
-                                DropdownMenuItem(
-                                    text = { Text("Remove from saved") },
-                                    onClick = { menu = false; onRemoveSavedCatalogPlaylist(playlist.id) },
+                        if (applePlaylists.size > 10) {
+                            MorePlaylistsCard(
+                                totalCount = applePlaylists.size,
+                                onClick = { onOpenPlaylistCategory(PlaylistCategoryType.APPLE_MUSIC) },
+                            )
+                        }
+                    }
+                }
+            }
+
+            // Category 3: Deezer Playlists
+            item {
+                CategoryHeaderRow(
+                    title = "Deezer",
+                    count = deezerPlaylists.size,
+                    onOpenCategory = { onOpenPlaylistCategory(PlaylistCategoryType.DEEZER) },
+                )
+            }
+            item {
+                if (deezerPlaylists.isEmpty()) {
+                    Text(
+                        "No Deezer playlists saved yet. Search for playlists on Deezer or tap + to import.",
+                        Modifier.padding(horizontal = 16.dp, vertical = 6.dp),
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                } else {
+                    Row(
+                        Modifier.horizontalScroll(rememberScrollState()).padding(horizontal = 16.dp),
+                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    ) {
+                        deezerPlaylists.take(10).forEach { playlist ->
+                            val catPl = remember(playlist) {
+                                com.kike.musicplayer.data.catalog.CatalogPlaylist(
+                                    id = playlist.id,
+                                    title = playlist.title,
+                                    creator = playlist.creator,
+                                    trackCount = playlist.trackCount,
+                                    coverUrl = playlist.coverUrl,
+                                    source = playlist.source,
                                 )
                             }
+                            CatalogPlaylistCard(
+                                title = playlist.title,
+                                subtitle = buildList {
+                                    playlist.creator?.takeIf { it.isNotBlank() }?.let { add("by $it") }
+                                    add(count(playlist.trackCount, "song"))
+                                }.joinToString(" · "),
+                                coverUrl = playlist.coverUrl,
+                                onOpen = { onOpenCatalogPlaylist(catPl) },
+                                modifier = Modifier.width(160.dp),
+                            )
+                        }
+                        if (deezerPlaylists.size > 10) {
+                            MorePlaylistsCard(
+                                totalCount = deezerPlaylists.size,
+                                onClick = { onOpenPlaylistCategory(PlaylistCategoryType.DEEZER) },
+                            )
                         }
                     }
                 }
             }
         }
+
         FloatingActionButton(
-            onClick = onNewPlaylist,
+            onClick = { showChoiceDialog = true },
             shape = CircleShape,
             modifier = Modifier.align(Alignment.BottomEnd).padding(16.dp),
         ) {
             Icon(Icons.Default.Add, "New playlist")
         }
     }
+}
+
+@Composable
+private fun CategoryHeaderRow(
+    title: String,
+    count: Int,
+    onOpenCategory: () -> Unit,
+) {
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onOpenCategory)
+            .padding(horizontal = 16.dp, vertical = 12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(
+            text = title,
+            style = MaterialTheme.typography.titleLarge,
+            fontWeight = FontWeight.Bold,
+        )
+        Text(
+            text = " ($count)",
+            style = MaterialTheme.typography.titleMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.padding(start = 4.dp),
+        )
+        Spacer(Modifier.weight(1f))
+        Icon(
+            imageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight,
+            contentDescription = "View all $title",
+            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.size(28.dp),
+        )
+    }
+}
+
+@Composable
+internal fun CatalogPlaylistCard(
+    title: String,
+    subtitle: String,
+    coverUrl: String?,
+    onOpen: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Column(modifier.clickable(onClick = onOpen)) {
+        Box(Modifier.fillMaxWidth().aspectRatio(1f)) {
+            Artwork(coverUrl, Modifier.fillMaxSize(), shape = RoundedCornerShape(12.dp))
+        }
+        Text(
+            title,
+            maxLines = 2,
+            overflow = TextOverflow.Ellipsis,
+            fontWeight = FontWeight.SemiBold,
+            style = MaterialTheme.typography.bodyMedium,
+            modifier = Modifier.padding(top = 6.dp),
+        )
+        Text(
+            subtitle,
+            maxLines = 2,
+            overflow = TextOverflow.Ellipsis,
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+    }
+}
+
+@Composable
+internal fun MorePlaylistsCard(
+    totalCount: Int,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Column(modifier.width(160.dp).clickable(onClick = onClick)) {
+        Surface(
+            shape = RoundedCornerShape(12.dp),
+            color = MaterialTheme.colorScheme.surfaceVariant,
+            modifier = Modifier.fillMaxWidth().aspectRatio(1f),
+        ) {
+            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Icon(
+                        Icons.AutoMirrored.Filled.ArrowForward,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(36.dp),
+                    )
+                    Spacer(Modifier.height(8.dp))
+                    Text(
+                        "More…",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
+        }
+        Text(
+            "More…",
+            maxLines = 1,
+            fontWeight = FontWeight.SemiBold,
+            style = MaterialTheme.typography.bodyMedium,
+            modifier = Modifier.padding(top = 6.dp),
+        )
+        Text(
+            "View all $totalCount",
+            maxLines = 1,
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+    }
+}
+
+@Composable
+private fun CreateOrImportPlaylistDialog(
+    onDismiss: () -> Unit,
+    onCreateFromScratch: () -> Unit,
+    onImportUrl: () -> Unit,
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("New Playlist") },
+        text = {
+            Column(Modifier.fillMaxWidth()) {
+                Surface(
+                    onClick = onCreateFromScratch,
+                    shape = RoundedCornerShape(8.dp),
+                    color = MaterialTheme.colorScheme.surface,
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Row(
+                        Modifier.fillMaxWidth().padding(vertical = 12.dp, horizontal = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Icon(
+                            Icons.Default.PlaylistAdd,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(28.dp),
+                        )
+                        Spacer(Modifier.width(16.dp))
+                        Column {
+                            Text("Create from scratch", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+                            Text("Pick songs from your library", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                    }
+                }
+                Spacer(Modifier.height(8.dp))
+                Surface(
+                    onClick = onImportUrl,
+                    shape = RoundedCornerShape(8.dp),
+                    color = MaterialTheme.colorScheme.surface,
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Row(
+                        Modifier.fillMaxWidth().padding(vertical = 12.dp, horizontal = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Icon(
+                            Icons.Default.Link,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(28.dp),
+                        )
+                        Spacer(Modifier.width(16.dp))
+                        Column {
+                            Text("Import from URL", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+                            Text("Paste an Apple Music or Deezer link", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {},
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text("Cancel") }
+        },
+    )
+}
+
+@Composable
+private fun ImportPlaylistDialog(
+    onDismiss: () -> Unit,
+    onImport: (String, (Result<com.kike.musicplayer.data.catalog.CatalogPlaylist>) -> Unit) -> Unit,
+    onSuccess: (com.kike.musicplayer.data.catalog.CatalogPlaylist) -> Unit,
+) {
+    var urlText by remember { mutableStateOf("") }
+    var isImporting by remember { mutableStateOf(false) }
+    var errorMessage by remember { mutableStateOf<String?>(null) }
+    val clipboardManager = androidx.compose.ui.platform.LocalClipboardManager.current
+
+    AlertDialog(
+        onDismissRequest = { if (!isImporting) onDismiss() },
+        title = { Text("Import Playlist") },
+        text = {
+            Column(Modifier.fillMaxWidth()) {
+                Text(
+                    "Paste a link to a public Apple Music or Deezer playlist.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(bottom = 12.dp),
+                )
+                OutlinedTextField(
+                    value = urlText,
+                    onValueChange = {
+                        urlText = it
+                        errorMessage = null
+                    },
+                    label = { Text("Playlist URL") },
+                    placeholder = { Text("https://music.apple.com/... or https://www.deezer.com/...") },
+                    singleLine = true,
+                    enabled = !isImporting,
+                    trailingIcon = {
+                        if (urlText.isNotEmpty()) {
+                            IconButton(onClick = { urlText = ""; errorMessage = null }, enabled = !isImporting) {
+                                Icon(Icons.Default.Clear, "Clear")
+                            }
+                        } else {
+                            IconButton(
+                                onClick = {
+                                    val clip = clipboardManager.getText()?.text?.trim()
+                                    if (!clip.isNullOrBlank()) {
+                                        urlText = clip
+                                        errorMessage = null
+                                    }
+                                },
+                                enabled = !isImporting,
+                            ) {
+                                Icon(Icons.Default.ContentPaste, "Paste")
+                            }
+                        }
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                if (isImporting) {
+                    Spacer(Modifier.height(16.dp))
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    ) {
+                        CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp)
+                        Text(
+                            "Importing playlist and matching songs…",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.primary,
+                        )
+                    }
+                }
+                if (errorMessage != null) {
+                    Spacer(Modifier.height(8.dp))
+                    Text(
+                        errorMessage ?: "",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.error,
+                    )
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(
+                enabled = urlText.isNotBlank() && !isImporting,
+                onClick = {
+                    isImporting = true
+                    errorMessage = null
+                    onImport(urlText) { result ->
+                        isImporting = false
+                        result.onSuccess { playlist ->
+                            onSuccess(playlist)
+                        }.onFailure { err ->
+                            errorMessage = err.message ?: "Failed to import playlist"
+                        }
+                    }
+                },
+            ) {
+                Text("Import")
+            }
+        },
+        dismissButton = {
+            TextButton(
+                enabled = !isImporting,
+                onClick = onDismiss,
+            ) {
+                Text("Cancel")
+            }
+        },
+    )
 }
 
 /**

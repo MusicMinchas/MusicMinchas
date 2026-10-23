@@ -258,8 +258,14 @@ fun PlaylistScreen(
                 item(key = "header") { CollectionHeader(playlist.name, order) }
                 item(key = "actions") {
                     PlayShuffleRow(
-                        onPlay = { playerVm.playTracks(order, 0) },
-                        onShuffle = { playerVm.playTracks(order, 0, shuffle = true) },
+                        onPlay = {
+                            libraryVm.recordPlaylistPlayed(playlist.id)
+                            playerVm.playTracks(order, 0)
+                        },
+                        onShuffle = {
+                            libraryVm.recordPlaylistPlayed(playlist.id)
+                            playerVm.playTracks(order, 0, shuffle = true)
+                        },
                         enabled = order.isNotEmpty(),
                         downloads = order,
                     )
@@ -270,7 +276,10 @@ fun PlaylistScreen(
                             TrackRow(
                                 track = track,
                                 isCurrent = track.id == player.current?.mediaId,
-                                onClick = { playerVm.playTracks(order, order.indexOf(track)) },
+                                onClick = {
+                                    libraryVm.recordPlaylistPlayed(playlist.id)
+                                    playerVm.playTracks(order, order.indexOf(track))
+                                },
                                 onPlayNext = { playerVm.playNext(track) },
                                 onAddToQueue = { playerVm.addToQueue(track) },
                                 onRemoveFromPlaylist = { libraryVm.removeFromPlaylist(playlist.id, track.id) },
