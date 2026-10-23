@@ -354,12 +354,7 @@ class MainActivity : ComponentActivity() {
                         Screen.Queue -> QueueScreen(playerVm, ::pop, padding)
                         Screen.DriveFolders -> DriveFolderPickerScreen(libraryVm, ::pop, padding)
                         Screen.RecentTracks -> TrackListScreen("Recently Played", playlists.recentTracks, playerVm, ::pop, padding)
-                        Screen.HeavyRotation -> {
-                            val counts = playlists.heavyRotation.associate { it.item.id to it.plays }
-                            TrackListScreen("Heavy Rotation", playlists.heavyRotation.map { it.item }, playerVm, ::pop, padding) { t ->
-                                counts[t.id]?.let { if (it == 1) "1 play this month" else "$it plays this month" }
-                            }
-                        }
+                        Screen.HeavyRotation -> TrackListScreen("Heavy Rotation", playlists.heavyRotation.map { it.item }, playerVm, ::pop, padding)
                         Screen.MostPlayed -> {
                             val counts = playlists.mostPlayed.associate { it.item.id to it.plays }
                             TrackListScreen("Most Played", playlists.mostPlayed.map { it.item }, playerVm, ::pop, padding) { t ->

@@ -199,4 +199,4 @@ Started 2026-10-08 from user-pasted spec. NEW app, explicitly independent of Son
       - Cross-source canonical deduplication (`looseArtist` / `looseTitle`) with own-copy priority (`Local > Drive > Navidrome/Subsonic > Nebula`).
       - Diversity ceiling: strictly capped at 25 tracks, max 2 per artist, max 2 per album.
       - Fast pre-scoring heuristic (`heavyRotationCandidateIds`) ensuring sub-millisecond query performance on launch.
-      - UI: Added "Heavy Rotation" collection cards to Home and top row of Playlists tab with dynamic 2x2 cover mosaic, opening `TrackListScreen` with "X plays this month" metadata.
+      - UI: Added "Heavy Rotation" collection cards to Home and top row of Playlists tab with dynamic 2x2 cover mosaic, opening `TrackListScreen`.
