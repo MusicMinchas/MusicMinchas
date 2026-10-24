@@ -144,6 +144,7 @@ class TrackServer(
                     .toMap()
                 val (method, target) = requestLine.split(' ').let { (it.getOrNull(0) ?: "") to (it.getOrNull(1) ?: "") }
                 Log.i(TAG, "--> Sonos Request: $method $target, range=${headers["range"]}")
+                traceLog("REQ $method $target range=${headers["range"]}")
                 val parts = target.substringBefore('?').split('/')
                 val out = BufferedOutputStream(socket.getOutputStream(), 64 * 1024)
                 if (parts.size < 4 || parts[2] != token || method !in setOf("GET", "HEAD")) {
@@ -433,8 +434,16 @@ class TrackServer(
                 contentRange = if (partial) "bytes $start-$end/$size" else null,
             )
             if (method == "HEAD") return true
+            val t0 = android.os.SystemClock.elapsedRealtime()
             Log.i(TAG, "Downsampling '${track.title}' (${plan.inputRate} Hz -> ${plan.outputRate} Hz / 24-bit FLAC, range=$start-$end/$size)")
-            stream.writeRange(start, end, out)
+            traceLog("DS START '${track.title}' ${plan.inputRate}->${plan.outputRate} range=$start-$end/$size")
+            try {
+                stream.writeRange(start, end, out)
+                traceLog("DS DONE  '${track.title}' range=$start-$end (${android.os.SystemClock.elapsedRealtime() - t0} ms)")
+            } catch (e: IOException) {
+                traceLog("DS CLOSE '${track.title}' range=$start-$end after ${android.os.SystemClock.elapsedRealtime() - t0} ms: $e")
+                throw e
+            }
             return true
         } finally {
             releaseDownsampler(session)
@@ -447,11 +456,13 @@ class TrackServer(
         val format = try {
             if (ext == "flac") {
                 val info = FlacProbe.parse(source) ?: return null
+                traceLog("PROBE FLAC '${track.title}' rate=${info.sampleRate} bps=${info.bitsPerSample} samples=${info.totalSamples} seekPts=${info.seekPoints.size} firstOff=${info.firstFrameOffset}")
                 val plan = ResamplePlan.forStream(info.sampleRate, info.channels)
                 if (plan != null) ProbedTrackFormat.FlacHiRes(info, plan)
                 else ProbedTrackFormat.Passthrough(info.sampleRate, info.bitsPerSample)
             } else if (ext in ALAC_EXTS) {
                 val info = AlacMp4Probe.parse(source) ?: return null
+                traceLog("PROBE ALAC '${track.title}' rate=${info.sampleRate} bps=${info.bitsPerSample} samples=${info.totalSamples} packets=${info.packetSizes.size}")
                 val plan = ResamplePlan.forStream(info.sampleRate, info.channels)
                 if (plan != null) ProbedTrackFormat.AlacHiRes(info, plan)
                 else ProbedTrackFormat.Passthrough(info.sampleRate, info.bitsPerSample)
@@ -460,6 +471,7 @@ class TrackServer(
             }
         } catch (e: Exception) {
             Log.w(TAG, "Header probe failed for ${track.title}: $e")
+            traceLog("PROBE ERR '${track.title}': $e")
             null
         } finally {
             runCatching { source.close() }
@@ -550,6 +562,15 @@ class TrackServer(
         val stream: DownsamplingStream,
         val lock: ReentrantLock = ReentrantLock(),
     )
+
+    @Synchronized
+    private fun traceLog(line: String) {
+        runCatching {
+            val f = File(context.cacheDir, "sonos_trace.log")
+            if (f.exists() && f.length() > 256 * 1024) f.writeText("")
+            f.appendText("${System.currentTimeMillis() % 1_000_000} $line\n")
+        }
+    }
 
     private inner class LocalRandomAccessSource(uri: Uri, fallbackSize: Long?) : RandomAccessSource {
         private val afd = context.contentResolver.openAssetFileDescriptor(uri, "r")

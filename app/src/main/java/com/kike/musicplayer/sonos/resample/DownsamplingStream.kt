@@ -22,9 +22,9 @@ interface LosslessInputDecoder {
 class FlacInputDecoder(
     source: RandomAccessSource,
     val info: FlacStreamInfo,
-     fallbackTotalSamples: Long = 0L,
+    fallbackTotalSamples: Long = 0L,
 ) : LosslessInputDecoder {
-    private val decoder = FlacStreamDecoder(source, info)
+    private val decoder = FlacStreamDecoder(source, info, fallbackTotalSamples)
     override val sampleRate: Int get() = info.sampleRate
     override val channels: Int get() = info.channels
     override val bitsPerSample: Int get() = info.bitsPerSample
@@ -78,12 +78,15 @@ class DownsamplingStream(
     private val resampledBuf = IntArray((decoder.maxBlockSamples / plan.ratio + 64) * plan.channels)
     private val framePcmBuf = IntArray(writer.blockSamples * plan.channels)
     private var frameByteBuf = ByteArray(writer.fixedMaxFrameBytes())
+    private val zeroPadBuf = ByteArray(writer.fixedMaxFrameBytes())
+    private var cachedHeader: ByteArray? = null
 
     // Cursor state so consecutive HTTP range requests (e.g. Sonos probe followed by main stream)
     // can continue without re-seeking if already positioned at the next frame.
     private var nextOutputFrameIndex = -1L
     private var nextInputSample = 0L
-    private var pendingOutSamples = IntArray(writer.blockSamples * 4 * plan.channels)
+    private var lastRangeEndByte = -1L
+    private var pendingOutSamples = IntArray(writer.blockSamples * 8 * plan.channels)
     private var pendingOutRead = 0
     private var pendingOutWrite = 0
 
@@ -91,23 +94,31 @@ class DownsamplingStream(
      * Writes the exact byte slice `[startByte..endByte]` (inclusive) of the downsampled FLAC
      * stream to [out].
      */
-    fun writeRange(startByte: Long, endByte: Long, out: OutputStream) {
+    fun writeRange(
+        startByte: Long,
+        endByte: Long,
+        out: OutputStream,
+        shouldCancel: () -> Boolean = { false },
+    ) {
         val total = totalStreamBytes
         if (startByte < 0L || endByte < startByte || startByte >= total) return
         val clampedEnd = endByte.coerceAtMost(total - 1)
+        val isContiguousContinuation = (startByte == lastRangeEndByte + 1L)
         var pos = startByte
 
-        // 1. Write any requested portion of the 42-byte FLAC stream header.
-        if (pos < VerbatimFlacWriter.HEADER_SIZE) {
-            val header = writer.writeStreamHeader()
+        // 1. Write any requested portion of the FLAC stream header (STREAMINFO + SEEKTABLE).
+        val hdrSize = writer.headerSize
+        if (pos < hdrSize) {
+            val header = cachedHeader ?: writer.writeStreamHeader().also { cachedHeader = it }
             val hStart = pos.toInt()
-            val hEnd = min(clampedEnd + 1, VerbatimFlacWriter.HEADER_SIZE.toLong()).toInt()
+            val hEnd = min(clampedEnd + 1, hdrSize.toLong()).toInt()
             val hLen = hEnd - hStart
             out.write(header, hStart, hLen)
             pos += hLen
         }
 
         if (pos > clampedEnd || writer.totalFrames == 0L) {
+            lastRangeEndByte = clampedEnd
             out.flush()
             return
         }
@@ -115,11 +126,11 @@ class DownsamplingStream(
         // 2. Locate the first output FLAC frame covering [pos].
         var frameIdx = writer.frameIndexForByteOffset(pos)
         if (frameIdx != nextOutputFrameIndex) {
-            seekToOutputFrame(frameIdx)
+            seekToOutputFrame(frameIdx, shouldCancel)
         }
 
         // 3. Generate and write frames until [clampedEnd] is satisfied.
-        while (pos <= clampedEnd && frameIdx < writer.totalFrames) {
+        while (pos <= clampedEnd && frameIdx < writer.totalFrames && !shouldCancel()) {
             val frameStartOffset = writer.frameByteOffset(frameIdx)
             val neededSamples = writer.frameSamples(frameIdx)
             fillFrameSamples(neededSamples)
@@ -135,10 +146,11 @@ class DownsamplingStream(
             }
             frameIdx++
         }
+        lastRangeEndByte = pos - 1
         out.flush()
     }
 
-    private fun seekToOutputFrame(frameIdx: Long) {
+    private fun seekToOutputFrame(frameIdx: Long, shouldCancel: () -> Boolean = { false }) {
         val ch = plan.channels
         val ratio = plan.ratio
         val targetOutSample = frameIdx * writer.blockSamples
@@ -147,6 +159,7 @@ class DownsamplingStream(
         val startInSample = startOutSample * ratio
 
         resampler.reset(startOutputSample = startOutSample)
+        nextOutputFrameIndex = -1L
         pendingOutRead = 0
         pendingOutWrite = 0
 
@@ -158,7 +171,7 @@ class DownsamplingStream(
         var discardOutRemaining = preRollOut.toInt()
         var positionedAtStart = false
 
-        while (discardOutRemaining > 0 || !positionedAtStart) {
+        while ((discardOutRemaining > 0 || !positionedAtStart) && !shouldCancel()) {
             val decoded = decoder.decodeNextFrame(decodeBuf)
             if (decoded <= 0) break
             val frameFirstIn = decoder.lastFrameFirstSample
@@ -186,7 +199,9 @@ class DownsamplingStream(
                 }
             }
         }
-        nextOutputFrameIndex = frameIdx
+        if (!shouldCancel()) {
+            nextOutputFrameIndex = frameIdx
+        }
     }
 
     private fun fillFrameSamples(neededSamples: Int) {

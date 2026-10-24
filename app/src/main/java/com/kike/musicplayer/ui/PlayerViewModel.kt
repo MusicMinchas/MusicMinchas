@@ -77,6 +77,7 @@ class PlayerViewModel(private val app: Application) : AndroidViewModel(app) {
     val castDiscovering = cast.discovering
     val castActive = cast.active
     val castMessage = cast.message
+    val sonosDownsample: StateFlow<Boolean> = app.container.settings.sonosDownsample
 
     private val _state = MutableStateFlow(PlayerUiState())
     val state: StateFlow<PlayerUiState> = _state.asStateFlow()

@@ -548,7 +548,9 @@ private fun CastSheet(playerVm: PlayerViewModel, onDismiss: () -> Unit) {
     val active by playerVm.castActive.collectAsState()
     val message by playerVm.castMessage.collectAsState()
     val playerState by playerVm.state.collectAsState()
-    val isHighResUnsupported = (playerState.sampleRate ?: 0) > 48000
+    val sonosDownsample by playerVm.sonosDownsample.collectAsState()
+    val isHighRes = (playerState.sampleRate ?: 0) > 48000
+    val isHighResUnsupported = isHighRes && !sonosDownsample
     LaunchedEffect(Unit) { playerVm.discoverSpeakers() }
 
     ModalBottomSheet(onDismissRequest = onDismiss) {
@@ -579,7 +581,7 @@ private fun CastSheet(playerVm: PlayerViewModel, onDismiss: () -> Unit) {
                             modifier = Modifier.size(22.dp),
                         )
                         Text(
-                            "Sample rates higher than 48 kHz$rateStr are not supported by Sonos.",
+                            "Sample rates higher than 48 kHz$rateStr are not supported by Sonos. Enable hi-res downsampling in Settings to play on Sonos.",
                             style = MaterialTheme.typography.bodyMedium,
                             color = MaterialTheme.colorScheme.onErrorContainer,
                         )

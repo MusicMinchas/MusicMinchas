@@ -74,11 +74,11 @@ class ResamplePipelineTest {
     @Test
     fun `verbatim flac writer offset math and roundtrip decode are bit-exact`() {
         // Test across > 130 frames to exercise 1-byte and 2-byte UTF-8 frame numbers
-        val totalSamples = 4096L * 135 + 1234L
+        val totalSamples = VerbatimFlacWriter.DEFAULT_BLOCK_SAMPLES.toLong() * 135 + 234L
         val writer = VerbatimFlacWriter(sampleRate = 48_000, channels = 2, totalSamples = totalSamples)
         assertEquals(136L, writer.totalFrames)
 
-        var expectedOffset = VerbatimFlacWriter.HEADER_SIZE.toLong()
+        var expectedOffset = writer.headerSize.toLong()
         for (f in 0 until writer.totalFrames) {
             assertEquals("Frame $f offset", expectedOffset, writer.frameByteOffset(f))
             assertEquals("Frame index at start of $f", f, writer.frameIndexForByteOffset(expectedOffset))
@@ -98,7 +98,7 @@ class ResamplePipelineTest {
         }
         for (f in 0 until shortWriter.totalFrames) {
             val n = shortWriter.frameSamples(f)
-            val startInt = (f * 4096L * 2).toInt()
+            val startInt = (f * shortWriter.blockSamples.toLong() * 2).toInt()
             val slice = originalPcm.copyOfRange(startInt, startInt + n * 2)
             bos.write(shortWriter.encodeFrame(f, slice, n))
         }
@@ -169,7 +169,21 @@ class ResamplePipelineTest {
                 assertEquals(24, info.bitsPerSample)
                 assertEquals(inSamples.toLong(), info.totalSamples)
 
-                val dec = FlacStreamDecoder(src, info)
+                // Wrap in a small-packet (1379-byte) strictly-sequential source to verify BufferedBitReader
+                // never issues backward reads across TLS/TCP packet boundaries during decoding.
+                val packetSource = object : RandomAccessSource {
+                    var expectedNextOffset = info.firstFrameOffset
+                    override val length: Long get() = src.length
+                    override fun readAt(offset: Long, buf: ByteArray, off: Int, len: Int): Int {
+                        assertEquals("Decoder must read strictly sequentially without backward seeks", expectedNextOffset, offset)
+                        val capped = minOf(len, 1379)
+                        val n = src.readAt(offset, buf, off, capped)
+                        if (n > 0) expectedNextOffset += n
+                        return n
+                    }
+                    override fun close() {}
+                }
+                val dec = FlacStreamDecoder(packetSource, info)
                 val out = IntArray(inSamples * 2)
                 val buf = IntArray(info.maxBlockSize * 2)
                 var written = 0
@@ -221,7 +235,13 @@ class ResamplePipelineTest {
                 runCmd(ffmpeg.absolutePath, "-y", "-v", "error", "-i", outFlacFile.absolutePath, "-f", "s24le", decodedRaw48.absolutePath)
                 assertEquals((inSamples / 2) * 2 * 3L, decodedRaw48.length())
 
-                // Test non-sequential Range requests (header probe, tail probe, mid-track seek, cross-frame slice)
+                // Verify VerbatimFlacWriter's embedded SEEKTABLE metadata block is parsed back cleanly
+                val outInfo = FlacProbe.parse(ByteArraySource(fullBytes))!!
+                assertTrue("Generated FLAC must include SEEKTABLE", outInfo.seekPoints.isNotEmpty())
+                assertEquals(stream.writer.headerSize.toLong(), outInfo.firstFrameOffset)
+
+                // Test non-sequential Range requests (both with SEEKTABLE and with seekPoints stripped to test interpolated bisection)
+                val infoWithoutSeekTable = info.copy(seekPoints = emptyList())
                 val ranges = listOf(
                     0L to 6143L,
                     stream.totalStreamBytes - 8192L to stream.totalStreamBytes - 1L,
@@ -230,12 +250,14 @@ class ResamplePipelineTest {
                     0L to 41L,
                 )
                 for ((start, end) in ranges) {
-                    val rangeStream = DownsamplingStream(FlacInputDecoder(src, info), plan)
-                    val sliceOut = ByteArrayOutputStream()
-                    rangeStream.writeRange(start, end, sliceOut)
-                    val sliceBytes = sliceOut.toByteArray()
-                    val expectedSlice = fullBytes.copyOfRange(start.toInt(), end.toInt() + 1)
-                    assertArrayEquals("Range $start..$end must be bit-identical to full stream", expectedSlice, sliceBytes)
+                    for (testInfo in listOf(info, infoWithoutSeekTable)) {
+                        val rangeStream = DownsamplingStream(FlacInputDecoder(src, testInfo), plan)
+                        val sliceOut = ByteArrayOutputStream()
+                        rangeStream.writeRange(start, end, sliceOut)
+                        val sliceBytes = sliceOut.toByteArray()
+                        val expectedSlice = fullBytes.copyOfRange(start.toInt(), end.toInt() + 1)
+                        assertArrayEquals("Range $start..$end must be bit-identical to full stream", expectedSlice, sliceBytes)
+                    }
                 }
 
                 // 4. Downsample 96 kHz ALAC (.m4a) -> 48 kHz FLAC and verify identical output & random Range seeks

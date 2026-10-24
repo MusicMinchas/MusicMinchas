@@ -2,7 +2,7 @@ package com.kike.musicplayer.sonos.resample
 
 /**
  * Deterministic 24-bit uncompressed ("verbatim") FLAC stream writer with exact O(1)
- * byte-offset <-> frame-index mapping.
+ * byte-offset <-> frame-index mapping and an embedded `SEEKTABLE` metadata block.
  *
  * Every frame uses a fixed structure:
  * - Frame header: 4 fixed bytes + UTF-8(frameIndex) + 2-byte (blockSamples - 1) + 1-byte CRC-8
@@ -10,9 +10,9 @@ package com.kike.musicplayer.sonos.resample
  * - Frame footer: 2-byte CRC-16
  *
  * Because all fields are byte-aligned and every frame's byte length is a deterministic function
- * of [frameIndex] and [blockSamples], the total file size and the exact byte offset of any frame
- * are known in O(1) time without encoding prior frames. This lets `TrackServer` answer HTTP
- * `HEAD` and `Range` requests (probing, read-ahead, and `REL_TIME` seeks) accurately.
+ * of [frameIndex] and [blockSamples], the total file size, `SEEKTABLE`, and the exact byte offset
+ * of any frame are known in O(1) time without encoding prior frames. This lets `TrackServer`
+ * answer HTTP `HEAD` and `Range` requests (probing, read-ahead, and `REL_TIME` seeks) accurately.
  */
 class VerbatimFlacWriter(
     val sampleRate: Int,
@@ -35,7 +35,24 @@ class VerbatimFlacWriter(
     /** Total number of FLAC frames in the stream. */
     val totalFrames: Long = if (totalSamples == 0L) 0L else (totalSamples + blockSamples - 1) / blockSamples
 
-    /** Exact total byte length of the complete FLAC stream (42-byte header + all frames). */
+    /** Frame interval between consecutive `SEEKTABLE` entries (~0.25s..0.5s, up to [MAX_SEEK_POINTS] entries). */
+    private val seekStepFrames: Long = if (totalFrames <= 0L) {
+        1L
+    } else {
+        maxOf(1L, (totalFrames + MAX_SEEK_POINTS - 1) / MAX_SEEK_POINTS)
+    }
+
+    /** Number of 18-byte seek points written in the `SEEKTABLE` metadata block. */
+    val seekPointCount: Int = if (totalFrames <= 0L) {
+        0
+    } else {
+        ((totalFrames - 1) / seekStepFrames + 1).toInt()
+    }
+
+    /** Total byte size of the FLAC stream header (`fLaC` + `STREAMINFO` + `SEEKTABLE`) before frame 0. */
+    val headerSize: Int = STREAMINFO_HEADER_SIZE + if (seekPointCount > 0) 4 + seekPointCount * 18 else 0
+
+    /** Exact total byte length of the complete FLAC stream ([headerSize] + all frames). */
     val totalStreamBytes: Long = computeTotalStreamBytes()
 
     /** Number of samples per channel in frame [frameIndex] (0 until [totalFrames]). */
@@ -58,21 +75,21 @@ class VerbatimFlacWriter(
     /** Exact byte offset in the FLAC stream where frame [frameIndex] begins. */
     fun frameByteOffset(frameIndex: Long): Long {
         require(frameIndex in 0..totalFrames) { "frameIndex $frameIndex out of 0..$totalFrames" }
-        if (frameIndex == 0L) return HEADER_SIZE.toLong()
+        if (frameIndex == 0L) return headerSize.toLong()
         if (frameIndex == totalFrames) return totalStreamBytes
         val fullFrameBase = fixedFramePayloadBytes(blockSamples).toLong()
-        return HEADER_SIZE + frameIndex * fullFrameBase + sumUtf8Lens(frameIndex)
+        return headerSize + frameIndex * fullFrameBase + sumUtf8Lens(frameIndex)
     }
 
     /**
      * Returns the index of the frame (`0 until totalFrames`) that contains [byteOffset]
-     * (where `byteOffset >= HEADER_SIZE` and `byteOffset < totalStreamBytes`).
+     * (where `byteOffset >= headerSize` and `byteOffset < totalStreamBytes`).
      */
     fun frameIndexForByteOffset(byteOffset: Long): Long {
-        require(byteOffset in HEADER_SIZE.toLong() until totalStreamBytes) {
-            "byteOffset $byteOffset out of $HEADER_SIZE until $totalStreamBytes"
+        require(byteOffset in headerSize.toLong() until totalStreamBytes) {
+            "byteOffset $byteOffset out of $headerSize until $totalStreamBytes"
         }
-        val rel = byteOffset - HEADER_SIZE
+        val rel = byteOffset - headerSize
         val minFullFrame = fixedFramePayloadBytes(blockSamples) + 1
         val maxFullFrame = fixedFramePayloadBytes(blockSamples) + 7
         var lo = (rel / maxFullFrame).coerceAtLeast(0L)
@@ -88,15 +105,15 @@ class VerbatimFlacWriter(
         return lo
     }
 
-    /** Generates the 42-byte `fLaC` + `STREAMINFO` header. */
+    /** Generates the `fLaC` + `STREAMINFO` + `SEEKTABLE` header of exact length [headerSize]. */
     fun writeStreamHeader(): ByteArray {
-        val out = ByteArray(HEADER_SIZE)
+        val out = ByteArray(headerSize)
         out[0] = 'f'.code.toByte()
         out[1] = 'L'.code.toByte()
         out[2] = 'a'.code.toByte()
         out[3] = 'C'.code.toByte()
-        // Last metadata block flag (0x80) | block type 0 (STREAMINFO), length = 34 bytes
-        out[4] = 0x80.toByte()
+        // Last metadata block flag (0x80) only if there is no SEEKTABLE; block type 0 (STREAMINFO), length = 34 bytes
+        out[4] = if (seekPointCount == 0) 0x80.toByte() else 0x00.toByte()
         out[5] = 0
         out[6] = 0
         out[7] = 34
@@ -131,6 +148,29 @@ class VerbatimFlacWriter(
         out[24] = (totalSamples ushr 8).toByte()
         out[25] = totalSamples.toByte()
         // Bytes 26..41 are the 16-byte MD5 signature (all zeros = unset, valid per FLAC spec).
+
+        if (seekPointCount > 0) {
+            val tableLen = seekPointCount * 18
+            // Last metadata block flag (0x80) | block type 3 (SEEKTABLE)
+            out[42] = 0x83.toByte()
+            out[43] = (tableLen ushr 16).toByte()
+            out[44] = (tableLen ushr 8).toByte()
+            out[45] = tableLen.toByte()
+
+            var pos = 46
+            val firstFrameOff = headerSize.toLong()
+            for (s in 0 until seekPointCount) {
+                val frameIdx = s.toLong() * seekStepFrames
+                val sampleNum = frameIdx * blockSamples.toLong()
+                val streamByteOff = frameByteOffset(frameIdx) - firstFrameOff
+                val fSamples = frameSamples(frameIdx)
+                writeBeLong(out, pos, sampleNum)
+                writeBeLong(out, pos + 8, streamByteOff)
+                out[pos + 16] = (fSamples ushr 8).toByte()
+                out[pos + 17] = fSamples.toByte()
+                pos += 18
+            }
+        }
         return out
     }
 
@@ -197,18 +237,19 @@ class VerbatimFlacWriter(
         9 + channels + 3 * channels * frames
 
     private fun computeTotalStreamBytes(): Long {
-        if (totalFrames == 0L) return HEADER_SIZE.toLong()
+        if (totalFrames == 0L) return headerSize.toLong()
         val fullFrames = totalFrames - 1
         val fullBytes = fullFrames * fixedFramePayloadBytes(blockSamples).toLong()
         val lastSamples = frameSamples(totalFrames - 1)
         val lastBytes = fixedFramePayloadBytes(lastSamples).toLong()
-        return HEADER_SIZE + fullBytes + lastBytes + sumUtf8Lens(totalFrames)
+        return headerSize + fullBytes + lastBytes + sumUtf8Lens(totalFrames)
     }
 
     companion object {
-        const val HEADER_SIZE = 42
+        const val STREAMINFO_HEADER_SIZE = 42
         const val DEFAULT_BLOCK_SAMPLES = 4096
         const val BITS_PER_SAMPLE = 24
+        private const val MAX_SEEK_POINTS = 100
 
         /** Number of bytes required to encode [v] in FLAC's UTF-8 variable-length format. */
         fun utf8Len(v: Long): Int = when {
@@ -248,6 +289,17 @@ class VerbatimFlacWriter(
             }
             return pos
         }
+
+        private fun writeBeLong(buf: ByteArray, offset: Int, v: Long) {
+            buf[offset] = (v ushr 56).toByte()
+            buf[offset + 1] = (v ushr 48).toByte()
+            buf[offset + 2] = (v ushr 40).toByte()
+            buf[offset + 3] = (v ushr 32).toByte()
+            buf[offset + 4] = (v ushr 24).toByte()
+            buf[offset + 5] = (v ushr 16).toByte()
+            buf[offset + 6] = (v ushr 8).toByte()
+            buf[offset + 7] = v.toByte()
+        }
     }
 }
 
@@ -263,15 +315,19 @@ internal object FlacCrc {
         c and 0xFFFF
     }
 
-    fun crc8(b: ByteArray, off: Int, len: Int): Int {
-        var c = 0
-        for (i in off until off + len) c = table8[c xor (b[i].toInt() and 0xFF)]
-        return c
+    fun crc8(buf: ByteArray, offset: Int, length: Int): Int {
+        var crc = 0
+        for (i in offset until offset + length) {
+            crc = table8[(crc xor (buf[i].toInt() and 0xFF)) and 0xFF]
+        }
+        return crc
     }
 
-    fun crc16(b: ByteArray, off: Int, len: Int): Int {
-        var c = 0
-        for (i in off until off + len) c = ((c shl 8) xor table16[(c ushr 8) xor (b[i].toInt() and 0xFF)]) and 0xFFFF
-        return c
+    fun crc16(buf: ByteArray, offset: Int, length: Int): Int {
+        var crc = 0
+        for (i in offset until offset + length) {
+            crc = ((crc shl 8) and 0xFFFF) xor table16[((crc ushr 8) xor (buf[i].toInt() and 0xFF)) and 0xFF]
+        }
+        return crc
     }
 }

@@ -74,7 +74,10 @@ data class FlacStreamInfo(
     val totalSamples: Long,
     val firstFrameOffset: Long,
     val seekPoints: List<FlacSeekPoint> = emptyList(),
-)
+) {
+    val sharedSeekPoints: java.util.concurrent.CopyOnWriteArrayList<FlacSeekPoint> =
+        java.util.concurrent.CopyOnWriteArrayList(seekPoints)
+}
 
 /**
  * Parses FLAC `STREAMINFO` and `SEEKTABLE` metadata blocks from the header of a stream.
@@ -200,26 +203,31 @@ object FlacProbe {
 /**
  * Pure-Kotlin lossless FLAC decoder supporting 16/20/24/32-bit streams, all subframe types
  * (CONSTANT, VERBATIM, FIXED order 0..4, LPC order 1..32), RICE and RICE2 partitions, wasted bits,
- * all stereo decorrelation modes, and sample-accurate seeking.
+ * all stereo decorrelation modes, and sample-accurate seeking (both via `SEEKTABLE` and via
+ * interpolated frame-header bisection when a file has no `SEEKTABLE`).
  *
  * Output samples are normalized to signed 24-bit integers (`[-8388608, 8388607]`) interleaved by channel.
  */
 class FlacStreamDecoder(
     private val source: RandomAccessSource,
     val info: FlacStreamInfo,
+    fallbackTotalSamples: Long = 0L,
 ) {
     private val reader = BufferedBitReader(source, info.firstFrameOffset)
     private val maxBlock = info.maxBlockSize.coerceAtLeast(65536)
     private val subframes = Array(info.channels) { LongArray(maxBlock) }
     private val lpcCoeffs = IntArray(32)
+    private val effectiveTotalSamples: Long = if (info.totalSamples > 0L) info.totalSamples else fallbackTotalSamples
+    private val dynamicSeekPoints = info.sharedSeekPoints
 
     /** Sample number of the first sample of the most recently decoded frame. */
     var lastFrameFirstSample: Long = 0L
         private set
 
     /**
-     * Seeks so that the next decoded samples cover [targetSample], and returns a pair
-     * `(interleavedPcm24, skipFramesInFirstBlock)` or positions the decoder at a frame <= [targetSample].
+     * Seeks so that the next decoded frames start at or just before [targetSample].
+     * Uses `SEEKTABLE` when available and falls back to fast interpolated byte-offset bisection
+     * when `SEEKTABLE` is absent or sparse, avoiding full-stream scans on large hi-res files.
      */
     fun seekToSample(targetSample: Long) {
         if (targetSample <= 0L) {
@@ -227,23 +235,98 @@ class FlacStreamDecoder(
             lastFrameFirstSample = 0L
             return
         }
-        val pts = info.seekPoints
-        if (pts.isNotEmpty()) {
-            var best: FlacSeekPoint? = null
-            for (p in pts) {
-                if (p.sampleNumber <= targetSample) {
-                    if (best == null || p.sampleNumber > best.sampleNumber) best = p
-                }
-            }
-            if (best != null) {
-                reader.reset(info.firstFrameOffset + best.streamByteOffset)
-                lastFrameFirstSample = best.sampleNumber
-                return
+
+        var best: FlacSeekPoint? = null
+        var next: FlacSeekPoint? = null
+        for (p in dynamicSeekPoints) {
+            if (p.sampleNumber <= targetSample) {
+                if (best == null || p.sampleNumber > best.sampleNumber) best = p
+            } else {
+                if (next == null || p.sampleNumber < next.sampleNumber) next = p
             }
         }
-        // Fallback if no seekpoint <= targetSample: start from firstFrameOffset.
+
+        val closeThreshold = info.sampleRate.toLong() * 3L // Within 3 seconds before targetSample
+        if (best != null && targetSample - best.sampleNumber <= closeThreshold) {
+            reader.reset(info.firstFrameOffset + best.streamByteOffset)
+            lastFrameFirstSample = best.sampleNumber
+            return
+        }
+
+        val fileLen = source.length
+        if (effectiveTotalSamples > 0L && fileLen > info.firstFrameOffset + 32768L && fileLen < Long.MAX_VALUE / 2) {
+            var lowByte = if (best != null) info.firstFrameOffset + best.streamByteOffset else info.firstFrameOffset
+            var lowSample = best?.sampleNumber ?: 0L
+            var highByte = if (next != null) info.firstFrameOffset + next.streamByteOffset else fileLen
+            var highSample = next?.sampleNumber ?: effectiveTotalSamples
+
+            val preRollAim = (info.sampleRate / 2).toLong()
+            for (iter in 0 until 5) {
+                if (targetSample - lowSample <= closeThreshold || highByte - lowByte <= 65536L) break
+                val aimSample = (targetSample - preRollAim).coerceAtLeast(lowSample)
+                val sampleSpan = (highSample - lowSample).coerceAtLeast(1L)
+                val byteSpan = (highByte - lowByte).coerceAtLeast(1L)
+                val frac = ((aimSample - lowSample).toDouble() / sampleSpan.toDouble()).coerceIn(0.0, 0.98)
+                val safetyBytes = if (iter == 0) 32768L else 16384L
+                val guessByte = (lowByte + (byteSpan * frac).toLong() - safetyBytes)
+                    .coerceIn(lowByte, (highByte - 8192L).coerceAtLeast(lowByte))
+
+                val probed = probeValidFrameAt(guessByte, maxScanBytes = 192 * 1024)
+                if (probed == null) {
+                    highByte = guessByte
+                    continue
+                }
+                recordSeekPoint(probed.sampleNumber, probed.streamByteOffset, probed.frameSamples)
+                val frameBytePos = info.firstFrameOffset + probed.streamByteOffset
+                if (probed.sampleNumber <= targetSample) {
+                    if (frameBytePos <= lowByte) break
+                    lowByte = frameBytePos
+                    lowSample = probed.sampleNumber
+                    if (targetSample - lowSample <= closeThreshold) break
+                } else {
+                    if (frameBytePos >= highByte) break
+                    highByte = frameBytePos
+                    highSample = probed.sampleNumber
+                }
+            }
+
+            reader.reset(lowByte)
+            lastFrameFirstSample = lowSample
+            return
+        }
+
+        if (best != null) {
+            reader.reset(info.firstFrameOffset + best.streamByteOffset)
+            lastFrameFirstSample = best.sampleNumber
+            return
+        }
+
         reader.reset(info.firstFrameOffset)
         lastFrameFirstSample = 0L
+    }
+
+    /**
+     * Scans forward from [startByteOffset] up to [maxScanBytes] to find a genuine FLAC frame
+     * verified by header fields, header CRC-8, full subframe decoding, and footer CRC-16.
+     */
+    private fun probeValidFrameAt(startByteOffset: Long, maxScanBytes: Int): FlacSeekPoint? {
+        reader.reset(startByteOffset)
+        val limitByte = startByteOffset + maxScanBytes
+        while (!reader.isEof && reader.bytePosition < limitByte) {
+            if (!syncToNextFrame(limitByte)) return null
+            val frameStartBytePos = reader.bytePosition
+            if (frameStartBytePos >= limitByte) return null
+            val decoded = tryDecodeFrameAtCurrentPos(outInterleaved = null)
+            if (decoded > 0) {
+                return FlacSeekPoint(
+                    sampleNumber = lastFrameFirstSample,
+                    streamByteOffset = frameStartBytePos - info.firstFrameOffset,
+                    frameSamples = decoded,
+                )
+            }
+            reader.reset(frameStartBytePos + 1)
+        }
+        return null
     }
 
     /**
@@ -251,9 +334,33 @@ class FlacStreamDecoder(
      * Returns the number of samples per channel decoded, or -1 at EOF.
      */
     fun decodeNextFrame(outInterleaved: IntArray): Int {
-        if (!syncToNextFrame()) return -1
+        while (!reader.isEof) {
+            if (!syncToNextFrame(Long.MAX_VALUE)) return -1
+            val frameStartBytePos = reader.bytePosition
+            val decoded = tryDecodeFrameAtCurrentPos(outInterleaved)
+            if (decoded > 0) {
+                recordSeekPoint(lastFrameFirstSample, frameStartBytePos - info.firstFrameOffset, decoded)
+                return decoded
+            }
+            if (reader.isEof) return -1
+            // False sync word in mid-stream data: advance 1 byte in buffer and continue syncing.
+            reader.reset(frameStartBytePos + 1)
+        }
+        return -1
+    }
 
+    private fun tryDecodeFrameAtCurrentPos(outInterleaved: IntArray?): Int {
+        reader.alignToByte()
         val frameStartBytePos = reader.bytePosition
+        reader.pinFrameStart(frameStartBytePos)
+        try {
+            return tryDecodePinnedFrame(frameStartBytePos, outInterleaved)
+        } finally {
+            reader.unpinFrameStart()
+        }
+    }
+
+    private fun tryDecodePinnedFrame(frameStartBytePos: Long, outInterleaved: IntArray?): Int {
         val sync = reader.readBits(15).toInt() // 14-bit sync 0x3FFE + 1-bit reserved (0) = 0x7FFC
         if (sync != 0x7FFC) return -1
         val blockingStrategy = reader.readBits(1).toInt()
@@ -263,6 +370,25 @@ class FlacStreamDecoder(
         val sampleSizeCode = reader.readBits(3).toInt()
         val reservedBit = reader.readBits(1).toInt()
         if (reservedBit != 0 || blockSizeCode == 0 || sampleRateCode == 15) return -1
+
+        val chCount = when (channelAssignment) {
+            in 0..7 -> channelAssignment + 1
+            8, 9, 10 -> 2
+            else -> return -1
+        }
+        if (chCount != info.channels) return -1
+
+        val frameBps = when (sampleSizeCode) {
+            0 -> info.bitsPerSample
+            1 -> 8
+            2 -> 12
+            4 -> 16
+            5 -> 20
+            6 -> 24
+            7 -> 32
+            else -> return -1
+        }
+        if (frameBps != info.bitsPerSample) return -1
 
         val codedNumber = reader.readUtf8()
         if (codedNumber < 0L) return -1
@@ -275,44 +401,28 @@ class FlacStreamDecoder(
             in 8..15 -> 256 shl (blockSizeCode - 8)
             else -> return -1
         }
+        if (blockSamples <= 0 || blockSamples > maxBlock) return -1
 
         when (sampleRateCode) {
-            12 -> reader.readBits(8)
-            13, 14 -> reader.readBits(16)
+            12 -> if (reader.readBits(8) < 0) return -1
+            13, 14 -> if (reader.readBits(16) < 0) return -1
         }
 
         val headerCrc8 = reader.readBits(8).toInt()
+        if (headerCrc8 < 0) return -1
         val headerLen = (reader.bytePosition - frameStartBytePos - 1).toInt()
-        // Verify CRC-8 of frame header so false sync words when seeking are rejected.
         if (headerLen <= 0 || reader.computeCrc8From(frameStartBytePos, headerLen) != headerCrc8) {
-            // False sync: step past first sync byte and retry.
-            reader.reset(frameStartBytePos + 1)
-            return decodeNextFrame(outInterleaved)
+            return -1
         }
 
-        lastFrameFirstSample = if (blockingStrategy == 0) {
+        val candidateFirstSample = if (blockingStrategy == 0) {
             codedNumber * info.minBlockSize.toLong()
         } else {
             codedNumber
         }
-
-        val frameBps = when (sampleSizeCode) {
-            0 -> info.bitsPerSample
-            1 -> 8
-            2 -> 12
-            4 -> 16
-            5 -> 20
-            6 -> 24
-            7 -> 32
-            else -> return -1
+        if (effectiveTotalSamples > 0L && candidateFirstSample >= effectiveTotalSamples + maxBlock) {
+            return -1
         }
-
-        val chCount = when (channelAssignment) {
-            in 0..7 -> channelAssignment + 1
-            8, 9, 10 -> 2
-            else -> return -1
-        }
-        if (chCount != info.channels) return -1
 
         for (c in 0 until chCount) {
             // Side channel in left-side (ch 1), side-right (ch 0), or mid-side (ch 1) has +1 bit depth!
@@ -324,7 +434,15 @@ class FlacStreamDecoder(
         }
 
         reader.alignToByte()
-        reader.readBits(16) // Frame footer CRC-16
+        val bodyByteLen = (reader.bytePosition - frameStartBytePos).toInt()
+        val footerCrc16 = reader.readBits(16).toInt()
+        if (footerCrc16 < 0 || bodyByteLen <= headerLen) return -1
+        if (reader.computeCrc16From(frameStartBytePos, bodyByteLen) != footerCrc16) {
+            return -1
+        }
+
+        lastFrameFirstSample = candidateFirstSample
+        if (outInterleaved == null) return blockSamples
 
         // Channel decorrelation
         when (channelAssignment) {
@@ -377,14 +495,33 @@ class FlacStreamDecoder(
         return blockSamples
     }
 
+    private fun recordSeekPoint(sampleNumber: Long, streamByteOffset: Long, frameSamples: Int) {
+        if (sampleNumber < 0L || streamByteOffset < 0L) return
+        val minSpacing = info.sampleRate.toLong() // At most 1 dynamic seek point per second
+        for (existing in dynamicSeekPoints) {
+            if (kotlin.math.abs(existing.sampleNumber - sampleNumber) < minSpacing) return
+        }
+        synchronized(dynamicSeekPoints) {
+            var insertIdx = 0
+            for (i in dynamicSeekPoints.indices) {
+                val existing = dynamicSeekPoints[i]
+                if (kotlin.math.abs(existing.sampleNumber - sampleNumber) < minSpacing) return
+                if (existing.sampleNumber < sampleNumber) insertIdx = i + 1
+            }
+            dynamicSeekPoints.add(insertIdx, FlacSeekPoint(sampleNumber, streamByteOffset, frameSamples))
+        }
+    }
+
     private fun decodeSubframe(dst: LongArray, blockSamples: Int, subframeBps: Int): Boolean {
         val zeroBit = reader.readBits(1).toInt()
         if (zeroBit != 0) return false
         val typeCode = reader.readBits(6).toInt()
         val hasWasted = reader.readBits(1).toInt()
+        if (hasWasted < 0) return false
         var wasted = 0
         if (hasWasted != 0) {
-            wasted = 1 + reader.readUnary()
+            wasted = 1 + reader.readUnary(maxZeros = 32)
+            if (wasted > 32) return false
         }
         val bps = subframeBps - wasted
         if (bps !in 1..33) return false
@@ -401,6 +538,7 @@ class FlacStreamDecoder(
             }
             typeCode in 8..12 -> { // SUBFRAME_FIXED
                 val order = typeCode and 0x07
+                if (blockSamples <= order) return false
                 for (i in 0 until order) {
                     dst[i] = reader.readSignedBits(bps)
                 }
@@ -415,11 +553,12 @@ class FlacStreamDecoder(
             }
             typeCode >= 32 -> { // SUBFRAME_LPC
                 val order = (typeCode and 0x1F) + 1
+                if (blockSamples <= order) return false
                 for (i in 0 until order) {
                     dst[i] = reader.readSignedBits(bps)
                 }
                 val qlpPrec = reader.readBits(4).toInt() + 1
-                if (qlpPrec == 16) return false
+                if (qlpPrec <= 0 || qlpPrec == 16) return false
                 val qlpShift = reader.readSignedBits(5).toInt()
                 if (qlpShift < 0) return false
                 for (i in 0 until order) {
@@ -454,7 +593,9 @@ class FlacStreamDecoder(
         }
         val escapeCode = (1 shl paramBits) - 1
         val partitionOrder = reader.readBits(4).toInt()
+        if (partitionOrder < 0) return false
         val numPartitions = 1 shl partitionOrder
+        if ((blockSamples and (numPartitions - 1)) != 0) return false
         val partSamples = blockSamples ushr partitionOrder
         if (partSamples < predictorOrder) return false
 
@@ -462,8 +603,10 @@ class FlacStreamDecoder(
         for (p in 0 until numPartitions) {
             val count = if (p == 0) partSamples - predictorOrder else partSamples
             val riceParam = reader.readBits(paramBits).toInt()
+            if (riceParam < 0) return false
             if (riceParam == escapeCode) {
                 val rawBits = reader.readBits(5).toInt()
+                if (rawBits < 0) return false
                 if (rawBits == 0) {
                     for (i in 0 until count) dst[sampleIdx++] = 0L
                 } else {
@@ -473,9 +616,16 @@ class FlacStreamDecoder(
                 }
             } else {
                 for (i in 0 until count) {
-                    val q = reader.readUnary().toLong()
-                    val r = if (riceParam > 0) reader.readBits(riceParam) else 0L
-                    val u = (q shl riceParam) or r
+                    val q = reader.readUnary(maxZeros = 65536)
+                    if (q < 0) return false
+                    val r = if (riceParam > 0) {
+                        val rv = reader.readBits(riceParam)
+                        if (rv < 0L) return false
+                        rv
+                    } else {
+                        0L
+                    }
+                    val u = (q.toLong() shl riceParam) or r
                     dst[sampleIdx++] = (u ushr 1) xor -(u and 1L)
                 }
             }
@@ -483,9 +633,9 @@ class FlacStreamDecoder(
         return true
     }
 
-    private fun syncToNextFrame(): Boolean {
+    private fun syncToNextFrame(limitByte: Long): Boolean {
         reader.alignToByte()
-        while (!reader.isEof) {
+        while (!reader.isEof && reader.bytePosition < limitByte) {
             val b0 = reader.peekByte(0)
             if (b0 == 0xFF) {
                 val b1 = reader.peekByte(1)
@@ -500,16 +650,18 @@ class FlacStreamDecoder(
 }
 
 /**
- * Buffered bit reader over a [RandomAccessSource] with byte-level peek and CRC-8 support.
+ * Buffered bit reader over a [RandomAccessSource] with in-memory seek reuse, byte-level peek,
+ * and CRC-8 / CRC-16 support.
  */
 internal class BufferedBitReader(
     private val source: RandomAccessSource,
-     startOffset: Long,
+    startOffset: Long,
 ) {
     private val buf = ByteArray(BUFFER_SIZE)
     private var bufStartOffset = startOffset
     private var bufValid = 0
     private var bufPos = 0
+    private var pinnedOffset = -1L
 
     private var bitAcc = 0L
     private var bitsAvailable = 0
@@ -524,17 +676,31 @@ internal class BufferedBitReader(
     val isEof: Boolean
         get() {
             if (bitsAvailable > 0 || bufPos < bufValid) return false
-            refill()
-            return bufPos >= bufValid
+            return !refillAppend()
         }
 
+    fun pinFrameStart(offset: Long) {
+        pinnedOffset = offset
+    }
+
+    fun unpinFrameStart() {
+        pinnedOffset = -1L
+    }
+
     fun reset(offset: Long) {
+        val rel = offset - bufStartOffset
+        if (bufValid > 0 && rel >= 0L && rel < bufValid.toLong()) {
+            bufPos = rel.toInt()
+            bitAcc = 0L
+            bitsAvailable = 0
+            return
+        }
         bufStartOffset = offset
         bufValid = 0
         bufPos = 0
         bitAcc = 0L
         bitsAvailable = 0
-        refill()
+        refillAppend()
     }
 
     fun alignToByte() {
@@ -546,13 +712,12 @@ internal class BufferedBitReader(
 
     fun peekByte(ahead: Int): Int {
         alignToByte()
-        val bytePos = bytePosition + ahead
-        val rel = (bytePos - bufStartOffset).toInt()
-        if (rel in 0 until bufValid) {
-            return buf[rel].toInt() and 0xFF
+        val targetOffset = bytePosition + ahead
+        while (targetOffset >= bufStartOffset + bufValid) {
+            if (!refillAppend()) return -1
         }
-        val tmp = ByteArray(1)
-        return if (source.readFullyAt(bytePos, tmp, 0, 1) == 1) tmp[0].toInt() and 0xFF else -1
+        val rel = (targetOffset - bufStartOffset).toInt()
+        return if (rel in 0 until bufValid) buf[rel].toInt() and 0xFF else -1
     }
 
     fun skipByte() {
@@ -563,8 +728,7 @@ internal class BufferedBitReader(
         if (n == 0) return 0L
         while (bitsAvailable < n) {
             if (bufPos >= bufValid) {
-                refill()
-                if (bufPos >= bufValid) return -1L
+                if (!refillAppend()) return -1L
             }
             bitAcc = (bitAcc shl 8) or (buf[bufPos++].toLong() and 0xFFL)
             bitsAvailable += 8
@@ -580,13 +744,12 @@ internal class BufferedBitReader(
         return (u shl shift) shr shift
     }
 
-    fun readUnary(): Int {
+    fun readUnary(maxZeros: Int = Int.MAX_VALUE): Int {
         var zeros = 0
         while (true) {
             if (bitsAvailable == 0) {
                 if (bufPos >= bufValid) {
-                    refill()
-                    if (bufPos >= bufValid) return zeros
+                    if (!refillAppend()) return -1
                 }
                 bitAcc = buf[bufPos++].toLong() and 0xFFL
                 bitsAvailable = 8
@@ -595,11 +758,12 @@ internal class BufferedBitReader(
             if (top == 0L) {
                 zeros += bitsAvailable
                 bitsAvailable = 0
+                if (zeros > maxZeros) return -1
             } else {
                 val lz = java.lang.Long.numberOfLeadingZeros(top)
                 zeros += lz
                 bitsAvailable -= (lz + 1)
-                return zeros
+                return if (zeros > maxZeros) -1 else zeros
             }
         }
     }
@@ -631,19 +795,52 @@ internal class BufferedBitReader(
         if (rel >= 0 && rel + len <= bufValid) {
             return FlacCrc.crc8(buf, rel, len)
         }
-        val tmp = ByteArray(len)
-        source.readFullyAt(startByteOffset, tmp, 0, len)
-        return FlacCrc.crc8(tmp, 0, len)
+        return -1
     }
 
-    private fun refill() {
-        bufStartOffset += bufPos
-        bufPos = 0
-        val n = source.readAt(bufStartOffset, buf, 0, buf.size)
-        bufValid = if (n > 0) n else 0
+    fun computeCrc16From(startByteOffset: Long, len: Int): Int {
+        val rel = (startByteOffset - bufStartOffset).toInt()
+        if (rel >= 0 && rel + len <= bufValid) {
+            return FlacCrc.crc16(buf, rel, len)
+        }
+        return -1
+    }
+
+    /**
+     * Appends more bytes from [source] at `bufStartOffset + bufValid` (strictly sequential!)
+     * while preserving [pinnedOffset] and a [BACK_WINDOW] behind [bytePosition] in RAM.
+     */
+    private fun refillAppend(): Boolean {
+        val curBytePos = bytePosition
+        val minKeepOffset = if (pinnedOffset >= bufStartOffset) {
+            minOf(pinnedOffset, (curBytePos - BACK_WINDOW).coerceAtLeast(bufStartOffset))
+        } else {
+            (curBytePos - BACK_WINDOW).coerceAtLeast(bufStartOffset)
+        }
+        val keepStartIdx = (minKeepOffset - bufStartOffset).toInt().coerceIn(0, bufValid)
+        if (keepStartIdx > 0 && (bufValid >= buf.size - MIN_READ_SPACE || keepStartIdx >= COMPACT_THRESHOLD)) {
+            val rem = bufValid - keepStartIdx
+            if (rem > 0) {
+                System.arraycopy(buf, keepStartIdx, buf, 0, rem)
+            }
+            bufStartOffset += keepStartIdx
+            bufPos -= keepStartIdx
+            bufValid = rem
+        }
+        val space = buf.size - bufValid
+        if (space <= 0) return false
+        val readTarget = minOf(space, CHUNK_READ_SIZE)
+        val n = source.readAt(bufStartOffset + bufValid, buf, bufValid, readTarget)
+        if (n <= 0) return false
+        bufValid += n
+        return true
     }
 
     companion object {
-        private const val BUFFER_SIZE = 64 * 1024
+        private const val BUFFER_SIZE = 256 * 1024
+        private const val CHUNK_READ_SIZE = 64 * 1024
+        private const val MIN_READ_SPACE = 32 * 1024
+        private const val COMPACT_THRESHOLD = 64 * 1024
+        private const val BACK_WINDOW = 8 * 1024L
     }
 }
