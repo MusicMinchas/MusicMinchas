@@ -655,6 +655,8 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
     val fullScreenCover = settings.fullScreenCover
     fun setDarkMode(enabled: Boolean) = settings.setDarkMode(enabled)
     fun setFullScreenCover(enabled: Boolean) = settings.setFullScreenCover(enabled)
+    val sonosDownsample = settings.sonosDownsample
+    fun setSonosDownsample(enabled: Boolean) = settings.setSonosDownsample(enabled)
     val driveAccount = driveAuth.account
     val driveNeedsReconnect = driveAuth.needsReconnect
 

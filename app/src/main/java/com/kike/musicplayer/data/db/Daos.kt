@@ -108,6 +108,9 @@ interface TrackDao {
     @Query("UPDATE tracks SET genre = :genre, genreRead = 1 WHERE id = :id")
     suspend fun setGenre(id: String, genre: String?)
 
+    @Query("UPDATE tracks SET sampleRate = :sampleRate, bitsPerSample = :bitsPerSample WHERE id = :id")
+    suspend fun setAudioFormat(id: String, sampleRate: Int, bitsPerSample: Int?)
+
     /** One transaction, so the library is refreshed once per batch rather than once per track. */
     @Transaction
     suspend fun setGenres(genres: List<Pair<String, String?>>) {

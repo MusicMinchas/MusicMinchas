@@ -65,6 +65,10 @@ data class Track(
     @ColumnInfo(defaultValue = "") val indexTitle: String = "",
     /** [scopeOf] the source, for listing each source on its own (kept right by LibraryIndexer). */
     @ColumnInfo(defaultValue = "0") val scope: Int = SCOPE_LOCAL,
+    /** Audio sample rate in Hz (e.g. 44100, 48000, 96000); null when not yet read or probed. */
+    val sampleRate: Int? = null,
+    /** Audio bit depth (e.g. 16, 24); null when not yet read or probed. */
+    val bitsPerSample: Int? = null,
 ) {
     val displayArtist: String get() = artist ?: albumArtist ?: "Unknown artist"
     val albumKey: String get() = albumKeyOf(album, albumArtist ?: artist)

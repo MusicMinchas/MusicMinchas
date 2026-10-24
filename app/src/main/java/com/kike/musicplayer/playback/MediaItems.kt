@@ -13,6 +13,8 @@ fun Track.toMediaItem(mediaId: String = id): MediaItem {
         putString("originalUri", uri)
         putString("source", source)
         putInt("scope", scope)
+        sampleRate?.let { putInt("sampleRate", it) }
+        bitsPerSample?.let { putInt("bitsPerSample", it) }
     }
     return MediaItem.Builder()
         .setMediaId(mediaId)
@@ -112,5 +114,7 @@ fun MediaItem.toTransientTrack(): Track? {
         indexAlbum = Track.albumKeyOf(albumTitle, albumArtist ?: artist),
         indexArtist = albumArtist ?: artist,
         indexTitle = "",
+        sampleRate = extras?.getInt("sampleRate")?.takeIf { it > 0 },
+        bitsPerSample = extras?.getInt("bitsPerSample")?.takeIf { it > 0 },
     )
 }

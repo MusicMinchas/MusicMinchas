@@ -231,6 +231,15 @@ class Settings(context: Context, name: String = "settings") {
         _fullScreenCover.value = enabled
     }
 
+    private val _sonosDownsample = MutableStateFlow(prefs.getBoolean(KEY_SONOS_DOWNSAMPLE, false))
+    /** Sonos playback: whether to downsample hi-res (> 48 kHz) FLAC/ALAC to 48 or 44.1 kHz / 24-bit on the fly. */
+    val sonosDownsample: StateFlow<Boolean> = _sonosDownsample.asStateFlow()
+
+    fun setSonosDownsample(enabled: Boolean) {
+        prefs.edit { putBoolean(KEY_SONOS_DOWNSAMPLE, enabled) }
+        _sonosDownsample.value = enabled
+    }
+
     private companion object {
         const val KEY_SAF = "saf_folders"
         const val KEY_HIDDEN_SCOPES = "hidden_scopes"
@@ -249,6 +258,7 @@ class Settings(context: Context, name: String = "settings") {
         const val KEY_DARK_MODE = "dark_mode"
         const val KEY_MB_TITLES_REREAD = "mb_titles_reread"
         const val KEY_FULL_COVER = "full_screen_cover"
+        const val KEY_SONOS_DOWNSAMPLE = "sonos_downsample"
         const val KEY_SYNC_MODE = "drive_sync_mode"
         const val KEY_LAST_SYNC = "drive_last_sync"
         const val KEY_DRIVE = "drive_connected"

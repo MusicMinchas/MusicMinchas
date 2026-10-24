@@ -189,6 +189,8 @@ class SubsonicLibrary(
                 metadataState = Track.META_DONE,
                 dateAdded = song.created?.let { runCatching { Instant.parse(it).toEpochMilli() }.getOrNull() } ?: now,
                 scope = Track.SCOPE_SERVER,
+                sampleRate = song.samplingRate?.takeIf { it > 0 },
+                bitsPerSample = song.bitDepth?.takeIf { it > 0 },
             )
             return track.copy(checksum = fingerprint(track))
         }
@@ -196,7 +198,7 @@ class SubsonicLibrary(
         private fun fingerprint(t: Track): String = SubsonicClient.md5(
             listOf(
                 t.fileName, t.mimeType, t.sizeBytes, t.title, t.artist, t.album, t.albumArtist, t.trackNumber, t.discNumber,
-                t.year, t.genre, t.durationMs, t.artworkUri, t.mbRecordingId, t.dateAdded,
+                t.year, t.genre, t.durationMs, t.artworkUri, t.mbRecordingId, t.dateAdded, t.sampleRate, t.bitsPerSample,
             ).joinToString("\u001F")
         )
     }

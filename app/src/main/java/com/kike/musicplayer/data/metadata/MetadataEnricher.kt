@@ -448,6 +448,8 @@ class MetadataEnricher(
         val year: Int?,
         val durationMs: Long?,
         val genre: String?,
+        val sampleRate: Int? = null,
+        val bitsPerSample: Int? = null,
         val picture: () -> ByteArray?,
     )
 
@@ -478,6 +480,8 @@ class MetadataEnricher(
                 ?: tag(MediaMetadataRetriever.METADATA_KEY_DATE)?.take(4)?.toIntOrNull(),
             durationMs = tag(MediaMetadataRetriever.METADATA_KEY_DURATION)?.toLongOrNull(),
             genre = normalizeGenre(tag(MediaMetadataRetriever.METADATA_KEY_GENRE)),
+            sampleRate = tag(MediaMetadataRetriever.METADATA_KEY_SAMPLERATE)?.toIntOrNull()?.takeIf { it > 0 },
+            bitsPerSample = tag(MediaMetadataRetriever.METADATA_KEY_BITS_PER_SAMPLE)?.toIntOrNull()?.takeIf { it > 0 },
             picture = { mmr.embeddedPicture },
         )
     }
@@ -506,11 +510,27 @@ class MetadataEnricher(
                 val durationUs = runCatching { r.retrieveDurationUs().await() }.getOrNull()
                 val builder = MediaMetadata.Builder()
                 val frames = mutableListOf<TextInformationFrame>()
+                var sampleRate: Int? = null
+                var bitsPerSample: Int? = null
                 for (g in 0 until groups.length) {
                     val group = groups[g]
-                    for (i in 0 until group.length) group.getFormat(i).metadata?.let { metadata ->
-                        builder.populateFromMetadata(metadata)
-                        for (e in 0 until metadata.length()) (metadata[e] as? TextInformationFrame)?.let(frames::add)
+                    for (i in 0 until group.length) {
+                        val format = group.getFormat(i)
+                        if (sampleRate == null && format.sampleRate > 0) {
+                            sampleRate = format.sampleRate
+                        }
+                        if (bitsPerSample == null && format.pcmEncoding != C.INDEX_UNSET) {
+                            bitsPerSample = when (format.pcmEncoding) {
+                                C.ENCODING_PCM_16BIT -> 16
+                                C.ENCODING_PCM_24BIT, C.ENCODING_PCM_24BIT_BIG_ENDIAN -> 24
+                                C.ENCODING_PCM_32BIT, C.ENCODING_PCM_32BIT_BIG_ENDIAN -> 32
+                                else -> null
+                            }
+                        }
+                        format.metadata?.let { metadata ->
+                            builder.populateFromMetadata(metadata)
+                            for (e in 0 until metadata.length()) (metadata[e] as? TextInformationFrame)?.let(frames::add)
+                        }
                     }
                 }
                 val md = builder.build()
@@ -527,6 +547,8 @@ class MetadataEnricher(
                     year = md.recordingYear ?: md.releaseYear,
                     durationMs = durationUs?.takeIf { it != C.TIME_UNSET && it > 0 }?.let { it / 1000 },
                     genre = normalizeGenre(md.genre?.toString() ?: v22("TCO")),
+                    sampleRate = sampleRate,
+                    bitsPerSample = bitsPerSample,
                     picture = { md.artworkData },
                 )
             }
@@ -569,6 +591,8 @@ class MetadataEnricher(
             genre = tags.genre ?: track.genre,
             genreRead = true,
             artworkUri = artwork,
+            sampleRate = tags.sampleRate ?: track.sampleRate,
+            bitsPerSample = tags.bitsPerSample ?: track.bitsPerSample,
         )
     }
 

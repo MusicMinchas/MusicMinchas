@@ -238,4 +238,6 @@ class SongJson(
     val musicBrainzId: String?,
     /** OpenSubsonic. */
     val displayAlbumArtist: String?,
+    val samplingRate: Int? = null,
+    val bitDepth: Int? = null,
 )

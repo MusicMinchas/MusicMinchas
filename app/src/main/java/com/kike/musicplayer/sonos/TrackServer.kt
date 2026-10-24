@@ -10,6 +10,15 @@ import com.kike.musicplayer.data.subsonic.SubsonicUrls
 import com.kike.musicplayer.data.nebula.NebulaUrls
 import com.kike.musicplayer.data.db.TrackDao
 import com.kike.musicplayer.data.db.getByIds
+import com.kike.musicplayer.sonos.resample.AlacInputDecoder
+import com.kike.musicplayer.sonos.resample.AlacMp4Info
+import com.kike.musicplayer.sonos.resample.AlacMp4Probe
+import com.kike.musicplayer.sonos.resample.DownsamplingStream
+import com.kike.musicplayer.sonos.resample.FlacInputDecoder
+import com.kike.musicplayer.sonos.resample.FlacProbe
+import com.kike.musicplayer.sonos.resample.FlacStreamInfo
+import com.kike.musicplayer.sonos.resample.RandomAccessSource
+import com.kike.musicplayer.sonos.resample.ResamplePlan
 import kotlinx.coroutines.runBlocking
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -23,13 +32,20 @@ import java.net.Inet4Address
 import java.net.InetSocketAddress
 import java.net.ServerSocket
 import java.net.Socket
+import java.nio.ByteBuffer
 import java.security.SecureRandom
+import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.locks.ReentrantLock
 import kotlin.concurrent.thread
 
 /**
  * Minimal HTTP server that lets Sonos fetch tracks and covers from the phone. Drive files are
  * relayed with the user's OAuth token (which never leaves the phone); files in device folders are
  * served from the content provider. Range requests are supported, so Sonos can seek and read ahead.
+ *
+ * When [downsampleEnabled] is on, hi-res FLAC and ALAC streams (> 48 kHz) from any source
+ * (Local, Drive, Navidrome, or Nebula) are downsampled on the fly to 24-bit / 48 or 44.1 kHz
+ * verbatim FLAC with full HTTP Range seeking support; streams <= 48 kHz are relayed untouched.
  *
  * URLs carry a random per-run token, so other devices on the network can't browse the library.
  */
@@ -39,6 +55,7 @@ class TrackServer(
     private val driveHttp: OkHttpClient,
     private val serverUrls: SubsonicUrls,
     private val nebulaUrls: NebulaUrls? = null,
+    private val downsampleEnabled: () -> Boolean = { false },
 ) {
     private val token = ByteArray(12).also { SecureRandom().nextBytes(it) }.joinToString("") { "%02x".format(it) }
     private var server: ServerSocket? = null
@@ -65,13 +82,20 @@ class TrackServer(
         Log.i(TAG, "Serving on port ${socket.localPort}")
     }
 
-    private val cachedTracks = java.util.concurrent.ConcurrentHashMap<String, Track>()
+    private val cachedTracks = ConcurrentHashMap<String, Track>()
+    private val probedFormats = ConcurrentHashMap<String, ProbedTrackFormat>()
+    private val downsamplerPool = ArrayDeque<CachedDownsampler>()
 
     @Synchronized
     fun stop() {
         runCatching { server?.close() }
         server = null
         cachedTracks.clear()
+        probedFormats.clear()
+        synchronized(downsamplerPool) {
+            downsamplerPool.forEach { runCatching { it.source.close() } }
+            downsamplerPool.clear()
+        }
     }
 
     /** Base URL ("http://192.168.0.41:8765") reachable from the speakers, or null when not on a LAN. */
@@ -88,7 +112,8 @@ class TrackServer(
     /** URL Sonos plays for [track]. [entryId] identifies the queue entry, so the player can map what Sonos plays back to it. */
     fun trackUrl(base: String, entryId: Long, track: Track): String {
         cachedTracks[track.id] = track
-        return "$base/t/$token/$entryId/${encode(track.id)}.${extensionOf(track)}"
+        val ext = if (willDownsampleAtQueueTime(track)) "flac" else extensionOf(track)
+        return "$base/t/$token/$entryId/${encode(track.id)}.$ext"
     }
 
     fun artUrl(base: String, track: Track): String? {
@@ -147,6 +172,7 @@ class TrackServer(
             track.source == Track.SOURCE_NEBULA -> nebulaUrls?.resolve(track.uri) ?: return respondStatus(out, 503)
             else -> null
         }
+        if (downsampleEnabled() && serveDownsampledIfNeeded(out, method, track, remote, range)) return
         if (remote != null) {
             // Sonos probes a file in many small pieces before playing (start, then the index at the
             // end); fetching each from Drive would cost about a second. Serve those from blocks.
@@ -204,13 +230,7 @@ class TrackServer(
         }
         if (end < start || start / BLOCK != end / BLOCK) return false
         val index = start / BLOCK
-        val key = "${track.id}#$index"
-        val (block, total) = synchronized(blockLocks.computeIfAbsent(key) { Any() }) {
-            blocks.get(key) ?: fetchBlock(remote, index)?.also { blocks.put(key, it) } ?: return false
-        }
-        if (total > 0 && track.sizeBytes == null) {
-            cachedTracks[track.id] = track.copy(sizeBytes = total)
-        }
+        val (block, total) = getOrFetchBlock(track, remote, index) ?: return false
         val from = (start - index * BLOCK).toInt()
         if (from >= block.size) return false
         if (open != null && index * BLOCK + block.size != total) return false // the file isn't as the library says
@@ -257,11 +277,25 @@ class TrackServer(
     }
 
     /** Block [index] of the remote file and the file's total size, or null if it can't be fetched. */
+    private fun getOrFetchBlock(track: Track, remote: String, index: Long): Pair<ByteArray, Long>? {
+        val key = "${track.id}#$index"
+        val pair = synchronized(blockLocks.computeIfAbsent(key) { Any() }) {
+            blocks.get(key) ?: fetchBlock(remote, index)?.also { blocks.put(key, it) }
+        } ?: return null
+        val (_, total) = pair
+        if (total > 0 && track.sizeBytes == null) {
+            cachedTracks.computeIfPresent(track.id) { _, t -> if (t.sizeBytes == null) t.copy(sizeBytes = total) else t }
+        }
+        return pair
+    }
+
     private fun fetchBlock(remote: String, index: Long): Pair<ByteArray, Long>? {
         val request = Request.Builder().url(remote).header("Range", "bytes=${index * BLOCK}-${(index + 1) * BLOCK - 1}").build()
-        val response = executeRemote(request, ok200 = false) ?: return null
+        val response = executeRemote(request, ok200 = true) ?: return null
         return response.use { res ->
-            val total = res.header("Content-Range")?.substringAfter('/')?.toLongOrNull() ?: return null
+            val total = res.header("Content-Range")?.substringAfter('/')?.toLongOrNull()
+                ?: res.body.contentLength().takeIf { res.code == 200 && it > 0 }
+                ?: return null
             runCatching { res.body.bytes() to total }.getOrNull()
         }
     }
@@ -353,6 +387,313 @@ class TrackServer(
         }
     }
 
+    private fun willDownsampleAtQueueTime(track: Track): Boolean {
+        if (!downsampleEnabled()) return false
+        val ext = extensionOf(track)
+        if (ext !in RESAMPLE_CANDIDATE_EXTS) return false
+        val rate = track.sampleRate ?: probedFormats[track.id]?.sampleRate
+        if (rate != null) return ResamplePlan.needsDownsampling(rate)
+        if (ext in ALAC_EXTS && (track.localUri != null || track.source == Track.SOURCE_SAF)) {
+            val probed = probeTrackFormat(track, remote = null)
+            return probed is ProbedTrackFormat.AlacHiRes
+        }
+        return false
+    }
+
+    private fun serveDownsampledIfNeeded(
+        out: OutputStream,
+        method: String,
+        track: Track,
+        remote: String?,
+        range: String?,
+    ): Boolean {
+        val knownRate = track.sampleRate
+        if (knownRate != null && !ResamplePlan.needsDownsampling(knownRate)) return false
+        val ext = extensionOf(track)
+        if (ext !in RESAMPLE_CANDIDATE_EXTS) return false
+
+        val format = probedFormats[track.id] ?: probeTrackFormat(track, remote) ?: return false
+        val plan = when (format) {
+            is ProbedTrackFormat.Passthrough -> return false
+            is ProbedTrackFormat.FlacHiRes -> format.plan
+            is ProbedTrackFormat.AlacHiRes -> format.plan
+        }
+
+        val session = acquireDownsampler(track, remote, format) ?: return false
+        try {
+            val stream = session.stream
+            val size = stream.totalStreamBytes
+            val (start, end) = parseRange(range, size) ?: (0L to size - 1)
+            val partial = range != null
+            writeHead(
+                out = out,
+                code = if (partial) 206 else 200,
+                mime = "audio/flac",
+                length = end - start + 1,
+                contentRange = if (partial) "bytes $start-$end/$size" else null,
+            )
+            if (method == "HEAD") return true
+            Log.i(TAG, "Downsampling '${track.title}' (${plan.inputRate} Hz -> ${plan.outputRate} Hz / 24-bit FLAC, range=$start-$end/$size)")
+            stream.writeRange(start, end, out)
+            return true
+        } finally {
+            releaseDownsampler(session)
+        }
+    }
+
+    private fun probeTrackFormat(track: Track, remote: String?): ProbedTrackFormat? {
+        val ext = extensionOf(track)
+        val source = openRandomAccessSource(track, remote) ?: return null
+        val format = try {
+            if (ext == "flac") {
+                val info = FlacProbe.parse(source) ?: return null
+                val plan = ResamplePlan.forStream(info.sampleRate, info.channels)
+                if (plan != null) ProbedTrackFormat.FlacHiRes(info, plan)
+                else ProbedTrackFormat.Passthrough(info.sampleRate, info.bitsPerSample)
+            } else if (ext in ALAC_EXTS) {
+                val info = AlacMp4Probe.parse(source) ?: return null
+                val plan = ResamplePlan.forStream(info.sampleRate, info.channels)
+                if (plan != null) ProbedTrackFormat.AlacHiRes(info, plan)
+                else ProbedTrackFormat.Passthrough(info.sampleRate, info.bitsPerSample)
+            } else {
+                null
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "Header probe failed for ${track.title}: $e")
+            null
+        } finally {
+            runCatching { source.close() }
+        } ?: return null
+
+        probedFormats[track.id] = format
+        if (track.sampleRate == null) {
+            val updated = track.copy(sampleRate = format.sampleRate, bitsPerSample = format.bitsPerSample)
+            cachedTracks[track.id] = updated
+            thread(name = "save-track-format", isDaemon = true) {
+                runCatching { runBlocking { dao.setAudioFormat(track.id, format.sampleRate, format.bitsPerSample) } }
+            }
+        }
+        return format
+    }
+
+    private fun acquireDownsampler(
+        track: Track,
+        remote: String?,
+        format: ProbedTrackFormat,
+    ): CachedDownsampler? {
+        synchronized(downsamplerPool) {
+            val idx = downsamplerPool.indexOfFirst { it.trackId == track.id && it.lock.tryLock() }
+            if (idx >= 0) {
+                val existing = downsamplerPool.removeAt(idx)
+                downsamplerPool.addLast(existing)
+                return existing
+            }
+        }
+        val source = openRandomAccessSource(track, remote) ?: return null
+        val fallbackSamples = if (track.durationMs > 0) (track.durationMs * format.sampleRate) / 1000L else 0L
+        val stream = when (format) {
+            is ProbedTrackFormat.FlacHiRes -> DownsamplingStream(FlacInputDecoder(source, format.info, fallbackSamples), format.plan)
+            is ProbedTrackFormat.AlacHiRes -> DownsamplingStream(AlacInputDecoder(source, format.info), format.plan)
+            is ProbedTrackFormat.Passthrough -> {
+                runCatching { source.close() }
+                return null
+            }
+        }
+        return CachedDownsampler(track.id, source, stream).also { it.lock.lock() }
+    }
+
+    private fun releaseDownsampler(session: CachedDownsampler) {
+        var evicted: CachedDownsampler? = null
+        synchronized(downsamplerPool) {
+            if (!downsamplerPool.contains(session)) {
+                while (downsamplerPool.size >= MAX_DOWNSAMPLERS) {
+                    val victimIdx = downsamplerPool.indexOfFirst { !it.lock.isLocked }
+                    if (victimIdx < 0) break
+                    evicted = downsamplerPool.removeAt(victimIdx)
+                }
+                downsamplerPool.addLast(session)
+            }
+            session.lock.unlock()
+        }
+        evicted?.let { runCatching { it.source.close() } }
+    }
+
+    private fun openRandomAccessSource(track: Track, remote: String?): RandomAccessSource? = try {
+        if (remote != null) {
+            RemoteRandomAccessSource(track, remote)
+        } else {
+            LocalRandomAccessSource(Uri.parse(track.localUri ?: track.uri), track.sizeBytes)
+        }
+    } catch (e: Exception) {
+        Log.w(TAG, "Failed to open source for ${track.title}: $e")
+        null
+    }
+
+    private sealed interface ProbedTrackFormat {
+        val sampleRate: Int
+        val bitsPerSample: Int
+
+        data class Passthrough(override val sampleRate: Int, override val bitsPerSample: Int) : ProbedTrackFormat
+        data class FlacHiRes(val info: FlacStreamInfo, val plan: ResamplePlan) : ProbedTrackFormat {
+            override val sampleRate: Int get() = info.sampleRate
+            override val bitsPerSample: Int get() = info.bitsPerSample
+        }
+        data class AlacHiRes(val info: AlacMp4Info, val plan: ResamplePlan) : ProbedTrackFormat {
+            override val sampleRate: Int get() = info.sampleRate
+            override val bitsPerSample: Int get() = info.bitsPerSample
+        }
+    }
+
+    private class CachedDownsampler(
+        val trackId: String,
+        val source: RandomAccessSource,
+        val stream: DownsamplingStream,
+        val lock: ReentrantLock = ReentrantLock(),
+    )
+
+    private inner class LocalRandomAccessSource(uri: Uri, fallbackSize: Long?) : RandomAccessSource {
+        private val afd = context.contentResolver.openAssetFileDescriptor(uri, "r")
+            ?: throw IOException("Cannot open $uri")
+        private val fis = FileInputStream(afd.fileDescriptor)
+        private val ch = fis.channel
+        private val baseOffset = afd.startOffset
+        override val length: Long = afd.length.takeIf { it >= 0 }
+            ?: fallbackSize
+            ?: runCatching { ch.size() - baseOffset }.getOrDefault(0L)
+
+        @Synchronized
+        override fun readAt(offset: Long, buf: ByteArray, off: Int, len: Int): Int {
+            if (offset >= length || len <= 0) return if (len <= 0) 0 else -1
+            val maxRead = minOf(len.toLong(), length - offset).toInt()
+            val bb = ByteBuffer.wrap(buf, off, maxRead)
+            var total = 0
+            while (total < maxRead) {
+                val n = ch.read(bb, baseOffset + offset + total)
+                if (n <= 0) break
+                total += n
+            }
+            return if (total == 0) -1 else total
+        }
+
+        override fun close() {
+            runCatching { fis.close() }
+            runCatching { afd.close() }
+        }
+    }
+
+    private inner class RemoteRandomAccessSource(
+        private val track: Track,
+        private val remote: String,
+    ) : RandomAccessSource {
+        private var knownLength: Long = track.sizeBytes ?: -1L
+        private var activeStream: InputStream? = null
+        private var activeResponse: okhttp3.Response? = null
+        private var streamOffset: Long = -1L
+
+        override val length: Long
+            get() {
+                if (knownLength < 0L) {
+                    getOrFetchBlock(track, remote, 0L)?.let { (_, total) ->
+                        if (total > 0L) knownLength = total
+                    }
+                }
+                return if (knownLength >= 0L) knownLength else Long.MAX_VALUE
+            }
+
+        @Synchronized
+        override fun readAt(offset: Long, buf: ByteArray, off: Int, len: Int): Int {
+            if (len <= 0) return 0
+            if (knownLength in 0L..offset) return -1
+
+            val blockIdx = offset / BLOCK
+            val isTailBlock = knownLength > 0L && blockIdx >= (knownLength - 1) / BLOCK - 1
+            val cachedBlock = if (blockIdx == 0L || isTailBlock) {
+                getOrFetchBlock(track, remote, blockIdx)
+            } else {
+                blocks.get("${track.id}#$blockIdx")
+            }
+            if (cachedBlock != null) {
+                val (bData, total) = cachedBlock
+                if (total > 0L && knownLength < 0L) knownLength = total
+                val rel = (offset - blockIdx * BLOCK).toInt()
+                if (rel in 0 until bData.size) {
+                    val avail = minOf(len, bData.size - rel)
+                    System.arraycopy(bData, rel, buf, off, avail)
+                    return avail
+                }
+            }
+
+            if (activeStream != null && offset >= streamOffset && offset - streamOffset <= MAX_STREAM_SKIP_BYTES) {
+                var toSkip = offset - streamOffset
+                while (toSkip > 0) {
+                    val skipped = activeStream!!.skip(toSkip)
+                    if (skipped <= 0) {
+                        if (activeStream!!.read() < 0) {
+                            closeStream()
+                            break
+                        }
+                        toSkip--
+                        streamOffset++
+                    } else {
+                        toSkip -= skipped
+                        streamOffset += skipped
+                    }
+                }
+            } else if (offset != streamOffset) {
+                closeStream()
+            }
+
+            if (activeStream == null) {
+                val req = Request.Builder().url(remote).header("Range", "bytes=$offset-").build()
+                val res = executeRemote(req, ok200 = true) ?: return -1
+                val total = res.header("Content-Range")?.substringAfter('/')?.toLongOrNull()
+                    ?: if (res.code == 200) res.body.contentLength().takeIf { it > 0 } else null
+                if (total != null && total > 0L && knownLength < 0L) {
+                    knownLength = total
+                    if (track.sizeBytes == null) cachedTracks[track.id] = track.copy(sizeBytes = total)
+                }
+                activeResponse = res
+                activeStream = res.body.byteStream()
+                streamOffset = if (res.code == 206) offset else 0L
+                while (streamOffset < offset) {
+                    val skipped = activeStream!!.skip(offset - streamOffset)
+                    if (skipped <= 0) {
+                        if (activeStream!!.read() < 0) {
+                            closeStream()
+                            return -1
+                        }
+                        streamOffset++
+                    } else {
+                        streamOffset += skipped
+                    }
+                }
+            }
+
+            val n = try {
+                activeStream!!.read(buf, off, len)
+            } catch (_: IOException) {
+                closeStream()
+                -1
+            }
+            if (n > 0) {
+                streamOffset += n
+                return n
+            }
+            closeStream()
+            return -1
+        }
+
+        private fun closeStream() {
+            runCatching { activeStream?.close() }
+            runCatching { activeResponse?.close() }
+            activeStream = null
+            activeResponse = null
+            streamOffset = -1L
+        }
+
+        override fun close() = closeStream()
+    }
+
     private companion object {
         const val TAG = "TrackServer"
         const val PREFERRED_PORT = 8765
@@ -360,10 +701,14 @@ class TrackServer(
         const val BLOCK = 512 * 1024L
         /** 8 MB at most: a few files' starts and ends. */
         const val MAX_BLOCKS = 16
+        const val MAX_DOWNSAMPLERS = 2
+        const val MAX_STREAM_SKIP_BYTES = 256 * 1024L
         const val REMOTE_ATTEMPTS = 3
         const val RETRY_DELAY_MS = 500L
         val CLOSED_RANGE = Regex("""bytes=(\d+)-(\d+)""")
         val OPEN_RANGE = Regex("""bytes=(\d+)-""")
+        val ALAC_EXTS = setOf("m4a", "mp4", "alac")
+        val RESAMPLE_CANDIDATE_EXTS = setOf("flac", "m4a", "mp4", "alac")
 
         fun encode(id: String): String =
             Base64.encodeToString(id.toByteArray(), Base64.URL_SAFE or Base64.NO_PADDING or Base64.NO_WRAP)
@@ -393,5 +738,5 @@ class TrackServer(
         }
     }
 
-    fun mimeTypeFor(track: Track) = mimeOf(track)
+    fun mimeTypeFor(track: Track): String = if (willDownsampleAtQueueTime(track)) "audio/flac" else mimeOf(track)
 }

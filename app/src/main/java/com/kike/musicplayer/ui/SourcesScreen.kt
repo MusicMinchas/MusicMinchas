@@ -106,6 +106,8 @@ fun SourcesScreen(
 
             AppearanceCard(vm)
 
+            SonosPlaybackCard(vm)
+
             SourceCard(
                 "Downloaded songs",
                 "Google Drive and Navidrome songs kept on the phone (Music/MusicMinchas), so they play without internet",
@@ -617,6 +619,27 @@ private fun AppearanceCard(vm: LibraryViewModel) {
                 )
             }
             Switch(checked = fullCover, onCheckedChange = vm::setFullScreenCover, modifier = Modifier.padding(start = 8.dp))
+        }
+    }
+}
+
+@Composable
+private fun SonosPlaybackCard(vm: LibraryViewModel) {
+    val downsample by vm.sonosDownsample.collectAsState()
+    SourceCard(
+        "Sonos playback",
+        "Sonos S2 speakers support lossless audio up to 24-bit / 48 kHz",
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f)) {
+                Text("Downsample hi-res audio (> 48 kHz)")
+                Text(
+                    "Convert 88.2 / 176.4 kHz to 44.1 kHz and 96 / 192 kHz to 48 kHz (24-bit FLAC) on the fly for all sources. Songs up to 48 kHz are sent untouched.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            Switch(checked = downsample, onCheckedChange = vm::setSonosDownsample, modifier = Modifier.padding(start = 8.dp))
         }
     }
 }

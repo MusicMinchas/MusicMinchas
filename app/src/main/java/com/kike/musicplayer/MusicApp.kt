@@ -168,6 +168,7 @@ class AppContainer(app: Application) {
         driveHttp.newBuilder().readTimeout(10, TimeUnit.MINUTES).build(),
         subsonicUrls,
         nebulaUrls,
+        downsampleEnabled = { settings.sonosDownsample.value },
     )
 
     val downloader = Downloader(app, database.tracks(), driveHttp, subsonicUrls, nebulaUrls, appScope).also { it.verify() }
