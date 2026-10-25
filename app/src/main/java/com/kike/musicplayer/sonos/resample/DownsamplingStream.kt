@@ -142,6 +142,7 @@ class DownsamplingStream(
             val sliceLen = sliceEnd - sliceStart
             if (sliceLen > 0) {
                 out.write(frameByteBuf, sliceStart, sliceLen)
+                out.flush()
                 pos += sliceLen
             }
             frameIdx++

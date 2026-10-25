@@ -86,6 +86,7 @@ class TrackServer(
     private val cachedTracks = ConcurrentHashMap<String, Track>()
     private val probedFormats = ConcurrentHashMap<String, ProbedTrackFormat>()
     private val downsamplerPool = ArrayDeque<CachedDownsampler>()
+    private val activeDownsamplers = java.util.concurrent.CopyOnWriteArrayList<CachedDownsampler>()
 
     @Synchronized
     fun stop() {
@@ -93,6 +94,11 @@ class TrackServer(
         server = null
         cachedTracks.clear()
         probedFormats.clear()
+        for (session in activeDownsamplers) {
+            session.isCancelled = true
+            runCatching { session.source.close() }
+        }
+        activeDownsamplers.clear()
         synchronized(downsamplerPool) {
             downsamplerPool.forEach { runCatching { it.source.close() } }
             downsamplerPool.clear()
@@ -162,10 +168,19 @@ class TrackServer(
         }
     }
 
+    private fun cancelDownsamplersExcept(currentTrackId: String?) {
+        for (session in activeDownsamplers) {
+            if (currentTrackId == null || session.trackId != currentTrackId) {
+                session.isCancelled = true
+            }
+        }
+    }
+
     private fun serveTrack(out: OutputStream, method: String, trackId: String?, range: String?) {
         val track = trackOf(trackId) ?: return respondStatus(out, 404)
         val mime = mimeOf(track)
         Log.i(TAG, "serveTrack: id=$trackId, title='${track.title}', source=${track.source}")
+        cancelDownsamplersExcept(track.id)
         // Drive and server songs not on the phone are relayed from where they live.
         val remote = when {
             track.localUri != null -> null
@@ -291,9 +306,14 @@ class TrackServer(
         return pair
     }
 
+    private val blockHttp = driveHttp.newBuilder()
+        .readTimeout(15, java.util.concurrent.TimeUnit.SECONDS)
+        .connectTimeout(10, java.util.concurrent.TimeUnit.SECONDS)
+        .build()
+
     private fun fetchBlock(remote: String, index: Long): Pair<ByteArray, Long>? {
         val request = Request.Builder().url(remote).header("Range", "bytes=${index * BLOCK}-${(index + 1) * BLOCK - 1}").build()
-        val response = executeRemote(request, ok200 = true) ?: return null
+        val response = executeRemote(request, ok200 = true, useBlockHttp = true) ?: return null
         return response.use { res ->
             val total = res.header("Content-Range")?.substringAfter('/')?.toLongOrNull()
                 ?: res.body.contentLength().takeIf { res.code == 200 && it > 0 }
@@ -329,10 +349,11 @@ class TrackServer(
      * [ok200] is true) responses, so a momentary Drive glitch or token refresh doesn't make Sonos
      * drop the current track and skip ahead.
      */
-    private fun executeRemote(request: Request, ok200: Boolean): okhttp3.Response? {
+    private fun executeRemote(request: Request, ok200: Boolean, useBlockHttp: Boolean = false): okhttp3.Response? {
+        val client = if (useBlockHttp) blockHttp else driveHttp
         for (attempt in 0 until REMOTE_ATTEMPTS) {
             if (attempt > 0) runCatching { Thread.sleep(RETRY_DELAY_MS * attempt) }
-            val res = runCatching { driveHttp.newCall(request).execute() }
+            val res = runCatching { client.newCall(request).execute() }
                 .onFailure { Log.w(TAG, "Remote request failed (attempt ${attempt + 1}): $it") }
                 .getOrNull()
             if (res != null && (res.code == 206 || (ok200 && res.code == 200))) return res
@@ -487,8 +508,12 @@ class TrackServer(
             Log.i(TAG, "Downsampling '${track.title}' (${plan.inputRate} Hz -> ${plan.outputRate} Hz / 24-bit FLAC, range=$start-$end/$size)")
             traceLog("DS START '${track.title}' ${plan.inputRate}->${plan.outputRate} range=$start-$end/$size")
             try {
-                stream.writeRange(start, end, out)
-                traceLog("DS DONE  '${track.title}' range=$start-$end (${android.os.SystemClock.elapsedRealtime() - t0} ms)")
+                stream.writeRange(start, end, out, shouldCancel = { session.isCancelled })
+                if (session.isCancelled) {
+                    traceLog("DS CANCEL '${track.title}' range=$start-$end after ${android.os.SystemClock.elapsedRealtime() - t0} ms")
+                } else {
+                    traceLog("DS DONE  '${track.title}' range=$start-$end (${android.os.SystemClock.elapsedRealtime() - t0} ms)")
+                }
             } catch (e: IOException) {
                 traceLog("DS CLOSE '${track.title}' range=$start-$end after ${android.os.SystemClock.elapsedRealtime() - t0} ms: $e")
                 throw e
@@ -555,11 +580,18 @@ class TrackServer(
         format: ProbedTrackFormat,
     ): CachedDownsampler? {
         synchronized(downsamplerPool) {
-            val idx = downsamplerPool.indexOfFirst { it.trackId == track.id && it.lock.tryLock() }
+            val it = downsamplerPool.iterator()
+            while (it.hasNext()) {
+                val s = it.next()
+                if (s.isCancelled) {
+                    it.remove()
+                    activeDownsamplers.remove(s)
+                    runCatching { s.source.close() }
+                }
+            }
+            val idx = downsamplerPool.indexOfFirst { it.trackId == track.id && !it.isCancelled && it.lock.tryLock() }
             if (idx >= 0) {
-                val existing = downsamplerPool.removeAt(idx)
-                downsamplerPool.addLast(existing)
-                return existing
+                return downsamplerPool.removeAt(idx)
             }
         }
         val source = openRandomAccessSource(track, remote) ?: return null
@@ -572,21 +604,33 @@ class TrackServer(
                 return null
             }
         }
-        return CachedDownsampler(track.id, source, stream).also { it.lock.lock() }
+        for (old in activeDownsamplers) {
+            if (old.trackId == track.id) {
+                old.isCancelled = true
+            }
+        }
+        val session = CachedDownsampler(track.id, source, stream).also { it.lock.lock() }
+        activeDownsamplers.add(session)
+        return session
     }
 
     private fun releaseDownsampler(session: CachedDownsampler) {
+        if (session.isCancelled) {
+            activeDownsamplers.remove(session)
+            runCatching { session.source.close() }
+            if (session.lock.isHeldByCurrentThread) session.lock.unlock()
+            return
+        }
         var evicted: CachedDownsampler? = null
         synchronized(downsamplerPool) {
-            if (!downsamplerPool.contains(session)) {
-                while (downsamplerPool.size >= MAX_DOWNSAMPLERS) {
-                    val victimIdx = downsamplerPool.indexOfFirst { !it.lock.isLocked }
-                    if (victimIdx < 0) break
-                    evicted = downsamplerPool.removeAt(victimIdx)
-                }
-                downsamplerPool.addLast(session)
+            while (downsamplerPool.size >= MAX_DOWNSAMPLERS) {
+                val victimIdx = downsamplerPool.indexOfFirst { !it.lock.isLocked }
+                if (victimIdx < 0) break
+                evicted = downsamplerPool.removeAt(victimIdx)
+                activeDownsamplers.remove(evicted)
             }
-            session.lock.unlock()
+            downsamplerPool.addLast(session)
+            if (session.lock.isHeldByCurrentThread) session.lock.unlock()
         }
         evicted?.let { runCatching { it.source.close() } }
     }
@@ -632,6 +676,7 @@ class TrackServer(
         val source: RandomAccessSource,
         val stream: DownsamplingStream,
         val lock: ReentrantLock = ReentrantLock(),
+        @Volatile var isCancelled: Boolean = false,
     )
 
     @Synchronized
