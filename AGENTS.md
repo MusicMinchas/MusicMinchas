@@ -7,7 +7,7 @@ Parent workspace notes: @[Shared Android Dev Workspace](../AGENTS.md)
 
 - **Path:** `C:\Users\kike\dev\MusicPlayer` (local git repo, repo-local identity `kike` / `kikeprojo@gmail.com`, nothing pushed).
 - **Package:** `com.kike.musicplayer`
-- **Current Release:** `1.35.0` (`versionCode = 87`, Room DB `v26`, `minSdk = 30`, `targetSdk = 36`, `compileSdk = 37`). Merged to `master`, tag `v1.35.0`.
+- **Current Release:** `1.36.0` (`versionCode = 88`, Room DB `v27`, `minSdk = 30`, `targetSdk = 36`, `compileSdk = 37`). Merged to `master`, tag `v1.36.0`.
 - **Stack:** Kotlin 2.4.20, Jetpack Compose, Media3 1.11.1 `MediaLibraryService` (Android Auto browse tree), Room 2.8.5 via KSP 2.3.12 + Paging 3 (`paging-compose 3.3.6`, `room-paging`), Retrofit 3 + Moshi (reflection), Coil 3, `play-services-auth` 22 `AuthorizationClient` (`drive.readonly` + `email`), `reorderable` 3.1.0, AGP 9.4.1, Gradle 9.8.
 - **Shared Toolchain & Environment:**
   - `JAVA_HOME`: Android Studio's bundled `jbr`
@@ -200,7 +200,12 @@ Started 2026-10-08 from user-pasted spec. NEW app, explicitly independent of Son
       - Diversity ceiling: strictly capped at 25 tracks, max 2 per artist, max 2 per album.
       - Fast pre-scoring heuristic (`heavyRotationCandidateIds`) ensuring sub-millisecond query performance on launch.
       - UI: Added "Heavy Rotation" collection cards to Home and top row of Playlists tab with dynamic 2x2 cover mosaic, opening `TrackListScreen`.
-- 2026-10-24 (`feat/sonos-downsampling`, GitHub Issue #17, WIP):
-  - Implemented pure-Kotlin hi-res (`> 48 kHz`) real-time downsampling to Sonos S2 lossless limits (`88.2/176.4/352.8 kHz -> 44.1 kHz`, `96/192/384 kHz -> 48 kHz`, 24-bit verbatim FLAC with `SEEKTABLE`) in `sonos/resample/` (`Resampler.kt`, `VerbatimFlacWriter.kt`, `FlacDecoder.kt`, `AlacMp4Demuxer.kt`, `DownsamplingStream.kt`), Room migration `26->27` (`sampleRate`, `bitsPerSample`), Settings toggle ("Downsample hi-res audio (> 48 kHz)"), and `CastSheet` hi-res gate bypass when enabled.
-  - Verified live on Sonos Roam (`192.168.0.12`) with `"Zombie (2025 Remastered)"` (96 kHz / 24-bit Navidrome FLAC, `seekPts = 0`): playback and seeking work; seeking currently takes ~3–4 s due to `closeThreshold = 3 * sampleRate` (~1 MB post-bisection decode over HTTPS) and Sonos sending a 24 ms `range=null` header read right before `Range: bytes=<offset>-`. Next step: tighten `closeThreshold` to ~0.4 s and make header-only reads non-blocking to reduce seek latency to `< 1 s`.
-  - Phone restored to `v1.35.0` release APK + `v26` DB backup (`C:\Users\kike\dev\db-backup\2026-10-24-pre-v27\music.db`) at end of session.
+- 2026-10-25 Release 1.36.0 (versionCode 88, Room DB v27, tag v1.36.0, GitHub Issue #17 closed):
+  - Real-time pure-Kotlin hi-res (> 48 kHz) downsampling for Sonos S2 (88.2/176.4/352.8 kHz -> 44.1 kHz, 96/192/384 kHz -> 48 kHz, 24-bit verbatim FLAC) in sonos/resample/ (Resampler.kt, VerbatimFlacWriter.kt, FlacDecoder.kt, AlacMp4Demuxer.kt, DownsamplingStream.kt).
+  - DSP specifications: Multi-stage half-band Kaiser FIR decimation (beta = 14.47, 144 dB stopband attenuation, < +-0.002 dB passband ripple), linear phase, high-pass 24-bit TPDF dither, deterministic binary-searchable frame byte offsets.
+  - Seek latency optimized from ~3.5 s down to 1-4 ms on server via embedded SEEKTABLE, interpolated bisection with dynamic seekpoint cache, memory-cached FLAC header probe fast-path, and FIR decimation filter warm-up without pre-scanning full files.
+  - Connection & thread safety: Per-frame socket flush detects aborted connections within 15-36 ms (fixed 116s TCP send stalls). Cooperative cancellation (isCancelled) halts background worker threads immediately upon track transitions or new stream starts. Strict short-circuiting ensures non-hi-res tracks (<= 48 kHz) bypass downsampling and stream directly untouched. Dedicated 15s timeout blockHttp client for remote block fetching.
+  - Room migration 26 -> 27: Added sample_rate and bits_per_sample columns to tracks table. Pre-migration backup saved to C:\Users\kike\dev\db-backup\2026-10-24-pre-v27\music.db.
+  - Settings: Added toggle 'Downsample hi-res audio (> 48 kHz)' under Sources / Sonos, bypassing CastSheet warning and speaker disabling when enabled.
+  - On-device audit (OnePlus 12, Snapdragon 8 Gen 3): Average single-core CPU load 4.57% (downsampled) vs. 4.79% (standard passthrough) -> negligible net impact (< 0.6% of entire SoC capacity). Static working set ~1.65 MB per session; zero steady-state heap allocations / zero GC pauses. Bit-identical audio fidelity verified via ffmpeg.
+  - Merged into master, tagged v1.36.0, release APK MusicMinchas-1.36.0.apk installed on OnePlus 12.
