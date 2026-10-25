@@ -113,9 +113,22 @@ data class CatalogSearchResults(
  * iTunes (`itunes.apple.com`). Never streams or plays audio; used strictly for catalog search,
  * public playlist discovery, artist discography comparison, and dynamic metadata/artwork lookup.
  */
+data class DeezerHomeSection(
+    val id: String,
+    val title: String,
+    val subtitle: String? = null,
+    val playlists: List<CatalogPlaylist>,
+)
+
+data class DeezerHomeContent(
+    val sections: List<DeezerHomeSection>,
+    val fetchedAt: Long = System.currentTimeMillis(),
+)
+
 class CatalogClient(
     private val http: OkHttpClient,
     private val moshi: Moshi,
+    private val cacheDir: java.io.File? = null,
 ) {
     private val deezerMutex = Mutex()
     private var lastDeezerCall = 0L
@@ -355,6 +368,80 @@ class CatalogClient(
                 source = CatalogPlaylist.SOURCE_DEEZER,
             )
         }
+    }
+
+    /**
+     * Slices of public Deezer charts and curated playlists to enrich the Home tab.
+     * Caches result to disk for [HOME_CACHE_TTL_MS] (24 hours) for instant zero-latency startup.
+     * Falls back to expired cache on network errors.
+     */
+    suspend fun fetchDeezerHomeContent(forceRefresh: Boolean = false): DeezerHomeContent? = withContext(Dispatchers.IO) {
+        val cacheFile = cacheDir?.resolve("deezer_home_content.json")
+        val now = System.currentTimeMillis()
+
+        if (!forceRefresh && cacheFile != null && cacheFile.exists()) {
+            runCatching {
+                val json = cacheFile.readText()
+                val cached = moshi.adapter(DeezerHomeContent::class.java).fromJson(json)
+                if (cached != null && (now - cached.fetchedAt) < HOME_CACHE_TTL_MS && cached.sections.isNotEmpty()) {
+                    return@withContext cached
+                }
+            }.onFailure { Log.w(TAG, "Failed reading cached Deezer home content", it) }
+        }
+
+        runCatching {
+            val sectionsConfig = listOf(
+                Triple("trending", "Trending on Deezer", "https://api.deezer.com/chart/0/playlists?limit=10") to "Most popular playlists worldwide",
+                Triple("moods", "Chill & Focus", "https://api.deezer.com/chart/98/playlists?limit=10") to "Peaceful piano, ambient & acoustic",
+                Triple("rock", "Rock & Alternative", "https://api.deezer.com/chart/152/playlists?limit=10") to "Guitar anthems, essentials & classic hits",
+                Triple("acoustic", "Folk & Acoustic", "https://api.deezer.com/chart/466/playlists?limit=10") to "Cozy acoustic, coffeehouse & folk",
+            )
+
+            val sections = sectionsConfig.mapNotNull { (cfg, subtitle) ->
+                val (id, title, url) = cfg
+                val raw = deezerJson(url)
+                val data = (raw["data"] as? List<*>)?.mapNotNull { it as? Map<*, *> }.orEmpty()
+                val playlists = data.mapNotNull { item ->
+                    val plId = item.longStr("id") ?: return@mapNotNull null
+                    val plTitle = (item["title"] as? String)?.takeIf { it.isNotBlank() } ?: return@mapNotNull null
+                    val count = (item["nb_tracks"] as? Number)?.toInt() ?: 0
+                    val creator = (item["user"] as? Map<*, *>)?.get("name") as? String
+                    val cover = ((item["picture_xl"] as? String)
+                        ?: (item["picture_big"] as? String)
+                        ?: (item["picture_medium"] as? String))?.takeIf { "/playlist//" !in it }
+                    CatalogPlaylist(
+                        id = "dz:$plId",
+                        title = plTitle,
+                        creator = creator,
+                        trackCount = count,
+                        coverUrl = cover,
+                        source = CatalogPlaylist.SOURCE_DEEZER,
+                    )
+                }
+                if (playlists.isNotEmpty()) {
+                    DeezerHomeSection(id = id, title = title, subtitle = subtitle, playlists = playlists)
+                } else null
+            }
+
+            if (sections.isNotEmpty()) {
+                val content = DeezerHomeContent(sections = sections, fetchedAt = now)
+                if (cacheFile != null) {
+                    runCatching {
+                        val json = moshi.adapter(DeezerHomeContent::class.java).toJson(content)
+                        cacheFile.writeText(json)
+                    }.onFailure { Log.w(TAG, "Failed writing Deezer home content cache", it) }
+                }
+                content
+            } else null
+        }.onFailure { Log.w(TAG, "fetchDeezerHomeContent failed: $it") }
+            .getOrNull() ?: run {
+                // Network failed: fallback to existing cached content if available
+                if (cacheFile != null && cacheFile.exists()) {
+                    runCatching {
+                        moshi.adapter(DeezerHomeContent::class.java).fromJson(cacheFile.readText())
+                    }.getOrNull()
+                } else null
+            }
     }
 
     /** Tracks inside a public catalog playlist (Deezer `dz:...` or Apple Music `ap:...`). */
@@ -1018,6 +1105,7 @@ class CatalogClient(
         private const val DEEZER_INTERVAL_MS = 120L
         /** Apple public iTunes search allows ~20–30 requests / min; 1.2 s spaces sequential calls safely. */
         private const val APPLE_INTERVAL_MS = 1_200L
+        private const val HOME_CACHE_TTL_MS = 24 * 60 * 60 * 1000L
         private const val USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
     }
 }

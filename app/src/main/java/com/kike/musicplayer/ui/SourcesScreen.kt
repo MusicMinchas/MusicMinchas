@@ -441,6 +441,7 @@ fun MusicSourcesScreen(
 @Composable
 private fun CatalogSourceCard(vm: LibraryViewModel) {
     val enabled by vm.catalogEnabled.collectAsState()
+    val deezerHomeEnrichment by vm.deezerHomeEnrichment.collectAsState()
     SourceCard(
         "Deezer & Apple Music",
         if (enabled) "Enabled · Public catalog search, Deezer playlist import & artist discographies (no account needed)"
@@ -448,7 +449,34 @@ private fun CatalogSourceCard(vm: LibraryViewModel) {
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text("Enable Deezer & Apple Music catalog", Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium)
-            Switch(checked = enabled, onCheckedChange = vm::setCatalogEnabled, modifier = Modifier.padding(start = 8.dp))
+            Switch(
+                checked = enabled,
+                onCheckedChange = { checked ->
+                    vm.setCatalogEnabled(checked)
+                    if (!checked) vm.setDeezerHomeEnrichment(false)
+                },
+                modifier = Modifier.padding(start = 8.dp),
+            )
+        }
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f)) {
+                Text("Enrich Home with Deezer", style = MaterialTheme.typography.bodyMedium)
+                Text(
+                    "Show trending charts and curated playlists on the Home tab",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            Switch(
+                checked = deezerHomeEnrichment,
+                onCheckedChange = { checked ->
+                    vm.setDeezerHomeEnrichment(checked)
+                    if (checked && !enabled) {
+                        vm.setCatalogEnabled(true)
+                    }
+                },
+                modifier = Modifier.padding(start = 8.dp),
+            )
         }
         Text(
             "What both contribute:\n" +

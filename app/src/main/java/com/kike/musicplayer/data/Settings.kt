@@ -88,6 +88,15 @@ class Settings(context: Context, name: String = "settings") {
 
     fun toggleCatalogShown() = setCatalogShown(!_catalogShown.value)
 
+    private val _deezerHomeEnrichment = MutableStateFlow(prefs.getBoolean(KEY_DEEZER_HOME_ENRICHMENT, false))
+    /** Whether public Deezer charts and curated playlists enrich the Home tab. */
+    val deezerHomeEnrichment: StateFlow<Boolean> = _deezerHomeEnrichment.asStateFlow()
+
+    fun setDeezerHomeEnrichment(enabled: Boolean) {
+        prefs.edit { putBoolean(KEY_DEEZER_HOME_ENRICHMENT, enabled) }
+        _deezerHomeEnrichment.value = enabled
+    }
+
     var driveAccount: String?
         get() = prefs.getString(KEY_DRIVE_ACCOUNT, null)
         set(value) = prefs.edit { putString(KEY_DRIVE_ACCOUNT, value) }
@@ -255,6 +264,7 @@ class Settings(context: Context, name: String = "settings") {
         const val KEY_META_MB = "meta_musicbrainz"
         const val KEY_CATALOG_ENABLED = "catalog_enabled"
         const val KEY_CATALOG_SHOWN = "catalog_shown"
+        const val KEY_DEEZER_HOME_ENRICHMENT = "deezer_home_enrichment"
         const val KEY_DARK_MODE = "dark_mode"
         const val KEY_MB_TITLES_REREAD = "mb_titles_reread"
         const val KEY_FULL_COVER = "full_screen_cover"

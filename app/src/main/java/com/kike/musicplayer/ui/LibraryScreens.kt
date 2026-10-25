@@ -254,6 +254,7 @@ fun LibraryScreen(
                 "Home" -> HomeTab(
                     libraryVm, playerVm, onOpenReplay, onOpenHeavyRotation, onOpenMostPlayed, onOpenFavourites, onOpenRecentTracks,
                     onOpenMix, onOpenMixes, onOpenRecentAlbums, onOpenAddedAlbums, onOpenAlbum,
+                    onOpenCatalogPlaylist = onOpenCatalogPlaylist,
                 )
                 "Discover" -> DiscoverTab(libraryVm, onOpenArtist, onOpenAlbum, onOpenFollowing)
                 "Albums" -> AlbumsTab(libraryVm, onOpenAlbum)

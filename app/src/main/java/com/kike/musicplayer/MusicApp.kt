@@ -128,7 +128,7 @@ class AppContainer(app: Application) {
 
     val lyrics = LyricsRepository(database.lyrics(), metadataHttp, moshi)
 
-    val catalog = com.kike.musicplayer.data.catalog.CatalogClient(metadataHttp, moshi)
+    val catalog = com.kike.musicplayer.data.catalog.CatalogClient(metadataHttp, moshi, app.cacheDir)
 
     val artistImages = ArtistImages(app, database.artistImages(), database.artistInfo(), settings, catalog, metadataHttp, moshi)
 

@@ -50,6 +50,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.kike.musicplayer.data.db.Track
 import com.kike.musicplayer.data.db.albumCovers
+import com.kike.musicplayer.data.catalog.CatalogPlaylist
 import com.kike.musicplayer.recommend.Mix
 import java.time.Month
 import java.time.format.TextStyle
@@ -74,10 +75,13 @@ fun HomeTab(
     onOpenRecentAlbums: () -> Unit,
     onOpenAddedAlbums: () -> Unit,
     onOpenAlbum: (String) -> Unit,
+    onOpenCatalogPlaylist: (CatalogPlaylist) -> Unit = {},
 ) {
     val playlists by libraryVm.playlists.collectAsState()
     val mixes by libraryVm.mixes.collectAsState()
     val replay by libraryVm.replay.collectAsState()
+    val deezerEnrichment by libraryVm.deezerHomeEnrichment.collectAsState()
+    val deezerContent by libraryVm.deezerHomeContent.collectAsState()
 
     val refreshing by libraryVm.mixesRefreshing.collectAsState()
     // Pull down for new mixes; otherwise they stay as made (see LibraryViewModel.mixes).
@@ -159,13 +163,36 @@ fun HomeTab(
                     }
                 }
             }
+            if (deezerEnrichment && deezerContent != null) {
+                val trending = deezerContent?.sections?.firstOrNull { it.id == "trending" }
+                if (trending != null && trending.playlists.isNotEmpty()) {
+                    item { SectionTitle(trending.title, trending.subtitle) }
+                    item { DeezerPlaylistRow(trending.playlists, onOpenCatalogPlaylist) }
+                }
+            }
             if (playlists.recentAlbums.isNotEmpty()) {
                 item { SectionTitle("Recently played albums", onClick = onOpenRecentAlbums) }
                 item { AlbumRow(playlists.recentAlbums.take(HOME_ALBUMS), onOpenAlbum) }
             }
+            if (deezerEnrichment && deezerContent != null) {
+                val moods = deezerContent?.sections?.firstOrNull { it.id == "moods" }
+                if (moods != null && moods.playlists.isNotEmpty()) {
+                    item { SectionTitle(moods.title, moods.subtitle) }
+                    item { DeezerPlaylistRow(moods.playlists, onOpenCatalogPlaylist) }
+                }
+            }
             if (playlists.addedAlbums.isNotEmpty()) {
                 item { SectionTitle("Recently added albums", onClick = onOpenAddedAlbums) }
                 item { AlbumRow(playlists.addedAlbums.take(HOME_ALBUMS), onOpenAlbum) }
+            }
+            if (deezerEnrichment && deezerContent != null) {
+                val remaining = deezerContent?.sections.orEmpty().filter { it.id != "trending" && it.id != "moods" }
+                for (section in remaining) {
+                    if (section.playlists.isNotEmpty()) {
+                        item { SectionTitle(section.title, section.subtitle) }
+                        item { DeezerPlaylistRow(section.playlists, onOpenCatalogPlaylist) }
+                    }
+                }
             }
         }
     }
@@ -187,17 +214,81 @@ private fun AlbumRow(albums: List<Album>, onOpenAlbum: (String) -> Unit) {
 
 /** A section heading; with [onClick] it opens the whole list, marked by a chevron. */
 @Composable
-internal fun SectionTitle(text: String, onClick: (() -> Unit)? = null) {
-    Row(
+internal fun SectionTitle(text: String, subtitle: String? = null, onClick: (() -> Unit)? = null) {
+    Column(
         Modifier.fillMaxWidth()
             .then(if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier)
             .padding(start = 16.dp, end = 16.dp, top = 24.dp, bottom = 8.dp),
-        verticalAlignment = Alignment.CenterVertically,
     ) {
-        Text(text, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-        if (onClick != null) Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, "See all")
+        Row(
+            Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(text, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f, fill = false))
+            if (onClick != null) Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, "See all")
+        }
+        if (subtitle != null) {
+            Text(
+                subtitle,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(top = 2.dp),
+            )
+        }
     }
 }
+
+@Composable
+private fun DeezerPlaylistRow(
+    playlists: List<CatalogPlaylist>,
+    onOpenCatalogPlaylist: (CatalogPlaylist) -> Unit,
+) {
+    LazyRow(
+        contentPadding = PaddingValues(horizontal = 16.dp),
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+        items(playlists, key = { it.id }) { playlist ->
+            CatalogPlaylistCard(
+                playlist = playlist,
+                onOpen = { onOpenCatalogPlaylist(playlist) },
+                modifier = Modifier.width(DEEZER_CARD_WIDTH),
+            )
+        }
+    }
+}
+
+@Composable
+internal fun CatalogPlaylistCard(
+    playlist: CatalogPlaylist,
+    onOpen: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Column(modifier.clickable(onClick = onOpen)) {
+        PlaylistCover(
+            coverUrl = playlist.coverUrl,
+            mosaicCovers = playlist.mosaicCovers,
+            modifier = Modifier.fillMaxWidth().aspectRatio(1f),
+            shape = RoundedCornerShape(12.dp),
+        )
+        Text(
+            playlist.title,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            fontWeight = FontWeight.SemiBold,
+            style = MaterialTheme.typography.bodyMedium,
+            modifier = Modifier.padding(top = 4.dp),
+        )
+        Text(
+            count(playlist.trackCount, "song"),
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+    }
+}
+
+private val DEEZER_CARD_WIDTH = 130.dp
 
 /** Made for you: every mix as a card, in a grid. */
 @OptIn(ExperimentalMaterial3Api::class)

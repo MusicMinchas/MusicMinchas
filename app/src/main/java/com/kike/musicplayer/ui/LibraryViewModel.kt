@@ -306,6 +306,9 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
     fun refreshMixes() {
         _mixesRefreshing.value = true
         mixRequests.value++
+        if (settings.deezerHomeEnrichment.value) {
+            loadDeezerHome(forceRefresh = true)
+        }
     }
 
     /**
@@ -651,6 +654,27 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
     val catalogShown = settings.catalogShown
     fun setCatalogEnabled(enabled: Boolean) = settings.setCatalogEnabled(enabled)
     fun toggleCatalogShown() = settings.toggleCatalogShown()
+
+    val deezerHomeEnrichment = settings.deezerHomeEnrichment
+
+    fun setDeezerHomeEnrichment(enabled: Boolean) {
+        settings.setDeezerHomeEnrichment(enabled)
+        if (enabled && _deezerHomeContent.value == null) {
+            loadDeezerHome(forceRefresh = false)
+        }
+    }
+
+    private val _deezerHomeContent = MutableStateFlow<com.kike.musicplayer.data.catalog.DeezerHomeContent?>(null)
+    val deezerHomeContent: StateFlow<com.kike.musicplayer.data.catalog.DeezerHomeContent?> = _deezerHomeContent.asStateFlow()
+
+    fun loadDeezerHome(forceRefresh: Boolean = false) {
+        viewModelScope.launch {
+            val content = container.catalog.fetchDeezerHomeContent(forceRefresh)
+            if (content != null) {
+                _deezerHomeContent.value = content
+            }
+        }
+    }
     val darkMode = settings.darkMode
     val fullScreenCover = settings.fullScreenCover
     fun setDarkMode(enabled: Boolean) = settings.setDarkMode(enabled)
@@ -1108,6 +1132,14 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
     fun importLoved() = importer.importLoved()
 
     init {
+        viewModelScope.launch {
+            settings.deezerHomeEnrichment.collect { enabled ->
+                if (enabled && _deezerHomeContent.value == null) {
+                    loadDeezerHome(forceRefresh = false)
+                }
+            }
+        }
+
         // Songs added to the library may be ones Last.fm scrobbles are waiting for.
         @OptIn(kotlinx.coroutines.FlowPreview::class)
         viewModelScope.launch {
