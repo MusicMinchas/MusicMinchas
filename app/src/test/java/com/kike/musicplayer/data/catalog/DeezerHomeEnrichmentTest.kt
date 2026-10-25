@@ -81,8 +81,8 @@ class DeezerHomeEnrichmentTest {
         // 1. Initial fetch from network
         val content = client.fetchDeezerHomeContent(forceRefresh = false)
         assertNotNull(content)
-        assertEquals(4, content!!.sections.size)
-        assertEquals(4, networkCalls) // 4 chart endpoints
+        assertEquals(5, content!!.sections.size)
+        assertEquals(5, networkCalls) // 4 chart endpoints + 1 mood search endpoint
 
         val trending = content.sections.first { it.id == "trending" }
         assertEquals("Trending on Deezer", trending.title)
@@ -97,6 +97,11 @@ class DeezerHomeEnrichmentTest {
         assertEquals("https://e-cdns-images.dzcdn.net/images/playlist/1479458365/1000x1000.jpg", firstPlaylist.coverUrl)
         assertEquals(CatalogPlaylist.SOURCE_DEEZER, firstPlaylist.source)
 
+        // Verify mood section is present
+        val moodSection = content.sections[3]
+        assertTrue(moodSection.id.startsWith("mood_"))
+        assertEquals(2, moodSection.playlists.size)
+
         // Verify cache file was written
         val cacheFile = cacheDir.resolve("deezer_home_content.json")
         assertTrue(cacheFile.exists())
@@ -105,14 +110,14 @@ class DeezerHomeEnrichmentTest {
         // 2. Second fetch within 24h should read from cache without network calls
         val cachedContent = client.fetchDeezerHomeContent(forceRefresh = false)
         assertNotNull(cachedContent)
-        assertEquals(4, networkCalls) // Still 4! No new network calls made
+        assertEquals(5, networkCalls) // Still 5! No new network calls made
         assertEquals(content.sections.size, cachedContent!!.sections.size)
         assertEquals("Happy Hits", cachedContent.sections[0].playlists[0].title)
 
         // 3. Force refresh should bypass cache and re-fetch from network
         val refreshedContent = client.fetchDeezerHomeContent(forceRefresh = true)
         assertNotNull(refreshedContent)
-        assertEquals(8, networkCalls) // 4 more calls made
+        assertEquals(10, networkCalls) // 5 more calls made
     }
 
     @Test
@@ -132,19 +137,22 @@ class DeezerHomeEnrichmentTest {
         )
 
         assertNotNull(content)
-        assertEquals(4, content!!.sections.size)
+        assertEquals(5, content!!.sections.size)
 
         // Section 0 is always trending
         assertEquals("trending", content.sections[0].id)
         // Section 1 and 2 should match "metal" (genreId 464) and "electronic" (genreId 113)
         assertEquals("metal", content.sections[1].id)
         assertEquals("electronic", content.sections[2].id)
+        // Section 3 is mood of the day
+        assertTrue(content.sections[3].id.startsWith("mood_"))
 
         // All requests must request limit=30
         assertTrue(requestedUrls.all { it.contains("limit=30") })
         assertTrue(requestedUrls.any { it.contains("chart/0/playlists") })
         assertTrue(requestedUrls.any { it.contains("chart/464/playlists") })
         assertTrue(requestedUrls.any { it.contains("chart/113/playlists") })
+        assertTrue(requestedUrls.any { it.contains("search/playlist") })
     }
 
     @Test

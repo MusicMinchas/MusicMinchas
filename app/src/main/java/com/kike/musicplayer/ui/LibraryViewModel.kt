@@ -669,7 +669,17 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
 
     fun loadDeezerHome(forceRefresh: Boolean = false) {
         viewModelScope.launch {
-            val topGenres = genreList.value.sortedByDescending { it.songCount }.map { it.name }
+            val topGenres = genreList.value
+                .ifEmpty {
+                    runCatching {
+                        kotlinx.coroutines.withTimeoutOrNull(2000L) {
+                            genreList.filter { it.isNotEmpty() }.first()
+                        }
+                    }.getOrNull().orEmpty()
+                }
+                .filter { it.name.isNotBlank() && !it.name.contains("unknown", ignoreCase = true) }
+                .sortedByDescending { it.songCount }
+                .map { it.name }
             val content = container.catalog.fetchDeezerHomeContent(forceRefresh, topGenres)
             if (content != null) {
                 _deezerHomeContent.value = content
