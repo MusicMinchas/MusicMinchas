@@ -209,3 +209,18 @@ Started 2026-10-08 from user-pasted spec. NEW app, explicitly independent of Son
   - Settings: Added toggle 'Downsample hi-res audio (> 48 kHz)' under Sources / Sonos, bypassing CastSheet warning and speaker disabling when enabled.
   - On-device audit (OnePlus 12, Snapdragon 8 Gen 3): Average single-core CPU load 4.57% (downsampled) vs. 4.79% (standard passthrough) -> negligible net impact (< 0.6% of entire SoC capacity). Static working set ~1.65 MB per session; zero steady-state heap allocations / zero GC pauses. Bit-identical audio fidelity verified via ffmpeg.
   - Merged into master, tagged v1.36.0, release APK MusicMinchas-1.36.0.apk installed on OnePlus 12.
+- 2026-10-25 Work in Progress: Home Tab Deezer Enrichment (`feat/deezer-home-enrichment`):
+  - Enriched Home tab with curated Deezer charts, library-personalized genres, and moods interleaved with local album carousels (commits `532e956`, `2717524`, `aaddaf7`):
+    - Section 0: `Trending on Deezer` (`chart/0`)
+    - Recently played albums (local/library)
+    - Section 1: Library Top Genre #1 (`chart/{id1}`) — detects top library genres (`genre_index`), resolves Pop #1 (7,083 tracks).
+    - Recently added albums (local/library)
+    - Section 2: Library Top Genre #2 (`chart/{id2}`) — resolves Rock #2 (3,073 tracks).
+    - Section 3: Curated Mood & Activity of the day — added `DEEZER_CURATED_MOODS` pool (Focus & Study, Workout & Gym, Chill & Relax, Party & Good Vibes, Sleep & Meditation, Morning & Energy) rotating daily, fetched via Deezer playlist search (`search/playlist?q={query}&limit=30`).
+    - Section 4: Discovery Genre of the day — rotating genre from remaining unpicked genres pool.
+  - Section header chevron (`›`) navigation opens dedicated 2-column vertically scrolling 30-playlist grid (`CatalogSectionScreen`).
+  - Cache: 24-hour JSON disk cache (`cache/deezer_home_content.json`) with force-refresh support.
+  - Bug fixes:
+    - Fixed race condition in `LibraryViewModel.loadDeezerHome` where `genreList.value` was initially empty during cold start by awaiting the first Room emission (`withTimeoutOrNull(2000L)`) and filtering out `"unknown"` tags.
+    - Corrected Deezer genre IDs in `CatalogClient`: 98 -> Classical & Piano, 153 -> Blues, 173 -> Soundtracks.
+  - Pending / Next session: User noted some remaining inconsistencies to review and refine before merging to master.
