@@ -125,6 +125,14 @@ data class DeezerHomeContent(
     val fetchedAt: Long = System.currentTimeMillis(),
 )
 
+data class DeezerGenreSpec(
+    val id: String,
+    val genreId: Int,
+    val title: String,
+    val subtitle: String,
+    val keywords: List<String>,
+)
+
 class CatalogClient(
     private val http: OkHttpClient,
     private val moshi: Moshi,
@@ -375,7 +383,10 @@ class CatalogClient(
      * Caches result to disk for [HOME_CACHE_TTL_MS] (24 hours) for instant zero-latency startup.
      * Falls back to expired cache on network errors.
      */
-    suspend fun fetchDeezerHomeContent(forceRefresh: Boolean = false): DeezerHomeContent? = withContext(Dispatchers.IO) {
+    suspend fun fetchDeezerHomeContent(
+        forceRefresh: Boolean = false,
+        libraryGenres: List<String> = emptyList(),
+    ): DeezerHomeContent? = withContext(Dispatchers.IO) {
         val cacheFile = cacheDir?.resolve("deezer_home_content.json")
         val now = System.currentTimeMillis()
 
@@ -390,15 +401,52 @@ class CatalogClient(
         }
 
         runCatching {
-            val sectionsConfig = listOf(
-                Triple("trending", "Trending on Deezer", "https://api.deezer.com/chart/0/playlists?limit=10") to "Most popular playlists worldwide",
-                Triple("moods", "Chill & Focus", "https://api.deezer.com/chart/98/playlists?limit=10") to "Peaceful piano, ambient & acoustic",
-                Triple("rock", "Rock & Alternative", "https://api.deezer.com/chart/152/playlists?limit=10") to "Guitar anthems, essentials & classic hits",
-                Triple("acoustic", "Folk & Acoustic", "https://api.deezer.com/chart/466/playlists?limit=10") to "Cozy acoustic, coffeehouse & folk",
+            // 1. Trending is always first
+            val trendingSpec = DeezerGenreSpec(
+                id = "trending",
+                genreId = 0,
+                title = "Trending on Deezer",
+                subtitle = "Most popular playlists worldwide",
+                keywords = emptyList(),
             )
 
-            val sections = sectionsConfig.mapNotNull { (cfg, subtitle) ->
-                val (id, title, url) = cfg
+            // 2. Match library genres to Deezer curated genres
+            val normalizedLibrary = libraryGenres.map { it.lowercase().trim() }
+            val matched = mutableListOf<DeezerGenreSpec>()
+            for (genreName in normalizedLibrary) {
+                val found = DEEZER_CURATED_GENRES.firstOrNull { spec ->
+                    spec !in matched && spec.keywords.any { kw -> genreName.contains(kw) || kw.contains(genreName) }
+                }
+                if (found != null) {
+                    matched.add(found)
+                    if (matched.size >= 2) break
+                }
+            }
+
+            // Defaults if library has fewer than 2 matched genres
+            val defaultSpecs = listOf(
+                DEEZER_CURATED_GENRES.first { it.id == "rock" },
+                DEEZER_CURATED_GENRES.first { it.id == "moods" },
+            )
+            for (def in defaultSpecs) {
+                if (def !in matched && matched.size < 2) {
+                    matched.add(def)
+                }
+            }
+
+            // 3. Rotating discovery genre based on day-of-year
+            val dayOfYear = java.time.LocalDate.now().dayOfYear
+            val remainingPool = DEEZER_CURATED_GENRES.filter { it !in matched }
+            val rotating = if (remainingPool.isNotEmpty()) remainingPool[dayOfYear % remainingPool.size] else null
+
+            val sectionsToFetch = buildList {
+                add(trendingSpec)
+                addAll(matched)
+                if (rotating != null) add(rotating)
+            }
+
+            val sections = sectionsToFetch.mapNotNull { spec ->
+                val url = "https://api.deezer.com/chart/${spec.genreId}/playlists?limit=30"
                 val raw = deezerJson(url)
                 val data = (raw["data"] as? List<*>)?.mapNotNull { it as? Map<*, *> }.orEmpty()
                 val playlists = data.mapNotNull { item ->
@@ -419,7 +467,7 @@ class CatalogClient(
                     )
                 }
                 if (playlists.isNotEmpty()) {
-                    DeezerHomeSection(id = id, title = title, subtitle = subtitle, playlists = playlists)
+                    DeezerHomeSection(id = spec.id, title = spec.title, subtitle = spec.subtitle, playlists = playlists)
                 } else null
             }
 
@@ -1106,6 +1154,21 @@ class CatalogClient(
         /** Apple public iTunes search allows ~20–30 requests / min; 1.2 s spaces sequential calls safely. */
         private const val APPLE_INTERVAL_MS = 1_200L
         private const val HOME_CACHE_TTL_MS = 24 * 60 * 60 * 1000L
+
+        val DEEZER_CURATED_GENRES = listOf(
+            DeezerGenreSpec("rock", 152, "Rock & Alternative", "Guitar anthems, essentials & classic hits", listOf("rock", "classic rock", "hard rock", "punk", "grunge")),
+            DeezerGenreSpec("metal", 464, "Metal & Heavy Rock", "Heavy riffs, headbangers & dark anthems", listOf("metal", "heavy metal", "power metal", "symphonic metal", "death metal", "thrash")),
+            DeezerGenreSpec("alternative", 85, "Alternative & Indie", "Indie rock, post-punk & modern alternative", listOf("alternative", "indie", "post-punk", "shoegaze")),
+            DeezerGenreSpec("moods", 98, "Chill & Focus", "Peaceful piano, ambient & classical", listOf("classical", "piano", "soundtrack", "instrumental", "ambient", "chill")),
+            DeezerGenreSpec("acoustic", 466, "Folk & Acoustic", "Cozy acoustic, coffeehouse & folk", listOf("folk", "acoustic", "singer-songwriter", "americana")),
+            DeezerGenreSpec("pop", 132, "Pop Hits & Anthems", "Catchy melodies & modern favorites", listOf("pop", "synthpop")),
+            DeezerGenreSpec("electronic", 113, "Electronic & Dance", "Beats, synth, techno & club favorites", listOf("electronic", "electro", "dance", "techno", "house", "edm")),
+            DeezerGenreSpec("jazz", 129, "Jazz & Lounge", "Smooth jazz, swing & modern brass", listOf("jazz", "swing", "lounge")),
+            DeezerGenreSpec("blues", 2, "Blues & Roots", "Soulful blues, slide guitar & delta roots", listOf("blues", "roots")),
+            DeezerGenreSpec("rnb", 165, "R&B & Soul", "Grooves, neo-soul & timeless voices", listOf("r&b", "soul", "funk")),
+            DeezerGenreSpec("rap", 116, "Hip-Hop & Urban", "Beats, bars & street anthems", listOf("rap", "hip-hop", "trap")),
+            DeezerGenreSpec("soundtracks", 71, "Soundtracks & Scores", "Cinematic orchestral themes & scores", listOf("soundtrack", "score", "ost")),
+        )
         private const val USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
     }
 }

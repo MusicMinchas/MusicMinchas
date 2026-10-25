@@ -51,6 +51,7 @@ import androidx.compose.ui.unit.dp
 import com.kike.musicplayer.data.db.Track
 import com.kike.musicplayer.data.db.albumCovers
 import com.kike.musicplayer.data.catalog.CatalogPlaylist
+import com.kike.musicplayer.data.catalog.DeezerHomeSection
 import com.kike.musicplayer.recommend.Mix
 import java.time.Month
 import java.time.format.TextStyle
@@ -76,6 +77,7 @@ fun HomeTab(
     onOpenAddedAlbums: () -> Unit,
     onOpenAlbum: (String) -> Unit,
     onOpenCatalogPlaylist: (CatalogPlaylist) -> Unit = {},
+    onOpenCatalogSection: (DeezerHomeSection) -> Unit = {},
 ) {
     val playlists by libraryVm.playlists.collectAsState()
     val mixes by libraryVm.mixes.collectAsState()
@@ -164,10 +166,10 @@ fun HomeTab(
                 }
             }
             if (deezerEnrichment && deezerContent != null) {
-                val trending = deezerContent?.sections?.firstOrNull { it.id == "trending" }
-                if (trending != null && trending.playlists.isNotEmpty()) {
-                    item { SectionTitle(trending.title, trending.subtitle) }
-                    item { DeezerPlaylistRow(trending.playlists, onOpenCatalogPlaylist) }
+                val s0 = deezerContent?.sections?.getOrNull(0)
+                if (s0 != null && s0.playlists.isNotEmpty()) {
+                    item { SectionTitle(s0.title, s0.subtitle, onClick = { onOpenCatalogSection(s0) }) }
+                    item { DeezerPlaylistRow(s0.playlists.take(10), onOpenCatalogPlaylist) }
                 }
             }
             if (playlists.recentAlbums.isNotEmpty()) {
@@ -175,10 +177,10 @@ fun HomeTab(
                 item { AlbumRow(playlists.recentAlbums.take(HOME_ALBUMS), onOpenAlbum) }
             }
             if (deezerEnrichment && deezerContent != null) {
-                val moods = deezerContent?.sections?.firstOrNull { it.id == "moods" }
-                if (moods != null && moods.playlists.isNotEmpty()) {
-                    item { SectionTitle(moods.title, moods.subtitle) }
-                    item { DeezerPlaylistRow(moods.playlists, onOpenCatalogPlaylist) }
+                val s1 = deezerContent?.sections?.getOrNull(1)
+                if (s1 != null && s1.playlists.isNotEmpty()) {
+                    item { SectionTitle(s1.title, s1.subtitle, onClick = { onOpenCatalogSection(s1) }) }
+                    item { DeezerPlaylistRow(s1.playlists.take(10), onOpenCatalogPlaylist) }
                 }
             }
             if (playlists.addedAlbums.isNotEmpty()) {
@@ -186,11 +188,11 @@ fun HomeTab(
                 item { AlbumRow(playlists.addedAlbums.take(HOME_ALBUMS), onOpenAlbum) }
             }
             if (deezerEnrichment && deezerContent != null) {
-                val remaining = deezerContent?.sections.orEmpty().filter { it.id != "trending" && it.id != "moods" }
+                val remaining = deezerContent?.sections.orEmpty().drop(2)
                 for (section in remaining) {
                     if (section.playlists.isNotEmpty()) {
-                        item { SectionTitle(section.title, section.subtitle) }
-                        item { DeezerPlaylistRow(section.playlists, onOpenCatalogPlaylist) }
+                        item { SectionTitle(section.title, section.subtitle, onClick = { onOpenCatalogSection(section) }) }
+                        item { DeezerPlaylistRow(section.playlists.take(10), onOpenCatalogPlaylist) }
                     }
                 }
             }

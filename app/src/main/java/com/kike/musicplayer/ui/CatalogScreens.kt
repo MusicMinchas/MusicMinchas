@@ -75,6 +75,10 @@ import coil3.compose.SubcomposeAsyncImage
 import com.kike.musicplayer.data.catalog.CatalogAlbum
 import com.kike.musicplayer.data.catalog.CatalogArtist
 import com.kike.musicplayer.data.catalog.CatalogPlaylist
+import com.kike.musicplayer.data.catalog.DeezerHomeSection
+import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.items
 import com.kike.musicplayer.data.catalog.CatalogTrack
 import com.kike.musicplayer.data.db.Track
 import kotlinx.coroutines.launch
@@ -803,5 +807,55 @@ private fun CatalogArtistHeader(name: String, image: String?) {
             maxLines = 2,
             overflow = TextOverflow.Ellipsis,
         )
+    }
+}
+
+
+/** Full grid view of a Deezer curated section (e.g. Trending, Rock, Chill, etc.), displaying all playlists. */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun CatalogSectionScreen(
+    section: DeezerHomeSection,
+    onOpenCatalogPlaylist: (CatalogPlaylist) -> Unit,
+    onBack: () -> Unit,
+    contentPadding: PaddingValues,
+) {
+    Column(Modifier.fillMaxSize().padding(contentPadding)) {
+        TopAppBar(
+            windowInsets = NoTopInsets,
+            title = {
+                Column {
+                    Text(section.title, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    if (!section.subtitle.isNullOrBlank()) {
+                        Text(
+                            section.subtitle,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                    }
+                }
+            },
+            navigationIcon = {
+                IconButton(onClick = onBack) {
+                    Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back")
+                }
+            },
+        )
+        LazyVerticalGrid(
+            columns = GridCells.Adaptive(150.dp),
+            contentPadding = PaddingValues(16.dp),
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+            verticalArrangement = Arrangement.spacedBy(16.dp),
+            modifier = Modifier.fillMaxSize(),
+        ) {
+            items(section.playlists, key = { it.id }) { playlist ->
+                CatalogPlaylistCard(
+                    playlist = playlist,
+                    onOpen = { onOpenCatalogPlaylist(playlist) },
+                )
+            }
+        }
     }
 }

@@ -79,6 +79,7 @@ private sealed interface Screen {
     data class CatalogAlbumDetail(val album: com.kike.musicplayer.data.catalog.CatalogAlbum) : Screen
     data class CatalogArtistDetail(val artist: com.kike.musicplayer.data.catalog.CatalogArtist) : Screen
     data class CatalogPlaylistDetail(val playlist: com.kike.musicplayer.data.catalog.CatalogPlaylist) : Screen
+    data class CatalogSectionDetail(val section: com.kike.musicplayer.data.catalog.DeezerHomeSection) : Screen
     data class PlaylistCategory(val type: PlaylistCategoryType) : Screen
 }
 
@@ -301,6 +302,7 @@ class MainActivity : ComponentActivity() {
                             onOpenCatalogArtist = { push(Screen.CatalogArtistDetail(it)) },
                             onOpenCatalogAlbum = { push(Screen.CatalogAlbumDetail(it)) },
                             onOpenCatalogPlaylist = { push(Screen.CatalogPlaylistDetail(it)) },
+                            onOpenCatalogSection = { push(Screen.CatalogSectionDetail(it)) },
                             onOpenPlaylistCategory = { push(Screen.PlaylistCategory(it)) },
                             contentPadding = padding,
                         )
@@ -335,6 +337,12 @@ class MainActivity : ComponentActivity() {
                             screen.artist, libraryVm, playerVm,
                             onOpenAlbum = { push(Screen.AlbumDetail(it)) },
                             onOpenCatalogAlbum = { push(Screen.CatalogAlbumDetail(it)) },
+                            onBack = ::pop,
+                            contentPadding = padding,
+                        )
+                        is Screen.CatalogSectionDetail -> CatalogSectionScreen(
+                            section = screen.section,
+                            onOpenCatalogPlaylist = { push(Screen.CatalogPlaylistDetail(it)) },
                             onBack = ::pop,
                             contentPadding = padding,
                         )

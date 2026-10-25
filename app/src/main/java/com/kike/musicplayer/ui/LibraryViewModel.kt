@@ -669,7 +669,8 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
 
     fun loadDeezerHome(forceRefresh: Boolean = false) {
         viewModelScope.launch {
-            val content = container.catalog.fetchDeezerHomeContent(forceRefresh)
+            val topGenres = genreList.value.sortedByDescending { it.songCount }.map { it.name }
+            val content = container.catalog.fetchDeezerHomeContent(forceRefresh, topGenres)
             if (content != null) {
                 _deezerHomeContent.value = content
             }

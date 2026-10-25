@@ -147,6 +147,7 @@ fun LibraryScreen(
     onOpenCatalogArtist: (com.kike.musicplayer.data.catalog.CatalogArtist) -> Unit = {},
     onOpenCatalogAlbum: (com.kike.musicplayer.data.catalog.CatalogAlbum) -> Unit = {},
     onOpenCatalogPlaylist: (com.kike.musicplayer.data.catalog.CatalogPlaylist) -> Unit = {},
+    onOpenCatalogSection: (com.kike.musicplayer.data.catalog.DeezerHomeSection) -> Unit = {},
     onOpenPlaylistCategory: (PlaylistCategoryType) -> Unit = {},
     contentPadding: PaddingValues,
 ) {
@@ -255,6 +256,7 @@ fun LibraryScreen(
                     libraryVm, playerVm, onOpenReplay, onOpenHeavyRotation, onOpenMostPlayed, onOpenFavourites, onOpenRecentTracks,
                     onOpenMix, onOpenMixes, onOpenRecentAlbums, onOpenAddedAlbums, onOpenAlbum,
                     onOpenCatalogPlaylist = onOpenCatalogPlaylist,
+                    onOpenCatalogSection = onOpenCatalogSection,
                 )
                 "Discover" -> DiscoverTab(libraryVm, onOpenArtist, onOpenAlbum, onOpenFollowing)
                 "Albums" -> AlbumsTab(libraryVm, onOpenAlbum)

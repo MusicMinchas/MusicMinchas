@@ -116,6 +116,38 @@ class DeezerHomeEnrichmentTest {
     }
 
     @Test
+    fun fetchDeezerHomeContentMatchesLibraryGenresDynamically() = runBlocking {
+        val cacheDir = tempFolder.newFolder("cache_genres")
+        val requestedUrls = mutableListOf<String>()
+
+        val client = mockCatalogClient(cacheDir) { req ->
+            requestedUrls.add(req.url.toString())
+            jsonResponse(req, sampleChartResponse)
+        }
+
+        // Pass user's top genres: "Heavy Metal", "Electronic"
+        val content = client.fetchDeezerHomeContent(
+            forceRefresh = true,
+            libraryGenres = listOf("Heavy Metal", "Electronic")
+        )
+
+        assertNotNull(content)
+        assertEquals(4, content!!.sections.size)
+
+        // Section 0 is always trending
+        assertEquals("trending", content.sections[0].id)
+        // Section 1 and 2 should match "metal" (genreId 464) and "electronic" (genreId 113)
+        assertEquals("metal", content.sections[1].id)
+        assertEquals("electronic", content.sections[2].id)
+
+        // All requests must request limit=30
+        assertTrue(requestedUrls.all { it.contains("limit=30") })
+        assertTrue(requestedUrls.any { it.contains("chart/0/playlists") })
+        assertTrue(requestedUrls.any { it.contains("chart/464/playlists") })
+        assertTrue(requestedUrls.any { it.contains("chart/113/playlists") })
+    }
+
+    @Test
     fun fetchDeezerHomeContentFallsBackToCacheOnNetworkError() = runBlocking {
         val cacheDir = tempFolder.newFolder("cache")
         var shouldFail = false
