@@ -246,7 +246,7 @@ class FlacStreamDecoder(
             }
         }
 
-        val closeThreshold = info.sampleRate.toLong() * 3L // Within 3 seconds before targetSample
+        val closeThreshold = info.sampleRate.toLong() * 1L // Within 1 second before targetSample
         if (best != null && targetSample - best.sampleNumber <= closeThreshold) {
             reader.reset(info.firstFrameOffset + best.streamByteOffset)
             lastFrameFirstSample = best.sampleNumber
@@ -260,16 +260,16 @@ class FlacStreamDecoder(
             var highByte = if (next != null) info.firstFrameOffset + next.streamByteOffset else fileLen
             var highSample = next?.sampleNumber ?: effectiveTotalSamples
 
-            val preRollAim = (info.sampleRate / 2).toLong()
-            for (iter in 0 until 5) {
+            val preRollAim = (info.sampleRate / 4).toLong() // Aim 250ms before target
+            for (iter in 0 until 4) {
                 if (targetSample - lowSample <= closeThreshold || highByte - lowByte <= 65536L) break
                 val aimSample = (targetSample - preRollAim).coerceAtLeast(lowSample)
                 val sampleSpan = (highSample - lowSample).coerceAtLeast(1L)
                 val byteSpan = (highByte - lowByte).coerceAtLeast(1L)
                 val frac = ((aimSample - lowSample).toDouble() / sampleSpan.toDouble()).coerceIn(0.0, 0.98)
-                val safetyBytes = if (iter == 0) 32768L else 16384L
+                val safetyBytes = if (iter == 0) 16384L else 4096L
                 val guessByte = (lowByte + (byteSpan * frac).toLong() - safetyBytes)
-                    .coerceIn(lowByte, (highByte - 8192L).coerceAtLeast(lowByte))
+                    .coerceIn(lowByte, (highByte - 4096L).coerceAtLeast(lowByte))
 
                 val probed = probeValidFrameAt(guessByte, maxScanBytes = 192 * 1024)
                 if (probed == null) {
