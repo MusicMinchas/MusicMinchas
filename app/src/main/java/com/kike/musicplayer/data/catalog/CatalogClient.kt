@@ -366,23 +366,26 @@ class CatalogClient(
             .addQueryParameter("limit", limit.toString())
             .build()
         val data = (deezerJson(url.toString())["data"] as? List<*>)?.mapNotNull { it as? Map<*, *> }.orEmpty()
-        data.mapNotNull { item ->
-            val id = item.longStr("id") ?: return@mapNotNull null
-            val title = (item["title"] as? String)?.takeIf { it.isNotBlank() } ?: return@mapNotNull null
-            val count = (item["nb_tracks"] as? Number)?.toInt() ?: 0
-            if (count <= 0) return@mapNotNull null
-            val creator = (item["user"] as? Map<*, *>)?.get("name") as? String
-            val cover = ((item["picture_xl"] as? String) ?: (item["picture_big"] as? String) ?: (item["picture_medium"] as? String))
-                ?.takeIf { "/playlist//" !in it }
-            CatalogPlaylist(
-                id = "dz:$id",
-                title = title,
-                creator = creator,
-                trackCount = count,
-                coverUrl = cover,
-                source = CatalogPlaylist.SOURCE_DEEZER,
-            )
-        }
+        data.mapNotNull { parseDeezerCatalogPlaylist(it) }
+    }
+
+    private fun parseDeezerCatalogPlaylist(item: Map<*, *>): CatalogPlaylist? {
+        val id = item.longStr("id") ?: return null
+        val title = (item["title"] as? String)?.takeIf { it.isNotBlank() } ?: return null
+        val count = (item["nb_tracks"] as? Number)?.toInt() ?: 0
+        if (count <= 0) return null
+        val creator = (item["user"] as? Map<*, *>)?.get("name") as? String
+        val cover = ((item["picture_xl"] as? String)
+            ?: (item["picture_big"] as? String)
+            ?: (item["picture_medium"] as? String))?.takeIf { "/playlist//" !in it }
+        return CatalogPlaylist(
+            id = "dz:$id",
+            title = title,
+            creator = creator,
+            trackCount = count,
+            coverUrl = cover,
+            source = CatalogPlaylist.SOURCE_DEEZER,
+        )
     }
 
     /**
@@ -395,7 +398,7 @@ class CatalogClient(
         libraryGenres: List<String> = emptyList(),
         genreCounts: Map<String, Int> = emptyMap(),
     ): DeezerHomeContent? = withContext(Dispatchers.IO) {
-        val cacheFile = cacheDir?.resolve("deezer_home_content.json")
+        val cacheFile = cacheDir?.resolve("deezer_home_v3.json")
         val now = System.currentTimeMillis()
 
         if (!forceRefresh && cacheFile != null && cacheFile.exists()) {
@@ -409,16 +412,73 @@ class CatalogClient(
         }
 
         runCatching {
-            // 1. Trending is always first
-            val trendingSpec = DeezerGenreSpec(
-                id = "trending",
-                genreId = 0,
-                title = "Trending on Deezer",
-                subtitle = "Most popular playlists worldwide",
-                keywords = emptyList(),
-            )
+            // 1. Official Deezer Top 100 Charts
+            val topChartsSection = runCatching {
+                val url = "https://api.deezer.com/user/$DEEZER_CHARTS_USER_ID/playlists?limit=120"
+                val raw = deezerJson(url)
+                val data = (raw["data"] as? List<*>)?.mapNotNull { it as? Map<*, *> }.orEmpty()
+                val validCharts = data.mapNotNull { item ->
+                    val pl = parseDeezerCatalogPlaylist(item) ?: return@mapNotNull null
+                    val fans = (item["fans"] as? Number)?.toInt() ?: 0
+                    if (pl.trackCount < 50) return@mapNotNull null
+                    val lower = pl.title.trim().lowercase()
+                    if (!lower.startsWith("top ")) return@mapNotNull null
+                    if (YEAR_REGEX.containsMatchIn(lower)) return@mapNotNull null
+                    if (EXCLUDED_CHART_KEYWORDS.any { lower.contains(it) }) return@mapNotNull null
+                    pl to fans
+                }
 
-            // 2. Match library genres to Deezer curated genres
+                val priorityList = mutableListOf<CatalogPlaylist>()
+                val matchedIds = mutableSetOf<String>()
+                for (country in PRIORITY_CHART_COUNTRIES) {
+                    val target = "top $country"
+                    val found = validCharts.firstOrNull { it.first.title.trim().lowercase() == target }
+                    if (found != null) {
+                        priorityList.add(found.first)
+                        matchedIds.add(found.first.id)
+                    }
+                }
+
+                val remaining = validCharts
+                    .filter { it.first.id !in matchedIds }
+                    .sortedByDescending { it.second }
+                    .map { it.first }
+
+                val finalCharts = (priorityList + remaining).take(30)
+                if (finalCharts.isNotEmpty()) {
+                    DeezerHomeSection(
+                        id = "top_charts",
+                        title = "Top Charts",
+                        subtitle = "Top 100 by country & worldwide",
+                        playlists = finalCharts,
+                    )
+                } else null
+            }.onFailure { Log.w(TAG, "Failed fetching top charts", it) }.getOrNull()
+
+            // 2. Trending on Deezer (filtered to exclude country charts like Top Belgium)
+            val trendingSection = runCatching {
+                val url = "https://api.deezer.com/chart/0/playlists?limit=30"
+                val raw = deezerJson(url)
+                val data = (raw["data"] as? List<*>)?.mapNotNull { it as? Map<*, *> }.orEmpty()
+                val playlists = data.mapNotNull { item ->
+                    val pl = parseDeezerCatalogPlaylist(item) ?: return@mapNotNull null
+                    val lower = pl.title.trim().lowercase()
+                    val isChart = pl.creator.equals("Deezer Charts", ignoreCase = true) ||
+                        lower.startsWith("top ") ||
+                        (topChartsSection?.playlists?.any { it.id == pl.id } == true)
+                    if (isChart) null else pl
+                }
+                if (playlists.isNotEmpty()) {
+                    DeezerHomeSection(
+                        id = "trending",
+                        title = "Trending on Deezer",
+                        subtitle = "Most popular playlists worldwide",
+                        playlists = playlists,
+                    )
+                } else null
+            }.onFailure { Log.w(TAG, "Failed fetching trending playlists", it) }.getOrNull()
+
+            // 3. Match library genres to Deezer curated genres
             val matched = if (genreCounts.isNotEmpty()) {
                 DEEZER_CURATED_GENRES
                     .map { spec ->
@@ -461,47 +521,30 @@ class CatalogClient(
                 }
             }
 
-            // 3. Curated Mood & Activity of the day
+            // 4. Curated Mood & Activity of the day
             val dayOfYear = java.time.LocalDate.now().dayOfYear
             val moodSpec = DEEZER_CURATED_MOODS[dayOfYear % DEEZER_CURATED_MOODS.size]
 
-            // 4. Rotating discovery genre based on day-of-year
+            // 5. Rotating discovery genre based on day-of-year
             val remainingPool = DEEZER_CURATED_GENRES.filter { it !in matched }
             val rotatingGenre = if (remainingPool.isNotEmpty()) remainingPool[dayOfYear % remainingPool.size] else null
 
             val genreSectionsToFetch = buildList {
-                add(trendingSpec)
                 addAll(matched)
                 if (rotatingGenre != null) add(rotatingGenre)
             }
 
             val genreSections = genreSectionsToFetch.mapNotNull { spec ->
                 val url = "https://api.deezer.com/chart/${spec.genreId}/playlists?limit=30"
-                val raw = deezerJson(url)
+                val raw = runCatching { deezerJson(url) }.getOrNull() ?: return@mapNotNull null
                 val data = (raw["data"] as? List<*>)?.mapNotNull { it as? Map<*, *> }.orEmpty()
-                val playlists = data.mapNotNull { item ->
-                    val plId = item.longStr("id") ?: return@mapNotNull null
-                    val plTitle = (item["title"] as? String)?.takeIf { it.isNotBlank() } ?: return@mapNotNull null
-                    val count = (item["nb_tracks"] as? Number)?.toInt() ?: 0
-                    val creator = (item["user"] as? Map<*, *>)?.get("name") as? String
-                    val cover = ((item["picture_xl"] as? String)
-                        ?: (item["picture_big"] as? String)
-                        ?: (item["picture_medium"] as? String))?.takeIf { "/playlist//" !in it }
-                    CatalogPlaylist(
-                        id = "dz:$plId",
-                        title = plTitle,
-                        creator = creator,
-                        trackCount = count,
-                        coverUrl = cover,
-                        source = CatalogPlaylist.SOURCE_DEEZER,
-                    )
-                }
+                val playlists = data.mapNotNull { parseDeezerCatalogPlaylist(it) }
                 if (playlists.isNotEmpty()) {
                     DeezerHomeSection(id = spec.id, title = spec.title, subtitle = spec.subtitle, playlists = playlists)
                 } else null
             }
 
-            // 5. Fetch mood section via curated playlist search
+            // 6. Fetch mood section via curated playlist search
             val moodPlaylists = runCatching { searchPlaylists(moodSpec.query, limit = 30) }.getOrDefault(emptyList())
             val moodSection = if (moodPlaylists.isNotEmpty()) {
                 DeezerHomeSection(
@@ -512,13 +555,14 @@ class CatalogClient(
                 )
             } else null
 
-            // Order: Trending (0), Library Genre 1 (1), Library Genre 2 (2), Mood (3), Discovery Genre (4)
+            // Order: Trending, Top Charts, Library Genre 1, Library Genre 2, Mood, Discovery Genre
             val rawSections = buildList {
+                trendingSection?.let { add(it) }
+                topChartsSection?.let { add(it) }
                 genreSections.getOrNull(0)?.let { add(it) }
                 genreSections.getOrNull(1)?.let { add(it) }
-                genreSections.getOrNull(2)?.let { add(it) }
                 moodSection?.let { add(it) }
-                genreSections.getOrNull(3)?.let { add(it) }
+                genreSections.getOrNull(2)?.let { add(it) }
             }
 
             // Deduplicate playlists across sections so no playlist is repeated on Home
@@ -1219,6 +1263,10 @@ class CatalogClient(
         /** Apple public iTunes search allows ~20–30 requests / min; 1.2 s spaces sequential calls safely. */
         private const val APPLE_INTERVAL_MS = 1_200L
         private const val HOME_CACHE_TTL_MS = 24 * 60 * 60 * 1000L
+        private const val DEEZER_CHARTS_USER_ID = 637006841L
+        private val PRIORITY_CHART_COUNTRIES = listOf("worldwide", "usa", "uk", "belgium", "spain", "france", "germany")
+        private val EXCLUDED_CHART_KEYWORDS = listOf("songcatcher", "women", "femmes", "mujeres", "mulheres", "favourite")
+        private val YEAR_REGEX = Regex("""\b20\d\d\b""")
 
         val DEEZER_CURATED_GENRES = listOf(
             DeezerGenreSpec("rock", 152, "Rock & Alternative", "Guitar anthems, essentials & classic hits", listOf("rock", "classic rock", "hard rock", "punk", "grunge")),

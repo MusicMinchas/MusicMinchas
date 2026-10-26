@@ -44,6 +44,7 @@ class DeezerHomeEnrichmentTest {
 
     private fun sampleResponseFor(req: okhttp3.Request): String {
         val url = req.url.toString()
+        if (url.contains("user/637006841")) return sampleChartsUserResponse
         if (url.contains("chart/0/playlists")) return sampleChartResponse
         val h = Math.abs(url.hashCode())
         return """
@@ -68,6 +69,23 @@ class DeezerHomeEnrichmentTest {
         """.trimIndent()
     }
 
+    private val sampleChartsUserResponse = """
+        {
+          "data": [
+            {"id": 3155776842, "title": "Top Worldwide", "nb_tracks": 100, "fans": 878523, "picture_xl": "https://img/ww.jpg", "user": {"name": "Deezer Charts"}},
+            {"id": 1313621735, "title": "Top USA", "nb_tracks": 100, "fans": 608473, "picture_xl": "https://img/us.jpg", "user": {"name": "Deezer Charts"}},
+            {"id": 1111142221, "title": "Top UK", "nb_tracks": 100, "fans": 1962902, "picture_xl": "https://img/uk.jpg", "user": {"name": "Deezer Charts"}},
+            {"id": 1266968331, "title": "Top Belgium", "nb_tracks": 100, "fans": 152092, "picture_xl": "https://img/be.jpg", "user": {"name": "Deezer Charts"}},
+            {"id": 1116190041, "title": "Top Spain", "nb_tracks": 100, "fans": 478606, "picture_xl": "https://img/es.jpg", "user": {"name": "Deezer Charts"}},
+            {"id": 1109890291, "title": "Top France", "nb_tracks": 100, "fans": 4401694, "picture_xl": "https://img/fr.jpg", "user": {"name": "Deezer Charts"}},
+            {"id": 1111143121, "title": "Top Germany", "nb_tracks": 100, "fans": 2727710, "picture_xl": "https://img/de.jpg", "user": {"name": "Deezer Charts"}},
+            {"id": 1111141961, "title": "Top Brazil", "nb_tracks": 100, "fans": 5787408, "picture_xl": "https://img/br.jpg", "user": {"name": "Deezer Charts"}},
+            {"id": 1116187241, "title": "Top Italy", "nb_tracks": 100, "fans": 678621, "picture_xl": "https://img/it.jpg", "user": {"name": "Deezer Charts"}},
+            {"id": 9999999999, "title": "Top France 2023", "nb_tracks": 100, "fans": 5000000, "picture_xl": "https://img/old.jpg", "user": {"name": "Deezer Charts"}}
+          ]
+        }
+    """.trimIndent()
+
     private val sampleChartResponse = """
         {
           "data": [
@@ -79,6 +97,16 @@ class DeezerHomeEnrichmentTest {
               "user": {
                 "id": 1,
                 "name": "Deezer Hits Editor"
+              }
+            },
+            {
+              "id": 1266968331,
+              "title": "Top Belgium",
+              "nb_tracks": 100,
+              "picture_xl": "https://e-cdns-images.dzcdn.net/images/playlist/1266968331/1000x1000.jpg",
+              "user": {
+                "id": 637006841,
+                "name": "Deezer Charts"
               }
             },
             {
@@ -108,13 +136,15 @@ class DeezerHomeEnrichmentTest {
         // 1. Initial fetch from network
         val content = client.fetchDeezerHomeContent(forceRefresh = false)
         assertNotNull(content)
-        assertEquals(5, content!!.sections.size)
-        assertEquals(5, networkCalls) // 4 chart endpoints + 1 mood search endpoint
+        assertEquals(6, content!!.sections.size)
+        assertEquals(6, networkCalls) // top_charts + trending + 2 genre charts + 1 discovery chart + 1 mood search
 
         val trending = content.sections.first { it.id == "trending" }
         assertEquals("Trending on Deezer", trending.title)
         assertEquals("Most popular playlists worldwide", trending.subtitle)
+        // Top Belgium was in sampleChartResponse, but should be filtered out of trending!
         assertEquals(2, trending.playlists.size)
+        assertFalse(trending.playlists.any { it.title.contains("Belgium", ignoreCase = true) })
 
         val firstPlaylist = trending.playlists[0]
         assertEquals("dz:1479458365", firstPlaylist.id)
@@ -124,27 +154,42 @@ class DeezerHomeEnrichmentTest {
         assertEquals("https://e-cdns-images.dzcdn.net/images/playlist/1479458365/1000x1000.jpg", firstPlaylist.coverUrl)
         assertEquals(CatalogPlaylist.SOURCE_DEEZER, firstPlaylist.source)
 
+        // Verify top_charts section is present
+        val chartsSection = content.sections.first { it.id == "top_charts" }
+        assertEquals("Top Charts", chartsSection.title)
+        assertEquals("Top 100 by country & worldwide", chartsSection.subtitle)
+        assertEquals("Top Worldwide", chartsSection.playlists[0].title)
+        assertEquals("Top USA", chartsSection.playlists[1].title)
+        assertEquals("Top UK", chartsSection.playlists[2].title)
+        assertEquals("Top Belgium", chartsSection.playlists[3].title)
+        assertEquals("Top Spain", chartsSection.playlists[4].title)
+        assertEquals("Top France", chartsSection.playlists[5].title)
+        assertEquals("Top Germany", chartsSection.playlists[6].title)
+        // Followed by Top Brazil (5.7M fans)
+        assertEquals("Top Brazil", chartsSection.playlists[7].title)
+        // And year-end chart (Top France 2023) was filtered out
+        assertFalse(chartsSection.playlists.any { it.title.contains("2023") })
+
         // Verify mood section is present
-        val moodSection = content.sections[3]
-        assertTrue(moodSection.id.startsWith("mood_"))
+        val moodSection = content.sections.first { it.id.startsWith("mood_") }
         assertEquals(2, moodSection.playlists.size)
 
         // Verify cache file was written
-        val cacheFile = cacheDir.resolve("deezer_home_content.json")
+        val cacheFile = cacheDir.resolve("deezer_home_v3.json")
         assertTrue(cacheFile.exists())
         assertTrue(cacheFile.length() > 0)
 
         // 2. Second fetch within 24h should read from cache without network calls
         val cachedContent = client.fetchDeezerHomeContent(forceRefresh = false)
         assertNotNull(cachedContent)
-        assertEquals(5, networkCalls) // Still 5! No new network calls made
+        assertEquals(6, networkCalls) // Still 6! No new network calls made
         assertEquals(content.sections.size, cachedContent!!.sections.size)
         assertEquals("Happy Hits", cachedContent.sections[0].playlists[0].title)
 
         // 3. Force refresh should bypass cache and re-fetch from network
         val refreshedContent = client.fetchDeezerHomeContent(forceRefresh = true)
         assertNotNull(refreshedContent)
-        assertEquals(10, networkCalls) // 5 more calls made
+        assertEquals(12, networkCalls) // 6 more calls made
     }
 
     @Test
@@ -164,18 +209,19 @@ class DeezerHomeEnrichmentTest {
         )
 
         assertNotNull(content)
-        assertEquals(5, content!!.sections.size)
+        assertEquals(6, content!!.sections.size)
 
-        // Section 0 is always trending
+        // Section 0 is trending, section 1 is top_charts
         assertEquals("trending", content.sections[0].id)
-        // Section 1 and 2 should match "metal" (genreId 464) and "electronic" (genreId 113)
-        assertEquals("metal", content.sections[1].id)
-        assertEquals("electronic", content.sections[2].id)
-        // Section 3 is mood of the day
-        assertTrue(content.sections[3].id.startsWith("mood_"))
+        assertEquals("top_charts", content.sections[1].id)
+        // Section 2 and 3 should match "metal" (genreId 464) and "electronic" (genreId 113)
+        assertEquals("metal", content.sections[2].id)
+        assertEquals("electronic", content.sections[3].id)
+        // Section 4 is mood of the day
+        assertTrue(content.sections[4].id.startsWith("mood_"))
 
-        // All requests must request limit=30
-        assertTrue(requestedUrls.all { it.contains("limit=30") })
+        // All requests must request limit=30 (or limit=120 for charts user)
+        assertTrue(requestedUrls.any { it.contains("user/637006841/playlists") })
         assertTrue(requestedUrls.any { it.contains("chart/0/playlists") })
         assertTrue(requestedUrls.any { it.contains("chart/464/playlists") })
         assertTrue(requestedUrls.any { it.contains("chart/113/playlists") })
@@ -206,10 +252,11 @@ class DeezerHomeEnrichmentTest {
         )
 
         assertNotNull(content)
-        // Top 1 must be metal (score 900), Top 2 must be rock (score 300)
         assertEquals("trending", content!!.sections[0].id)
-        assertEquals("metal", content.sections[1].id)
-        assertEquals("rock", content.sections[2].id)
+        assertEquals("top_charts", content.sections[1].id)
+        // Top 1 must be metal (score 900), Top 2 must be rock (score 300)
+        assertEquals("metal", content.sections[2].id)
+        assertEquals("rock", content.sections[3].id)
     }
 
     @Test
@@ -237,8 +284,9 @@ class DeezerHomeEnrichmentTest {
 
         assertNotNull(content)
         assertEquals("trending", content!!.sections[0].id)
-        assertEquals("metal", content.sections[1].id)
-        assertEquals("rock", content.sections[2].id)
+        assertEquals("top_charts", content.sections[1].id)
+        assertEquals("metal", content.sections[2].id)
+        assertEquals("rock", content.sections[3].id)
     }
 
     @Test
@@ -280,13 +328,13 @@ class DeezerHomeEnrichmentTest {
 
         assertNotNull(content)
         val s0 = content!!.sections[0] // Trending
-        val s1 = content.sections[1]   // Metal
+        val sMetal = content.sections.first { it.id == "metal" }
 
         // Trending has Happy Hits (id dz:101)
         assertTrue(s0.playlists.any { it.id == "dz:101" })
         // Metal section must have dropped the duplicate Happy Hits and kept only Heavy Metal Hits
-        assertFalse(s1.playlists.any { it.id == "dz:101" })
-        assertTrue(s1.playlists.any { it.id == "dz:103" })
+        assertFalse(sMetal.playlists.any { it.id == "dz:101" })
+        assertTrue(sMetal.playlists.any { it.id == "dz:103" })
     }
 
     @Test

@@ -166,10 +166,15 @@ fun HomeTab(
                 }
             }
             if (deezerEnrichment && deezerContent != null) {
-                val s0 = deezerContent?.sections?.getOrNull(0)
-                if (s0 != null && s0.playlists.isNotEmpty()) {
-                    item { SectionTitle(s0.title, s0.subtitle, onClick = { onOpenCatalogSection(s0) }) }
-                    item { DeezerPlaylistRow(s0.playlists.take(10), onOpenCatalogPlaylist) }
+                val sTrending = deezerContent?.sections?.find { it.id == "trending" }
+                if (sTrending != null && sTrending.playlists.isNotEmpty()) {
+                    item { SectionTitle(sTrending.title, sTrending.subtitle, onClick = { onOpenCatalogSection(sTrending) }) }
+                    item { DeezerPlaylistRow(sTrending.playlists.take(10), onOpenCatalogPlaylist) }
+                }
+                val sCharts = deezerContent?.sections?.find { it.id == "top_charts" }
+                if (sCharts != null && sCharts.playlists.isNotEmpty()) {
+                    item { SectionTitle(sCharts.title, sCharts.subtitle, onClick = { onOpenCatalogSection(sCharts) }) }
+                    item { DeezerPlaylistRow(sCharts.playlists.take(10), onOpenCatalogPlaylist) }
                 }
             }
             if (playlists.recentAlbums.isNotEmpty()) {
@@ -177,7 +182,9 @@ fun HomeTab(
                 item { AlbumRow(playlists.recentAlbums.take(HOME_ALBUMS), onOpenAlbum) }
             }
             if (deezerEnrichment && deezerContent != null) {
-                val s1 = deezerContent?.sections?.getOrNull(1)
+                val otherSections = deezerContent?.sections.orEmpty()
+                    .filter { it.id != "trending" && it.id != "top_charts" }
+                val s1 = otherSections.getOrNull(0)
                 if (s1 != null && s1.playlists.isNotEmpty()) {
                     item { SectionTitle(s1.title, s1.subtitle, onClick = { onOpenCatalogSection(s1) }) }
                     item { DeezerPlaylistRow(s1.playlists.take(10), onOpenCatalogPlaylist) }
@@ -188,7 +195,9 @@ fun HomeTab(
                 item { AlbumRow(playlists.addedAlbums.take(HOME_ALBUMS), onOpenAlbum) }
             }
             if (deezerEnrichment && deezerContent != null) {
-                val remaining = deezerContent?.sections.orEmpty().drop(2)
+                val remaining = deezerContent?.sections.orEmpty()
+                    .filter { it.id != "trending" && it.id != "top_charts" }
+                    .drop(1)
                 for (section in remaining) {
                     if (section.playlists.isNotEmpty()) {
                         item { SectionTitle(section.title, section.subtitle, onClick = { onOpenCatalogSection(section) }) }

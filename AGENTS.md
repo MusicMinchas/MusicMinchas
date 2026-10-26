@@ -235,3 +235,10 @@ Started 2026-10-08 from user-pasted spec. NEW app, explicitly independent of Son
   - Added `BrowseDao.topGenresByPlayHistory()` returning `List<NameCount>` grouped by `COALESCE(NULLIF(tracks.genre, ''), tracks.indexGenre)`.
   - Added graceful fallback to owned library track counts only when play history is empty (e.g. brand-new install with zero plays).
   - Verified on device: Section 1 correctly resolves to `Metal & Heavy Rock` (>12.5k counted plays) and Section 2 to `Rock & Alternative` (>5.5k counted plays). Zero playlist overlap across any sections.
+- 2026-10-26 Official Deezer Top Charts Row (`feat/deezer-home-enrichment`):
+  - Extracted official Top 100 country charts into a dedicated "Top Charts" section (`id = "top_charts"`, title `"Top Charts"`, subtitle `"Top 100 by country & worldwide"`), fetched from Deezer Charts account (`user/637006841`).
+  - Prioritized user's requested countries in exact order: Top Worldwide, Top USA, Top UK, Top Belgium, Top Spain, Top France, Top Germany.
+  - Filled remaining slots up to 30 with highest-fan country top charts (Top Brazil 5.7M, Top Turkey 1.5M, Top Colombia 1.5M, Top Mexico 1.0M, Top Italy 678k, etc.), filtering out sub-charts, gender charts, and past-year retrospectives.
+  - Excluded country top charts (including `Top Belgium`) from `Trending on Deezer`, keeping Trending pure for viral thematic playlists.
+  - Home feed layout ordered: `Trending on Deezer`, `Top Charts`, `Recently played albums`, `Top Genre #1`, `Recently added albums`, `Top Genre #2`, `Curated Mood`, `Discovery Genre`.
+  - Bumped cache file to `deezer_home_v3.json` for immediate clean pickup. All 115 unit tests pass and verified on OnePlus 12.
