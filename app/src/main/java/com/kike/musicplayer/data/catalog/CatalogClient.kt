@@ -393,6 +393,7 @@ class CatalogClient(
     suspend fun fetchDeezerHomeContent(
         forceRefresh: Boolean = false,
         libraryGenres: List<String> = emptyList(),
+        genreCounts: Map<String, Int> = emptyMap(),
     ): DeezerHomeContent? = withContext(Dispatchers.IO) {
         val cacheFile = cacheDir?.resolve("deezer_home_content.json")
         val now = System.currentTimeMillis()
@@ -418,22 +419,41 @@ class CatalogClient(
             )
 
             // 2. Match library genres to Deezer curated genres
-            val normalizedLibrary = libraryGenres.map { it.lowercase().trim() }
-            val matched = mutableListOf<DeezerGenreSpec>()
-            for (genreName in normalizedLibrary) {
-                val found = DEEZER_CURATED_GENRES.firstOrNull { spec ->
-                    spec !in matched && spec.keywords.any { kw -> genreName.contains(kw) || kw.contains(genreName) }
+            val matched = if (genreCounts.isNotEmpty()) {
+                DEEZER_CURATED_GENRES
+                    .map { spec ->
+                        val score = genreCounts.entries
+                            .filter { (genreName, _) ->
+                                val g = genreName.lowercase().trim()
+                                spec.keywords.any { kw -> kw == g || (kw.length >= 3 && g.contains(kw)) }
+                            }
+                            .sumOf { it.value }
+                        spec to score
+                    }
+                    .filter { it.second > 0 }
+                    .sortedByDescending { it.second }
+                    .map { it.first }
+                    .take(2)
+                    .toMutableList()
+            } else {
+                val normalizedLibrary = libraryGenres.map { it.lowercase().trim() }
+                val m = mutableListOf<DeezerGenreSpec>()
+                for (genreName in normalizedLibrary) {
+                    val found = DEEZER_CURATED_GENRES.firstOrNull { spec ->
+                        spec !in m && spec.keywords.any { kw -> genreName.contains(kw) || kw.contains(genreName) }
+                    }
+                    if (found != null) {
+                        m.add(found)
+                        if (m.size >= 2) break
+                    }
                 }
-                if (found != null) {
-                    matched.add(found)
-                    if (matched.size >= 2) break
-                }
+                m
             }
 
             // Defaults if library has fewer than 2 matched genres
             val defaultSpecs = listOf(
+                DEEZER_CURATED_GENRES.first { it.id == "metal" },
                 DEEZER_CURATED_GENRES.first { it.id == "rock" },
-                DEEZER_CURATED_GENRES.first { it.id == "pop" },
             )
             for (def in defaultSpecs) {
                 if (def !in matched && matched.size < 2) {
@@ -493,12 +513,27 @@ class CatalogClient(
             } else null
 
             // Order: Trending (0), Library Genre 1 (1), Library Genre 2 (2), Mood (3), Discovery Genre (4)
-            val sections = buildList {
+            val rawSections = buildList {
                 genreSections.getOrNull(0)?.let { add(it) }
                 genreSections.getOrNull(1)?.let { add(it) }
                 genreSections.getOrNull(2)?.let { add(it) }
                 moodSection?.let { add(it) }
                 genreSections.getOrNull(3)?.let { add(it) }
+            }
+
+            // Deduplicate playlists across sections so no playlist is repeated on Home
+            val seenPlaylistIds = mutableSetOf<String>()
+            val seenTitles = mutableSetOf<String>()
+            val sections = rawSections.mapNotNull { sec ->
+                val uniquePlaylists = sec.playlists.filter { pl ->
+                    val normTitle = pl.title.lowercase().trim()
+                    val idOk = seenPlaylistIds.add(pl.id)
+                    val titleOk = seenTitles.add(normTitle)
+                    idOk && titleOk
+                }
+                if (uniquePlaylists.isNotEmpty()) {
+                    sec.copy(playlists = uniquePlaylists)
+                } else null
             }
 
             if (sections.isNotEmpty()) {
@@ -1187,9 +1222,9 @@ class CatalogClient(
 
         val DEEZER_CURATED_GENRES = listOf(
             DeezerGenreSpec("rock", 152, "Rock & Alternative", "Guitar anthems, essentials & classic hits", listOf("rock", "classic rock", "hard rock", "punk", "grunge")),
-            DeezerGenreSpec("metal", 464, "Metal & Heavy Rock", "Heavy riffs, headbangers & dark anthems", listOf("metal", "heavy metal", "power metal", "symphonic metal", "death metal", "thrash", "nu metal")),
+            DeezerGenreSpec("metal", 464, "Metal & Heavy Rock", "Heavy riffs, headbangers & dark anthems", listOf("metal", "heavy metal", "power metal", "symphonic metal", "death metal", "thrash", "nu metal", "nu-metal", "gothic metal")),
             DeezerGenreSpec("alternative", 85, "Alternative & Indie", "Indie rock, post-punk & modern alternative", listOf("alternative", "indie", "post-punk", "shoegaze")),
-            DeezerGenreSpec("classical", 98, "Classical & Piano", "Peaceful piano, orchestral & classical", listOf("classical", "piano", "instrumental", "symphonic")),
+            DeezerGenreSpec("classical", 98, "Classical & Piano", "Peaceful piano, orchestral & classical", listOf("classical", "piano", "instrumental", "orchestral", "symphony")),
             DeezerGenreSpec("acoustic", 466, "Folk & Acoustic", "Cozy acoustic, coffeehouse & folk", listOf("folk", "acoustic", "singer-songwriter", "americana")),
             DeezerGenreSpec("pop", 132, "Pop Hits & Anthems", "Catchy melodies & modern favorites", listOf("pop", "synthpop")),
             DeezerGenreSpec("electronic", 113, "Electronic & Dance", "Beats, synth, techno & club favorites", listOf("electronic", "electro", "dance", "techno", "house", "edm")),
