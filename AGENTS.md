@@ -224,3 +224,9 @@ Started 2026-10-08 from user-pasted spec. NEW app, explicitly independent of Son
     - Fixed race condition in `LibraryViewModel.loadDeezerHome` where `genreList.value` was initially empty during cold start by awaiting the first Room emission (`withTimeoutOrNull(2000L)`) and filtering out `"unknown"` tags.
     - Corrected Deezer genre IDs in `CatalogClient`: 98 -> Classical & Piano, 153 -> Blues, 173 -> Soundtracks.
   - Pending / Next session: User noted some remaining inconsistencies to review and refine before merging to master.
+- 2026-10-26 Deezer Home Enrichment Refinements (`feat/deezer-home-enrichment`, commit `0a31f12`):
+  - Fixed Top Library Genre resolution: Enforced "Own Copy Wins" (Scope 2 Drive and Scope 0 Local) over remote Navidrome server (Scope 1). Navidrome previously dominated with 7,083 generic Pop tracks. In the user's own library, Metal (2,724 tracks across Symphonic, Heavy, Gothic, Thrash, Nu-Metal) and Rock (1,374 tracks) dominate (~83% of owned music), perfectly aligning with play history (>20k metal plays) and top artists (Within Temptation, In Flames, Evanescence, Paradise Lost, Nightwish).
+  - Cumulative Genre Family Scoring: Instead of sorting individual raw genre strings, `CatalogClient` now scores curated Deezer genre specs by accumulating song counts across all matching subgenres.
+  - Refined Classical keywords (`classical`, `piano`, `instrumental`, `orchestral`, `symphony`), preventing Symphonic Metal from falsely matching Classical.
+  - Cross-section playlist deduplication: Added cross-section deduplication pipeline tracking seen playlist IDs and normalized titles. Completely eliminates duplicate playlists between `Trending on Deezer`, Top Genre #1 (`Metal & Heavy Rock`), Top Genre #2 (`Rock & Alternative`), Curated Mood, and Discovery Genre.
+  - Verified on OnePlus 12: Section 1 rendered as `Metal & Heavy Rock`, Section 2 as `Rock & Alternative`, with 100% unique playlists across all rows and grids.
