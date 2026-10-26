@@ -242,3 +242,4 @@ Started 2026-10-08 from user-pasted spec. NEW app, explicitly independent of Son
   - Excluded country top charts (including `Top Belgium`) from `Trending on Deezer`, keeping Trending pure for viral thematic playlists.
   - Home feed layout ordered: `Trending on Deezer`, `Top Charts`, `Recently played albums`, `Top Genre #1`, `Recently added albums`, `Top Genre #2`, `Curated Mood`, `Discovery Genre`.
   - Bumped cache file to `deezer_home_v3.json` for immediate clean pickup. All 115 unit tests pass and verified on OnePlus 12.
+  - Unified Home playlist card sizes: reduced `MIX_CARD_WIDTH` from 160dp to 130dp in `HomeScreens.kt`, harmonizing personal cards (Replay, Heavy Rotation, Favourite Songs, Most Played) and Made for You mixes with Deezer cards (`DEEZER_CARD_WIDTH = 130.dp`). Verified on device.

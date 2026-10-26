@@ -300,6 +300,7 @@ internal fun CatalogPlaylistCard(
 }
 
 private val DEEZER_CARD_WIDTH = 130.dp
+private val MIX_CARD_WIDTH = 130.dp
 
 /** Made for you: every mix as a card, in a grid. */
 @OptIn(ExperimentalMaterial3Api::class)
@@ -407,6 +408,5 @@ internal fun CoverMosaic(tracks: List<Track>, modifier: Modifier = Modifier) {
     }
 }
 
-private val MIX_CARD_WIDTH = 160.dp
 
 private fun count(n: Int, noun: String) = if (n == 1) "1 $noun" else "$n ${noun}s"
