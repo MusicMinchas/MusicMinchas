@@ -785,6 +785,17 @@ interface BrowseDao {
     )
     fun observeArtistPlayCounts(limit: Int): Flow<List<NameCount>>
 
+    /** Counted plays per genre across listening history, most played first. */
+    @Query(
+        "SELECT COALESCE(NULLIF(tracks.genre, ''), tracks.indexGenre) AS name, COUNT(*) AS count " +
+            "FROM play_history JOIN tracks ON tracks.id = play_history.trackId " +
+            "WHERE play_history.counted = 1 " +
+            "AND COALESCE(NULLIF(tracks.genre, ''), tracks.indexGenre) <> '' " +
+            "AND COALESCE(NULLIF(tracks.genre, ''), tracks.indexGenre) NOT LIKE '%unknown%' " +
+            "GROUP BY name ORDER BY count DESC"
+    )
+    suspend fun topGenresByPlayHistory(): List<NameCount>
+
     // Search box: [match] is a full-text query from SearchText.match.
     @Query(
         // The full-text match once, as a subquery: joined, SQLite may walk every song of one source in title order

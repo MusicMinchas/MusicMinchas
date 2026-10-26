@@ -230,3 +230,8 @@ Started 2026-10-08 from user-pasted spec. NEW app, explicitly independent of Son
   - Refined Classical keywords (`classical`, `piano`, `instrumental`, `orchestral`, `symphony`), preventing Symphonic Metal from falsely matching Classical.
   - Cross-section playlist deduplication: Added cross-section deduplication pipeline tracking seen playlist IDs and normalized titles. Completely eliminates duplicate playlists between `Trending on Deezer`, Top Genre #1 (`Metal & Heavy Rock`), Top Genre #2 (`Rock & Alternative`), Curated Mood, and Discovery Genre.
   - Verified on OnePlus 12: Section 1 rendered as `Metal & Heavy Rock`, Section 2 as `Rock & Alternative`, with 100% unique playlists across all rows and grids.
+- 2026-10-26 Play-History-Driven Top Genres (`feat/deezer-home-enrichment`):
+  - Replaced track-count-based genre calculation in `loadDeezerHome` with counted plays from `play_history` (`play_history.counted = 1`).
+  - Added `BrowseDao.topGenresByPlayHistory()` returning `List<NameCount>` grouped by `COALESCE(NULLIF(tracks.genre, ''), tracks.indexGenre)`.
+  - Added graceful fallback to owned library track counts only when play history is empty (e.g. brand-new install with zero plays).
+  - Verified on device: Section 1 correctly resolves to `Metal & Heavy Rock` (>12.5k counted plays) and Section 2 to `Rock & Alternative` (>5.5k counted plays). Zero playlist overlap across any sections.

@@ -669,24 +669,29 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
 
     fun loadDeezerHome(forceRefresh: Boolean = false) {
         viewModelScope.launch {
-            val allGenres = runCatching { database.libraryIndex().allGenres() }.getOrDefault(emptyList())
-            val effectiveGenres = if (allGenres.isNotEmpty()) {
-                val own = allGenres.filter { it.scope in listOf(Track.SCOPE_LOCAL, Track.SCOPE_DRIVE) && it.songCount > 0 }
-                if (own.isNotEmpty()) own else allGenres.filter { it.songCount > 0 }
+            val playCounts = runCatching { database.browse().topGenresByPlayHistory() }.getOrDefault(emptyList())
+            val genreCounts: Map<String, Int> = if (playCounts.isNotEmpty()) {
+                playCounts.associate { it.name to it.count }
             } else {
-                genreList.value.ifEmpty {
-                    runCatching {
-                        kotlinx.coroutines.withTimeoutOrNull(2000L) {
-                            genreList.filter { it.isNotEmpty() }.first()
-                        }
-                    }.getOrNull().orEmpty()
+                val allGenres = runCatching { database.libraryIndex().allGenres() }.getOrDefault(emptyList())
+                val effectiveGenres = if (allGenres.isNotEmpty()) {
+                    val own = allGenres.filter { it.scope in listOf(Track.SCOPE_LOCAL, Track.SCOPE_DRIVE) && it.songCount > 0 }
+                    if (own.isNotEmpty()) own else allGenres.filter { it.songCount > 0 }
+                } else {
+                    genreList.value.ifEmpty {
+                        runCatching {
+                            kotlinx.coroutines.withTimeoutOrNull(2000L) {
+                                genreList.filter { it.isNotEmpty() }.first()
+                            }
+                        }.getOrNull().orEmpty()
+                    }
                 }
-            }
 
-            val genreCounts = effectiveGenres
-                .filter { it.name.isNotBlank() && !it.name.contains("unknown", ignoreCase = true) }
-                .groupBy { it.name }
-                .mapValues { (_, list) -> list.sumOf { it.songCount } }
+                effectiveGenres
+                    .filter { it.name.isNotBlank() && !it.name.contains("unknown", ignoreCase = true) }
+                    .groupBy { it.name }
+                    .mapValues { (_, list) -> list.sumOf { it.songCount } }
+            }
 
             val content = container.catalog.fetchDeezerHomeContent(
                 forceRefresh = forceRefresh,

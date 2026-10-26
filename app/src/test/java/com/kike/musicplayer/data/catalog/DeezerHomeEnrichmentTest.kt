@@ -213,6 +213,35 @@ class DeezerHomeEnrichmentTest {
     }
 
     @Test
+    fun fetchDeezerHomeContentScoresCuratedGenresByPlayHistoryCounts() = runBlocking {
+        val cacheDir = tempFolder.newFolder("cache_play_history")
+        val client = mockCatalogClient(cacheDir) { req ->
+            jsonResponse(req, sampleResponseFor(req))
+        }
+
+        // Play history dominated by metal and rock plays
+        val playHistoryCounts = mapOf(
+            "Symphonic Metal" to 3309,
+            "Metal" to 3163,
+            "Rock" to 2133,
+            "Gothic Rock" to 2008,
+            "Pop" to 1507,
+            "Gothic Metal" to 1486,
+            "Nu-Metal" to 1140,
+        )
+
+        val content = client.fetchDeezerHomeContent(
+            forceRefresh = true,
+            genreCounts = playHistoryCounts,
+        )
+
+        assertNotNull(content)
+        assertEquals("trending", content!!.sections[0].id)
+        assertEquals("metal", content.sections[1].id)
+        assertEquals("rock", content.sections[2].id)
+    }
+
+    @Test
     fun fetchDeezerHomeContentDeduplicatesPlaylistsAcrossSections() = runBlocking {
         val cacheDir = tempFolder.newFolder("cache_dedupe")
 
