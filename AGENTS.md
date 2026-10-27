@@ -7,7 +7,7 @@ Parent workspace notes: @[Shared Android Dev Workspace](../AGENTS.md)
 
 - **Path:** `C:\Users\kike\dev\MusicPlayer` (local git repo, repo-local identity `kike` / `kikeprojo@gmail.com`, nothing pushed).
 - **Package:** `com.kike.musicplayer`
-- **Current Release:** `1.37.0` (`versionCode = 89`, Room DB `v27`, `minSdk = 30`, `targetSdk = 36`, `compileSdk = 37`). Merged to `master`, tag `v1.37.0`.
+- **Current Release:** `1.38.0` (`versionCode = 90`, Room DB `v27`, `minSdk = 30`, `targetSdk = 36`, `compileSdk = 37`). Merged to `master`, tag `v1.38.0`.
 - **Stack:** Kotlin 2.4.20, Jetpack Compose, Media3 1.11.1 `MediaLibraryService` (Android Auto browse tree), Room 2.8.5 via KSP 2.3.12 + Paging 3 (`paging-compose 3.3.6`, `room-paging`), Retrofit 3 + Moshi (reflection), Coil 3, `play-services-auth` 22 `AuthorizationClient` (`drive.readonly` + `email`), `reorderable` 3.1.0, AGP 9.4.1, Gradle 9.8.
 - **Shared Toolchain & Environment:**
   - `JAVA_HOME`: Android Studio's bundled `jbr`
@@ -243,3 +243,19 @@ Started 2026-10-08 from user-pasted spec. NEW app, explicitly independent of Son
   - Home feed layout ordered: `Trending on Deezer`, `Top Charts`, `Recently played albums`, `Top Genre #1`, `Recently added albums`, `Top Genre #2`, `Curated Mood`, `Discovery Genre`.
   - Bumped cache file to `deezer_home_v3.json` for immediate clean pickup. All 115 unit tests pass and verified on OnePlus 12.
   - Unified Home playlist card sizes: reduced `MIX_CARD_WIDTH` from 160dp to 130dp in `HomeScreens.kt`, harmonizing personal cards (Replay, Heavy Rotation, Favourite Songs, Most Played) and Made for You mixes with Deezer cards (`DEEZER_CARD_WIDTH = 130.dp`). Verified on device.
+- 2026-10-27 Release 1.38.0 (`versionCode = 90`, Room DB `v27`, GitHub issue #19):
+  - Full Spanish Localization (i18n):
+    - Extracted all UI strings and plural resources across the entire app into `values/strings.xml`, `values/plurals.xml`, `values-es/strings.xml`, and `values-es/plurals.xml` (345+ strings).
+    - In-app language picker in Settings (`Settings.kt`, `SourcesScreen.kt`): System Default, English, Spanish via `AppCompatDelegate.setApplicationLocales`.
+    - Android 13+ per-app language configuration via `locales_config.xml`.
+    - Localized dynamic and compound titles: "Para ti" mix playlists (*"Porque has escuchado a..."*), Home section headers, Replay stat labels (*"escuchadas"*, *"reproducciones"*, *"artistas"*), and time/count formatting.
+    - Added translation management tooling in `tools/i18n/` (`manage_translations.py`, `test_manage_translations.py`) for extraction, sync, review export/import, and coverage tracking.
+  - Header & Search UI Spacing Redesign (`LibraryScreens.kt`):
+    - Replaced 64dp `TopAppBar` with compact header row (`top = 2.dp, bottom = 0.dp`) for title and settings.
+    - Integrated Search icon and Sources filter (`Todas las Fuentes`) on the same secondary row.
+    - Used `CompositionLocalProvider(LocalMinimumInteractiveComponentSize provides Dp.Unspecified)` to strip invisible Material 3 padding while keeping touch targets accessible.
+    - Reduced scrollable tab navigation row height to 36dp with 2dp text vertical padding, recovering ~64dp vertical screen real estate.
+  - Replay Stat Cards Refinement (`ReplayScreen.kt`):
+    - Widened the 3 summary metric subcards (Plays, Hours, Artists).
+    - Set metric typography to `titleMedium` (16 sp bold) and labels to `labelSmall` with single-line ellipsis, ensuring numbers and labels (e.g. `"1.689 h"`, `"reproducciones"`, `"escuchadas"`) fit cleanly on 360dp width screens without line breaks or clipping.
+  - Verified on OnePlus 12, merged to `master`, tagged `v1.38.0`, release APK `MusicMinchas-1.38.0.apk` installed.
