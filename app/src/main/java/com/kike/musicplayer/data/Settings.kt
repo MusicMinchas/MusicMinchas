@@ -230,12 +230,22 @@ class Settings(private val context: Context, name: String = "settings") {
     }
 
     private val _darkMode = MutableStateFlow(prefs.getBoolean(KEY_DARK_MODE, false))
-    /** Appearance: the black and red theme instead of the light one. */
+    /** Appearance: the dark theme instead of the light one. */
     val darkMode: StateFlow<Boolean> = _darkMode.asStateFlow()
 
     fun setDarkMode(enabled: Boolean) {
         prefs.edit { putBoolean(KEY_DARK_MODE, enabled) }
         _darkMode.value = enabled
+    }
+
+    private val _accentColor = MutableStateFlow(prefs.getString(KEY_ACCENT_COLOR, "red") ?: "red")
+    /** Appearance: accent color ("red" or "blue"). */
+    val accentColor: StateFlow<String> = _accentColor.asStateFlow()
+
+    fun setAccentColor(color: String) {
+        val value = if (color.equals("blue", ignoreCase = true)) "blue" else "red"
+        prefs.edit { putString(KEY_ACCENT_COLOR, value) }
+        _accentColor.value = value
     }
 
     private val _fullScreenCover = MutableStateFlow(prefs.getBoolean(KEY_FULL_COVER, false))
@@ -324,6 +334,8 @@ class Settings(private val context: Context, name: String = "settings") {
         const val KEY_CATALOG_SHOWN = "catalog_shown"
         const val KEY_DEEZER_HOME_ENRICHMENT = "deezer_home_enrichment"
         const val KEY_DARK_MODE = "dark_mode"
+
+        const val KEY_ACCENT_COLOR = "accent_color"
         const val KEY_MB_TITLES_REREAD = "mb_titles_reread"
         const val KEY_FULL_COVER = "full_screen_cover"
         const val KEY_SONOS_DOWNSAMPLE = "sonos_downsample"

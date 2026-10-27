@@ -1,36 +1,39 @@
 package com.kike.musicplayer.ui
 
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.material3.LocalMinimumInteractiveComponentSize
+import androidx.compose.ui.draw.scale
+import androidx.compose.ui.unit.Dp
+
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.filled.VisibilityOff
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.selection.selectable
-import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.HorizontalDivider
-import androidx.compose.material3.LinearProgressIndicator
-import androidx.compose.material3.RadioButton
-import androidx.compose.material3.TextButton
-import com.kike.musicplayer.data.DriveSyncMode
-import com.kike.musicplayer.data.db.Track
 import androidx.compose.material.icons.outlined.Info
-import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.Column
-import androidx.compose.material3.Checkbox
-import androidx.compose.material3.Switch
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
+import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.RadioButton
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -42,13 +45,15 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.res.stringResource
 import com.kike.musicplayer.R
+import com.kike.musicplayer.data.DriveSyncMode
+import com.kike.musicplayer.data.db.Track
 import java.text.NumberFormat
 
 /** Signing in to a Navidrome (or other Subsonic) server. */
@@ -75,7 +80,7 @@ internal fun ServerCard(vm: LibraryViewModel) {
             Text(state.address!!, style = MaterialTheme.typography.bodyMedium)
             if (state.folders.isNotEmpty()) {
                 Text(
-                    "Libraries: " + state.folders.joinToString(", "),
+                    stringResource(R.string.server_libraries, state.folders.joinToString(", ")),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -91,8 +96,8 @@ internal fun ServerCard(vm: LibraryViewModel) {
             CollectionsSyncInfo(vm)
             PlayReports(vm)
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-                OutlinedButton(onClick = { vm.checkSubsonic() }, enabled = !state.busy) { Text("Check connection") }
-                OutlinedButton(onClick = { confirmDisconnect = true }, enabled = !state.busy) { Text("Disconnect") }
+                OutlinedButton(onClick = { vm.checkSubsonic() }, enabled = !state.busy) { Text(stringResource(R.string.server_check_connection)) }
+                OutlinedButton(onClick = { confirmDisconnect = true }, enabled = !state.busy) { Text(stringResource(R.string.sources_disconnect)) }
                 if (state.busy) CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp)
             }
         }
@@ -103,12 +108,11 @@ internal fun ServerCard(vm: LibraryViewModel) {
         var deleteDownloads by remember { mutableStateOf(false) }
         AlertDialog(
             onDismissRequest = { confirmDisconnect = false },
-            title = { Text("Disconnect Navidrome?") },
+            title = { Text(stringResource(R.string.server_disconnect_dialog_title)) },
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     Text(
-                        "The ${count(songs)} from Navidrome will be removed from the library. Plays, favourites and " +
-                            "playlists are kept and come back if you connect the same Navidrome server again."
+                        stringResource(R.string.server_disconnect_message_with_count, formatSongCount(songs))
                     )
                     if (downloaded > 0) {
                         Row(
@@ -117,7 +121,8 @@ internal fun ServerCard(vm: LibraryViewModel) {
                         ) {
                             Checkbox(checked = deleteDownloads, onCheckedChange = null)
                             Text(
-                                "Also delete the ${if (downloaded == 1) "downloaded song" else "$downloaded downloaded songs"} from the phone",
+                                if (downloaded == 1) stringResource(R.string.server_delete_downloads_checkbox_one)
+                                else stringResource(R.string.server_delete_downloads_checkbox_many, downloaded),
                                 Modifier.padding(start = 12.dp),
                             )
                         }
@@ -125,9 +130,9 @@ internal fun ServerCard(vm: LibraryViewModel) {
                 }
             },
             confirmButton = {
-                TextButton(onClick = { confirmDisconnect = false; vm.disconnectSubsonic(deleteDownloads && downloaded > 0) }) { Text("Disconnect") }
+                TextButton(onClick = { confirmDisconnect = false; vm.disconnectSubsonic(deleteDownloads && downloaded > 0) }) { Text(stringResource(R.string.sources_disconnect)) }
             },
-            dismissButton = { TextButton(onClick = { confirmDisconnect = false }) { Text("Cancel") } },
+            dismissButton = { TextButton(onClick = { confirmDisconnect = false }) { Text(stringResource(R.string.action_cancel)) } },
         )
     }
 }
@@ -142,11 +147,10 @@ private fun ServerSyncControls(vm: LibraryViewModel) {
     val number = NumberFormat.getIntegerInstance()
 
     HorizontalDivider(Modifier.padding(vertical = 4.dp))
-    Text("Library", style = MaterialTheme.typography.labelLarge)
+    Text(stringResource(R.string.server_section_library), style = MaterialTheme.typography.labelLarge)
     Text(
-        if (inLibrary == 0) "Sync to add Navidrome's songs to the library. They're listed apart from your own " +
-            "music; the switch above the library shows either or both."
-        else "${count(inLibrary)} in the library",
+        if (inLibrary == 0) stringResource(R.string.server_in_library_info)
+        else stringResource(R.string.server_library_count_in_library, formatSongCount(inLibrary)),
         style = MaterialTheme.typography.bodySmall,
         color = MaterialTheme.colorScheme.onSurfaceVariant,
     )
@@ -157,8 +161,9 @@ private fun ServerSyncControls(vm: LibraryViewModel) {
         } else {
             LinearProgressIndicator(Modifier.fillMaxWidth())
         }
+        val totalStr = total?.let { stringResource(R.string.server_sync_of_total, number.format(it)) } ?: ""
         Text(
-            "Listing songs: ${number.format(sync.listed)}" + (total?.let { " of ${number.format(it)}" } ?: ""),
+            stringResource(R.string.server_sync_listing, number.format(sync.listed), totalStr),
             style = MaterialTheme.typography.bodySmall,
         )
     } else {
@@ -169,67 +174,80 @@ private fun ServerSyncControls(vm: LibraryViewModel) {
             )
         }
     }
-    Button(onClick = vm::syncServer, enabled = !sync.running) { Text("Sync now") }
-    Text("Automatic sync", style = MaterialTheme.typography.labelLarge, modifier = Modifier.padding(top = 8.dp))
-    DriveSyncMode.entries.forEach { option ->
-        Row(
-            Modifier.fillMaxWidth().selectable(selected = mode == option, onClick = { vm.setServerSyncMode(option) }),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            RadioButton(selected = mode == option, onClick = null)
-            Text(option.label, Modifier.padding(start = 8.dp))
+    Button(onClick = vm::syncServer, enabled = !sync.running) { Text(stringResource(R.string.server_sync_now)) }
+    Text(
+        stringResource(R.string.server_automatic_sync),
+        style = MaterialTheme.typography.labelLarge,
+        modifier = Modifier.padding(top = 6.dp, bottom = 2.dp),
+    )
+    CompositionLocalProvider(LocalMinimumInteractiveComponentSize provides Dp.Unspecified) {
+        DriveSyncMode.entries.forEach { option ->
+            Row(
+                Modifier
+                    .fillMaxWidth()
+                    .selectable(selected = mode == option, onClick = { vm.setServerSyncMode(option) })
+                    .padding(vertical = 1.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                RadioButton(
+                    selected = mode == option,
+                    onClick = null,
+                    modifier = Modifier.scale(0.8f),
+                )
+                Text(
+                    stringResource(option.labelRes),
+                    style = MaterialTheme.typography.bodySmall,
+                    modifier = Modifier.padding(start = 2.dp),
+                )
+            }
         }
     }
+    val lastSyncText = if (lastSync == 0L) stringResource(R.string.sources_not_synced_yet) else stringResource(R.string.sources_last_synced, relativeTime(lastSync))
     Text(
-        (if (lastSync == 0L) "Not synced yet" else "Last synced ${relativeTime(lastSync)}") +
-            ". An automatic sync only lists the songs again if Navidrome has scanned its library since.",
+        lastSyncText + ". " + stringResource(R.string.server_auto_sync_desc),
         style = MaterialTheme.typography.bodySmall,
         color = MaterialTheme.colorScheme.onSurfaceVariant,
     )
     HorizontalDivider(Modifier.padding(vertical = 4.dp))
 }
 
-/** Favourites ↔ stars and playlists, synced both ways: how it last went. */
+/** Favourites <-> stars and playlists, synced both ways: how it last went. */
 @Composable
 private fun CollectionsSyncInfo(vm: LibraryViewModel) {
     val sync by vm.collectionsSync.collectAsState()
-    Text("Favourites & playlists", style = MaterialTheme.typography.labelLarge)
+    Text(stringResource(R.string.server_section_favourites_playlists), style = MaterialTheme.typography.labelLarge)
     Text(
-        "Favourites of Navidrome songs are its starred songs, and your playlists are its playlists: changes on " +
-            "either side go to the other. Songs from this device or Drive go into Navidrome playlists as its copy " +
-            "of the same song.",
+        stringResource(R.string.server_favourites_playlists_desc),
         style = MaterialTheme.typography.bodySmall,
         color = MaterialTheme.colorScheme.onSurfaceVariant,
     )
     sync.message?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error) }
     if (sync.at > 0) {
+        val lastChanges = sync.lastChanges?.let {
+            stringResource(R.string.server_collections_last_changes, relativeTime(sync.lastChangesAt), it)
+        } ?: stringResource(R.string.server_collections_no_changes)
         Text(
-            "Synced ${relativeTime(sync.at)}" +
-                (sync.lastChanges?.let { ". Last changes (${relativeTime(sync.lastChangesAt)}): $it" } ?: ". Nothing to change so far"),
+            stringResource(R.string.server_collections_synced, relativeTime(sync.at)) + lastChanges,
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.primary,
         )
     }
     InfoSwitch(
-        "Star favourites from other sources on Navidrome", vm.starOtherFavourites.collectAsState().value, vm::setStarOtherFavourites,
-        infoTitle = "Favourites from other sources",
-        info = "Favourites of songs on this device or Google Drive are also starred on Navidrome's copy of the same " +
-            "song, and removing them unstars it. Unstarring that copy on Navidrome removes the favourite here too.\n\n" +
-            "Navidrome's copy is found by artist and title, ignoring notes like \"(Remastered)\" but keeping live and " +
-            "demo versions apart (the same title and album first), so it can be imperfect: " +
-            "a song with several versions may be starred on a different version, and songs spelled differently " +
-            "aren't found. Switching this off later leaves the stars on Navidrome as they are.",
+        stringResource(R.string.server_star_other_favourites),
+        vm.starOtherFavourites.collectAsState().value,
+        vm::setStarOtherFavourites,
+        infoTitle = stringResource(R.string.server_star_other_favourites_dialog_title),
+        info = stringResource(R.string.server_star_other_favourites_dialog_desc),
     )
     InfoSwitch(
-        "Love Navidrome stars on Last.fm", vm.loveServerStars.collectAsState().value, vm::setLoveServerStars,
-        infoTitle = "Stars and Last.fm",
-        info = "Songs starred on Navidrome become favourites here; with this on they're also loved on Last.fm, and " +
-            "unstarring them unloves them. Favourites you change here are always loved or unloved on Last.fm " +
-            "(when it's connected), whatever this setting.\n\nIt applies to stars from now on: songs starred " +
-            "before aren't loved retroactively.",
+        stringResource(R.string.server_love_stars_lastfm),
+        vm.loveServerStars.collectAsState().value,
+        vm::setLoveServerStars,
+        infoTitle = stringResource(R.string.server_love_stars_lastfm_dialog_title),
+        info = stringResource(R.string.server_love_stars_lastfm_dialog_desc),
     )
     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        OutlinedButton(onClick = vm::syncCollections, enabled = !sync.running) { Text("Sync favourites & playlists") }
+        OutlinedButton(onClick = vm::syncCollections, enabled = !sync.running) { Text(stringResource(R.string.server_sync_collections)) }
         if (sync.running) CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp)
     }
     HorizontalDivider(Modifier.padding(vertical = 4.dp))
@@ -241,27 +259,24 @@ private fun PlayReports(vm: LibraryViewModel) {
     val server by vm.reportServerPlays.collectAsState()
     val other by vm.reportOtherPlays.collectAsState()
     val pending by vm.pendingServerPlays.collectAsState()
-    Text("Plays", style = MaterialTheme.typography.labelLarge)
+    Text(stringResource(R.string.server_section_plays), style = MaterialTheme.typography.labelLarge)
     InfoSwitch(
-        "Report Navidrome song plays", server, vm::setReportServerPlays,
-        infoTitle = "Navidrome song plays",
-        info = "When a Navidrome song has played halfway, the app tells Navidrome, so its play counts and " +
-            "\"recently played\" include what you play here. The app scrobbles to Last.fm itself (Last.fm card).\n\n" +
-            "Warning: if scrobbling to Last.fm is also switched on in Navidrome (Personal settings → " +
-            "Last.fm), Navidrome forwards these plays to Last.fm as well, and they would be scrobbled twice.",
+        stringResource(R.string.server_report_server_plays),
+        server,
+        vm::setReportServerPlays,
+        infoTitle = stringResource(R.string.server_report_server_plays_dialog_title),
+        info = stringResource(R.string.server_report_server_plays_dialog_desc),
     )
     InfoSwitch(
-        "Report plays from other sources to Navidrome", other, vm::setReportOtherPlays,
-        infoTitle = "Plays from other sources",
-        info = "Plays of songs on this device or Google Drive are also reported, to Navidrome's copy of the same " +
-            "song, so its play counts reflect all your listening.\n\nNavidrome's copy is found by artist and title, " +
-            "ignoring notes like \"(Remastered)\" but keeping live and demo versions apart (the same title and album " +
-            "first), so it can be imperfect: a song with several versions may be counted on " +
-            "a different version, and songs spelled differently aren't found. The same Last.fm warning applies.",
+        stringResource(R.string.server_report_other_plays),
+        other,
+        vm::setReportOtherPlays,
+        infoTitle = stringResource(R.string.server_report_other_plays_dialog_title),
+        info = stringResource(R.string.server_report_other_plays_dialog_desc),
     )
     if (pending > 0) {
         Text(
-            "${if (pending == 1) "1 play" else "$pending plays"} waiting to be sent to Navidrome",
+            if (pending == 1) stringResource(R.string.server_pending_plays_one) else stringResource(R.string.server_pending_plays_many, pending),
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
@@ -275,7 +290,7 @@ private fun InfoSwitch(label: String, checked: Boolean, onChange: (Boolean) -> U
     var showInfo by remember { mutableStateOf(false) }
     Row(verticalAlignment = Alignment.CenterVertically) {
         Text(label, Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium)
-        IconButton(onClick = { showInfo = true }) { Icon(Icons.Outlined.Info, "About this setting") }
+        IconButton(onClick = { showInfo = true }) { Icon(Icons.Outlined.Info, stringResource(R.string.server_about_setting_cd)) }
         Switch(checked = checked, onCheckedChange = onChange)
     }
     if (showInfo) {
@@ -283,12 +298,17 @@ private fun InfoSwitch(label: String, checked: Boolean, onChange: (Boolean) -> U
             onDismissRequest = { showInfo = false },
             title = { Text(infoTitle) },
             text = { Text(info) },
-            confirmButton = { TextButton(onClick = { showInfo = false }) { Text("OK") } },
+            confirmButton = { TextButton(onClick = { showInfo = false }) { Text(stringResource(R.string.action_ok)) } },
         )
     }
 }
 
-private fun count(songs: Int) = if (songs == 1) "1 song" else "${NumberFormat.getIntegerInstance().format(songs)} songs"
+@Composable
+private fun formatSongCount(songs: Int): String {
+    val formatted = NumberFormat.getIntegerInstance().format(songs)
+    return if (songs == 1) stringResource(R.string.server_song_count_one)
+    else stringResource(R.string.server_song_count_many, formatted)
+}
 
 @Composable
 private fun SignInFields(busy: Boolean, onConnect: (address: String, user: String, password: String) -> Unit) {
@@ -303,18 +323,18 @@ private fun SignInFields(busy: Boolean, onConnect: (address: String, user: Strin
 
     OutlinedTextField(
         value = address, onValueChange = { address = it },
-        label = { Text("Server address") }, placeholder = { Text("https://music.example.com") },
+        label = { Text(stringResource(R.string.server_address_label)) }, placeholder = { Text("https://music.example.com") },
         singleLine = true, enabled = !busy, modifier = Modifier.fillMaxWidth(),
         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri, imeAction = ImeAction.Next, autoCorrectEnabled = false),
     )
     OutlinedTextField(
         value = user, onValueChange = { user = it },
-        label = { Text("User name") }, singleLine = true, enabled = !busy, modifier = Modifier.fillMaxWidth(),
+        label = { Text(stringResource(R.string.server_username_label)) }, singleLine = true, enabled = !busy, modifier = Modifier.fillMaxWidth(),
         keyboardOptions = KeyboardOptions(imeAction = ImeAction.Next, autoCorrectEnabled = false),
     )
     OutlinedTextField(
         value = password, onValueChange = { password = it },
-        label = { Text("Password") }, singleLine = true, enabled = !busy, modifier = Modifier.fillMaxWidth(),
+        label = { Text(stringResource(R.string.server_password_label)) }, singleLine = true, enabled = !busy, modifier = Modifier.fillMaxWidth(),
         visualTransformation = if (showPassword) VisualTransformation.None else PasswordVisualTransformation(),
         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password, imeAction = ImeAction.Done),
         keyboardActions = KeyboardActions(onDone = { if (ready) submit() }),
@@ -322,18 +342,18 @@ private fun SignInFields(busy: Boolean, onConnect: (address: String, user: Strin
             IconButton(onClick = { showPassword = !showPassword }) {
                 Icon(
                     if (showPassword) Icons.Default.VisibilityOff else Icons.Default.Visibility,
-                    if (showPassword) "Hide password" else "Show password",
+                    if (showPassword) stringResource(R.string.server_hide_password_cd) else stringResource(R.string.server_show_password_cd),
                 )
             }
         },
     )
     Text(
-        "The password is stored encrypted on this phone and is never sent as is: each request is signed with it.",
+        stringResource(R.string.server_password_security_note),
         style = MaterialTheme.typography.bodySmall,
         color = MaterialTheme.colorScheme.onSurfaceVariant,
     )
     Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-        Button(onClick = submit, enabled = ready) { Text("Connect") }
+        Button(onClick = submit, enabled = ready) { Text(stringResource(R.string.server_connect_button)) }
         if (busy) CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp)
     }
 }

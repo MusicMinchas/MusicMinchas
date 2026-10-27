@@ -17,69 +17,21 @@
             <en>MusicMinchas</en>
             <es>MusicMinchas</es>
         </string>
-        <string name="relative_time_just_now">
-            <en>just now</en>
-            <es>hace un momento</es>
-        </string>
-        <string name="relative_time_minutes_ago">
-            <en>%d min ago</en>
-            <es>hace %d min</es>
-        </string>
-        <string name="relative_time_hours_ago">
-            <en>%d h ago</en>
-            <es>hace %d h</es>
-        </string>
-        <string name="relative_time_days_ago">
-            <en>%d days ago</en>
-            <es>hace %d días</es>
-        </string>
         <string name="cat_albums_count">
             <en>%d albums · Deezer</en>
             <es>%d álbumes · Deezer</es>
-        </string>
-        <string name="cat_songs_count">
-            <en>%1$d songs · %2$s</en>
-            <es>%1$d canciones · %2$s</es>
-        </string>
-        <string name="cat_playlist_sub">
-            <en>by %1$s · %2$d songs · Deezer</en>
-            <es>de %1$s · %2$d canciones · Deezer</es>
         </string>
         <string name="cat_in_library">
             <en>In library</en>
             <es>En la biblioteca</es>
         </string>
-        <string name="catalog_genre_rock">
-            <en>Rock &amp; Alternative</en>
-            <es>Rock y alternativo</es>
+        <string name="cat_playlist_sub">
+            <en>by %1$s · %2$d songs · Deezer</en>
+            <es>de %1$s · %2$d canciones · Deezer</es>
         </string>
-        <string name="catalog_genre_rock_sub">
-            <en>Guitar anthems, essentials &amp; classic hits</en>
-            <es>Himnos de guitarra, clásicos e imprescindibles</es>
-        </string>
-        <string name="catalog_genre_metal">
-            <en>Metal &amp; Heavy Rock</en>
-            <es>Metal y hard rock</es>
-        </string>
-        <string name="catalog_genre_metal_sub">
-            <en>Heavy riffs, headbangers &amp; dark anthems</en>
-            <es>Riffs potentes, caña e himnos oscuros</es>
-        </string>
-        <string name="catalog_genre_alternative">
-            <en>Alternative &amp; Indie</en>
-            <es>Alternativo e indie</es>
-        </string>
-        <string name="catalog_genre_alternative_sub">
-            <en>Indie rock, post-punk &amp; modern alternative</en>
-            <es>Indie rock, post-punk y alternativo moderno</es>
-        </string>
-        <string name="catalog_genre_classical">
-            <en>Classical &amp; Piano</en>
-            <es>Clásica y piano</es>
-        </string>
-        <string name="catalog_genre_classical_sub">
-            <en>Peaceful piano, orchestral &amp; classical</en>
-            <es>Piano relajante, orquestal y música clásica</es>
+        <string name="cat_songs_count">
+            <en>%1$d songs · %2$s</en>
+            <es>%1$d canciones · %2$s</es>
         </string>
         <string name="catalog_genre_acoustic">
             <en>Folk &amp; Acoustic</en>
@@ -89,13 +41,29 @@
             <en>Cozy acoustic, coffeehouse &amp; folk</en>
             <es>Acústico acogedor, cantautores y folk</es>
         </string>
-        <string name="catalog_genre_pop">
-            <en>Pop Hits &amp; Anthems</en>
-            <es>Éxitos de pop</es>
+        <string name="catalog_genre_alternative">
+            <en>Alternative &amp; Indie</en>
+            <es>Alternativo e indie</es>
         </string>
-        <string name="catalog_genre_pop_sub">
-            <en>Catchy melodies &amp; modern favorites</en>
-            <es>Melodías pegadizas y favoritos actuales</es>
+        <string name="catalog_genre_alternative_sub">
+            <en>Indie rock, post-punk &amp; modern alternative</en>
+            <es>Indie rock, post-punk y alternativo moderno</es>
+        </string>
+        <string name="catalog_genre_blues">
+            <en>Blues &amp; Roots</en>
+            <es>Blues y raíces</es>
+        </string>
+        <string name="catalog_genre_blues_sub">
+            <en>Soulful blues, slide guitar &amp; delta roots</en>
+            <es>Blues clásico, guitarra slide y raíces delta</es>
+        </string>
+        <string name="catalog_genre_classical">
+            <en>Classical &amp; Piano</en>
+            <es>Clásica y piano</es>
+        </string>
+        <string name="catalog_genre_classical_sub">
+            <en>Peaceful piano, orchestral &amp; classical</en>
+            <es>Piano relajante, orquestal y música clásica</es>
         </string>
         <string name="catalog_genre_electronic">
             <en>Electronic &amp; Dance</en>
@@ -113,21 +81,21 @@
             <en>Smooth jazz, swing &amp; modern brass</en>
             <es>Smooth jazz, swing e instrumentales</es>
         </string>
-        <string name="catalog_genre_blues">
-            <en>Blues &amp; Roots</en>
-            <es>Blues y raíces</es>
+        <string name="catalog_genre_metal">
+            <en>Metal &amp; Heavy Rock</en>
+            <es>Metal y hard rock</es>
         </string>
-        <string name="catalog_genre_blues_sub">
-            <en>Soulful blues, slide guitar &amp; delta roots</en>
-            <es>Blues clásico, guitarra slide y raíces delta</es>
+        <string name="catalog_genre_metal_sub">
+            <en>Heavy riffs, headbangers &amp; dark anthems</en>
+            <es>Riffs potentes, caña e himnos oscuros</es>
         </string>
-        <string name="catalog_genre_rnb">
-            <en>R&amp;B &amp; Soul</en>
-            <es>R&amp;B y soul</es>
+        <string name="catalog_genre_pop">
+            <en>Pop Hits &amp; Anthems</en>
+            <es>Éxitos de pop</es>
         </string>
-        <string name="catalog_genre_rnb_sub">
-            <en>Grooves, neo-soul &amp; timeless voices</en>
-            <es>Grooves, neo-soul y grandes voces</es>
+        <string name="catalog_genre_pop_sub">
+            <en>Catchy melodies &amp; modern favorites</en>
+            <es>Melodías pegadizas y favoritos actuales</es>
         </string>
         <string name="catalog_genre_rap">
             <en>Hip-Hop &amp; Urban</en>
@@ -137,6 +105,22 @@
             <en>Beats, bars &amp; street anthems</en>
             <es>Beats, rimas e himnos urbanos</es>
         </string>
+        <string name="catalog_genre_rnb">
+            <en>R&amp;B &amp; Soul</en>
+            <es>R&amp;B y soul</es>
+        </string>
+        <string name="catalog_genre_rnb_sub">
+            <en>Grooves, neo-soul &amp; timeless voices</en>
+            <es>Grooves, neo-soul y grandes voces</es>
+        </string>
+        <string name="catalog_genre_rock">
+            <en>Rock &amp; Alternative</en>
+            <es>Rock y alternativo</es>
+        </string>
+        <string name="catalog_genre_rock_sub">
+            <en>Guitar anthems, essentials &amp; classic hits</en>
+            <es>Himnos de guitarra, clásicos e imprescindibles</es>
+        </string>
         <string name="catalog_genre_soundtracks">
             <en>Soundtracks &amp; Scores</en>
             <es>Bandas sonoras</es>
@@ -144,6 +128,14 @@
         <string name="catalog_genre_soundtracks_sub">
             <en>Cinematic orchestral themes &amp; scores</en>
             <es>Temas orquestales y bandas sonoras de cine</es>
+        </string>
+        <string name="catalog_mood_chill">
+            <en>Chill &amp; Relax</en>
+            <es>Relax y tranquilidad</es>
+        </string>
+        <string name="catalog_mood_chill_sub">
+            <en>Cozy acoustic, downtempo &amp; evening chill</en>
+            <es>Acústico suave, downtempo y descanso</es>
         </string>
         <string name="catalog_mood_focus">
             <en>Focus &amp; Study</en>
@@ -153,21 +145,13 @@
             <en>Lofi, ambient &amp; music for concentration</en>
             <es>Lofi, ambiental y música para estudiar</es>
         </string>
-        <string name="catalog_mood_workout">
-            <en>Workout &amp; Gym</en>
-            <es>Entrenamiento y deporte</es>
+        <string name="catalog_mood_morning">
+            <en>Morning &amp; Energy</en>
+            <es>Despertar con energía</es>
         </string>
-        <string name="catalog_mood_workout_sub">
-            <en>Cardio, running &amp; high-energy beats</en>
-            <es>Cardio, running y ritmos con energía</es>
-        </string>
-        <string name="catalog_mood_chill">
-            <en>Chill &amp; Relax</en>
-            <es>Relax y tranquilidad</es>
-        </string>
-        <string name="catalog_mood_chill_sub">
-            <en>Cozy acoustic, downtempo &amp; evening chill</en>
-            <es>Acústico suave, downtempo y descanso</es>
+        <string name="catalog_mood_morning_sub">
+            <en>Sunny acoustic, coffeehouse &amp; morning boost</en>
+            <es>Acústico alegre, café y energía matutina</es>
         </string>
         <string name="catalog_mood_party">
             <en>Party &amp; Good Vibes</en>
@@ -185,29 +169,29 @@
             <en>Ambient soundscapes, gentle piano &amp; deep rest</en>
             <es>Paisajes sonoros, piano suave y descanso profundo</es>
         </string>
-        <string name="catalog_mood_morning">
-            <en>Morning &amp; Energy</en>
-            <es>Despertar con energía</es>
+        <string name="catalog_mood_workout">
+            <en>Workout &amp; Gym</en>
+            <es>Entrenamiento y deporte</es>
         </string>
-        <string name="catalog_mood_morning_sub">
-            <en>Sunny acoustic, coffeehouse &amp; morning boost</en>
-            <es>Acústico alegre, café y energía matutina</es>
-        </string>
-        <string name="nebula_card_title">
-            <en>Nebula add-on Manifest</en>
-            <es>Manifiesto del complemento Nebula</es>
+        <string name="catalog_mood_workout_sub">
+            <en>Cardio, running &amp; high-energy beats</en>
+            <es>Cardio, running y ritmos con energía</es>
         </string>
         <string name="nebula_card_subtitle_disconnected">
             <en>Stream lossless FLAC audio via Torbox cache for music not in your library using your Eclipse / Stremio add-on manifest URL</en>
             <es>Transmite audio FLAC sin pérdidas a través de la caché de Torbox para música no presente en tu biblioteca mediante tu URL de manifiesto de Eclipse o Stremio</es>
         </string>
-        <string name="nebula_card_subtitle_connected">
-            <en>%1$s · Connected · Lossless FLAC</en>
-            <es>%1$s · Conectado · FLAC sin pérdidas</es>
+        <string name="nebula_card_title">
+            <en>Nebula add-on Manifest</en>
+            <es>Manifiesto del complemento Nebula</es>
         </string>
-        <string name="nebula_quality_badge">
-            <en>Quality: Lossless FLAC (Torbox cache)</en>
-            <es>Calidad: FLAC sin pérdidas (caché Torbox)</es>
+        <string name="nebula_connect_button">
+            <en>Connect Add-on</en>
+            <es>Conectar complemento</es>
+        </string>
+        <string name="nebula_connecting">
+            <en>Connecting…</en>
+            <es>Conectando…</es>
         </string>
         <string name="nebula_disconnect_confirm">
             <en>Disconnect Nebula add-on?</en>
@@ -221,13 +205,25 @@
             <en>Add-on manifest URL</en>
             <es>URL del manifiesto del complemento</es>
         </string>
-        <string name="nebula_connect_button">
-            <en>Connect Add-on</en>
-            <es>Conectar complemento</es>
+        <string name="nebula_quality_badge">
+            <en>Quality: Lossless FLAC (Torbox cache)</en>
+            <es>Calidad: FLAC sin pérdidas (caché Torbox)</es>
         </string>
-        <string name="nebula_connecting">
-            <en>Connecting…</en>
-            <es>Conectando…</es>
+        <string name="relative_time_days_ago">
+            <en>%d days ago</en>
+            <es>hace %d días</es>
+        </string>
+        <string name="relative_time_hours_ago">
+            <en>%d h ago</en>
+            <es>hace %d h</es>
+        </string>
+        <string name="relative_time_just_now">
+            <en>just now</en>
+            <es>hace un momento</es>
+        </string>
+        <string name="relative_time_minutes_ago">
+            <en>%d min ago</en>
+            <es>hace %d min</es>
         </string>
     </section>
     <section name="Navigation &amp; Tabs">
@@ -261,6 +257,26 @@
         </string>
     </section>
     <section name="Search &amp; Filters">
+        <string name="search_by_creator">
+            <en>by %s</en>
+            <es>de %s</es>
+        </string>
+        <string name="search_cat_albums">
+            <en>Albums on Deezer &amp; Apple Music</en>
+            <es>Álbumes en Deezer y Apple Music</es>
+        </string>
+        <string name="search_cat_artists">
+            <en>Artists on Deezer &amp; Apple Music</en>
+            <es>Artistas en Deezer y Apple Music</es>
+        </string>
+        <string name="search_cat_playlists">
+            <en>Playlists on Deezer</en>
+            <es>Listas de Deezer</es>
+        </string>
+        <string name="search_cat_songs">
+            <en>Songs on Deezer &amp; Apple Music</en>
+            <es>Canciones en Deezer y Apple Music</es>
+        </string>
         <string name="search_filter_albums">
             <en>Albums</en>
             <es>Álbumes</es>
@@ -285,28 +301,12 @@
             <en>No results found</en>
             <es>No se han encontrado resultados</es>
         </string>
-        <string name="search_cat_artists">
-            <en>Artists on Deezer &amp; Apple Music</en>
-            <es>Artistas en Deezer y Apple Music</es>
-        </string>
-        <string name="search_cat_albums">
-            <en>Albums on Deezer &amp; Apple Music</en>
-            <es>Álbumes en Deezer y Apple Music</es>
-        </string>
-        <string name="search_cat_songs">
-            <en>Songs on Deezer &amp; Apple Music</en>
-            <es>Canciones en Deezer y Apple Music</es>
-        </string>
-        <string name="search_cat_playlists">
-            <en>Playlists on Deezer</en>
-            <es>Listas de Deezer</es>
-        </string>
-        <string name="search_by_creator">
-            <en>by %s</en>
-            <es>de %s</es>
-        </string>
     </section>
     <section name="Home &amp; Recommendations">
+        <string name="home_empty_added_subtitle">
+            <en>Nothing added yet</en>
+            <es>Nada añadido aún</es>
+        </string>
         <string name="home_empty_favourites_subtitle">
             <en>Tap the heart on a song</en>
             <es>Toca el corazón en una canción</es>
@@ -318,6 +318,10 @@
         <string name="home_empty_recent_subtitle">
             <en>Nothing played yet</en>
             <es>Aún no se ha reproducido nada</es>
+        </string>
+        <string name="home_empty_replay_subtitle">
+            <en>Your most played</en>
+            <es>Lo que más has escuchado</es>
         </string>
         <string name="home_empty_rotation_subtitle">
             <en>Your current favorites</en>
@@ -347,6 +351,10 @@
             <en>Recently Added</en>
             <es>Añadidos recientemente</es>
         </string>
+        <string name="home_recently_added_albums">
+            <en>Recently added albums</en>
+            <es>Álbumes añadidos recientemente</es>
+        </string>
         <string name="home_recently_played">
             <en>Recently Played</en>
             <es>Escuchadas recientemente</es>
@@ -371,9 +379,21 @@
             <en>Top Charts</en>
             <es>Listas de éxitos</es>
         </string>
+        <string name="home_top_charts_deezer">
+            <en>Top Charts</en>
+            <es>Listas de éxitos</es>
+        </string>
+        <string name="home_top_charts_deezer_subtitle">
+            <en>Top 100 by country &amp; worldwide</en>
+            <es>Top 100 por país y mundial</es>
+        </string>
         <string name="home_trending_deezer">
             <en>Trending on Deezer</en>
             <es>Tendencias en Deezer</es>
+        </string>
+        <string name="home_trending_deezer_subtitle">
+            <en>Most popular playlists worldwide</en>
+            <es>Listas más populares del mundo</es>
         </string>
         <string name="mix_because">
             <en>Because you listened to %s</en>
@@ -410,30 +430,6 @@
         <string name="mix_rediscover_title">
             <en>Rediscover</en>
             <es>Vuelve a escuchar</es>
-        </string>
-        <string name="home_empty_replay_subtitle">
-            <en>Your most played</en>
-            <es>Lo que más has escuchado</es>
-        </string>
-        <string name="home_recently_added_albums">
-            <en>Recently added albums</en>
-            <es>Álbumes añadidos recientemente</es>
-        </string>
-        <string name="home_empty_added_subtitle">
-            <en>Nothing added yet</en>
-            <es>Nada añadido aún</es>
-        </string>
-        <string name="home_trending_deezer_subtitle">
-            <en>Most popular playlists worldwide</en>
-            <es>Listas más populares del mundo</es>
-        </string>
-        <string name="home_top_charts_deezer">
-            <en>Top Charts</en>
-            <es>Listas de éxitos</es>
-        </string>
-        <string name="home_top_charts_deezer_subtitle">
-            <en>Top 100 by country &amp; worldwide</en>
-            <es>Top 100 por país y mundial</es>
         </string>
     </section>
     <section name="Player &amp; Queue">
@@ -501,6 +497,10 @@
             <en>Sleep timer</en>
             <es>Temporizador de apagado</es>
         </string>
+        <string name="player_up_next">
+            <en>Up next: %s</en>
+            <es>A continuación: %s</es>
+        </string>
         <string name="queue_clear">
             <en>Clear queue</en>
             <es>Borrar cola</es>
@@ -516,6 +516,14 @@
         <string name="queue_title">
             <en>Queue</en>
             <es>Cola</es>
+        </string>
+        <string name="queue_up_next_count">
+            <en>Up next · %d</en>
+            <es>A continuación · %d</es>
+        </string>
+        <string name="queue_up_next_shuffled">
+            <en>Up next (shuffled - turn shuffle off to reorder)</en>
+            <es>A continuación (aleatorio: desactívalo para reordenar)</es>
         </string>
         <string name="sonos_connecting">
             <en>Connecting to Sonos…</en>
@@ -533,23 +541,15 @@
             <en>Sonos volume</en>
             <es>Volumen de Sonos</es>
         </string>
-        <string name="player_up_next">
-            <en>Up next: %s</en>
-            <es>A continuación: %s</es>
-        </string>
-        <string name="queue_up_next_shuffled">
-            <en>Up next (shuffled - turn shuffle off to reorder)</en>
-            <es>A continuación (aleatorio: desactívalo para reordenar)</es>
-        </string>
-        <string name="queue_up_next_count">
-            <en>Up next · %d</en>
-            <es>A continuación · %d</es>
-        </string>
     </section>
     <section name="Playlists">
         <string name="playlist_add_songs">
             <en>Add songs</en>
             <es>Añadir canciones</es>
+        </string>
+        <string name="playlist_apple_empty">
+            <en>No Apple Music playlists imported yet. Tap + to import an Apple Music playlist.</en>
+            <es>Aún no has importado listas de Apple Music. Pulsa + para importar una lista de Apple Music.</es>
         </string>
         <string name="playlist_category_apple_music">
             <en>Apple Music Playlists</en>
@@ -566,6 +566,10 @@
         <string name="playlist_create">
             <en>Create</en>
             <es>Crear</es>
+        </string>
+        <string name="playlist_deezer_empty">
+            <en>No Deezer playlists saved yet. Search for playlists on Deezer or tap + to import.</en>
+            <es>Aún no tienes listas guardadas de Deezer. Busca listas en Deezer o pulsa + para importar.</es>
         </string>
         <string name="playlist_delete_message">
             <en>Are you sure you want to delete "%s"?</en>
@@ -587,6 +591,10 @@
             <en>New playlist</en>
             <es>Nueva lista</es>
         </string>
+        <string name="playlist_personal_empty">
+            <en>Tap + to create a playlist or import from Apple Music / Deezer.</en>
+            <es>Pulsa + para crear una lista o importar desde Apple Music o Deezer.</es>
+        </string>
         <string name="playlist_rename_title">
             <en>Rename playlist</en>
             <es>Cambiar nombre de la lista</es>
@@ -594,18 +602,6 @@
         <string name="playlist_your_playlists">
             <en>Your playlists</en>
             <es>Tus listas</es>
-        </string>
-        <string name="playlist_personal_empty">
-            <en>Tap + to create a playlist or import from Apple Music / Deezer.</en>
-            <es>Pulsa + para crear una lista o importar desde Apple Music o Deezer.</es>
-        </string>
-        <string name="playlist_apple_empty">
-            <en>No Apple Music playlists imported yet. Tap + to import an Apple Music playlist.</en>
-            <es>Aún no has importado listas de Apple Music. Pulsa + para importar una lista de Apple Music.</es>
-        </string>
-        <string name="playlist_deezer_empty">
-            <en>No Deezer playlists saved yet. Search for playlists on Deezer or tap + to import.</en>
-            <es>Aún no tienes listas guardadas de Deezer. Busca listas en Deezer o pulsa + para importar.</es>
         </string>
     </section>
     <section name="Actions &amp; Dialogs">
@@ -620,6 +616,10 @@
         <string name="action_add_to_queue">
             <en>Add to queue</en>
             <es>Añadir a la cola</es>
+        </string>
+        <string name="action_back">
+            <en>Back</en>
+            <es>Atrás</es>
         </string>
         <string name="action_cancel">
             <en>Cancel</en>
@@ -657,6 +657,10 @@
             <en>Go to Artist</en>
             <es>Ir al artista</es>
         </string>
+        <string name="action_ok">
+            <en>OK</en>
+            <es>Aceptar</es>
+        </string>
         <string name="action_play">
             <en>Play</en>
             <es>Reproducir</es>
@@ -693,19 +697,63 @@
             <en>Shuffle</en>
             <es>Aleatorio</es>
         </string>
-        <string name="action_sync_now">
-            <en>Sync now</en>
-            <es>Sincronizar ahora</es>
-        </string>
         <string name="action_sync">
             <en>Sync</en>
             <es>Sincronizar</es>
         </string>
+        <string name="action_sync_now">
+            <en>Sync now</en>
+            <es>Sincronizar ahora</es>
+        </string>
     </section>
     <section name="Sources &amp; Settings">
+        <string name="server_about_setting_cd">
+            <en>About this setting</en>
+            <es>Acerca de este ajuste</es>
+        </string>
+        <string name="server_address_label">
+            <en>Server address</en>
+            <es>Dirección del servidor</es>
+        </string>
+        <string name="server_auto_sync_desc">
+            <en>An automatic sync only lists the songs again if Navidrome has scanned its library since.</en>
+            <es>Una sincronización automática solo vuelve a listar las canciones si Navidrome ha escaneado su biblioteca desde entonces.</es>
+        </string>
+        <string name="server_automatic_sync">
+            <en>Automatic sync</en>
+            <es>Sincronización automática</es>
+        </string>
+        <string name="server_check_connection">
+            <en>Check connection</en>
+            <es>Comprobar conexión</es>
+        </string>
+        <string name="server_collections_last_changes">
+            <en>. Last changes (%1$s): %2$s</en>
+            <es>. Últimos cambios (%1$s): %2$s</es>
+        </string>
+        <string name="server_collections_no_changes">
+            <en>. Nothing to change so far</en>
+            <es>. Sin cambios hasta ahora</es>
+        </string>
+        <string name="server_collections_synced">
+            <en>Synced %1$s</en>
+            <es>Sincronizado %1$s</es>
+        </string>
+        <string name="server_connect_button">
+            <en>Connect</en>
+            <es>Conectar</es>
+        </string>
         <string name="server_connected_as">
             <en>Connected as %1$s to %2$s</en>
             <es>Conectado como %1$s a %2$s</es>
+        </string>
+        <string name="server_delete_downloads_checkbox_many">
+            <en>Also delete the %1$d downloaded songs from the phone</en>
+            <es>Eliminar también las %1$d canciones descargadas del teléfono</es>
+        </string>
+        <string name="server_delete_downloads_checkbox_one">
+            <en>Also delete the downloaded song from the phone</en>
+            <es>Eliminar también la canción descargada del teléfono</es>
         </string>
         <string name="server_disconnect_dialog_message">
             <en>The songs from Navidrome will be removed from the library. Plays, favourites and playlists are kept and come back if you connect the same Navidrome server again.</en>
@@ -715,6 +763,18 @@
             <en>Disconnect Navidrome?</en>
             <es>¿Desconectar Navidrome?</es>
         </string>
+        <string name="server_disconnect_message_with_count">
+            <en>The %1$s from Navidrome will be removed from the library. Plays, favourites and playlists are kept and come back if you connect the same Navidrome server again.</en>
+            <es>Las %1$s de Navidrome se eliminarán de la biblioteca. Las reproducciones, favoritos y listas se conservan y volverán si te conectas de nuevo al mismo servidor de Navidrome.</es>
+        </string>
+        <string name="server_favourites_playlists_desc">
+            <en>Favourites of Navidrome songs are its starred songs, and your playlists are its playlists: changes on either side go to the other. Songs from this device or Drive go into Navidrome playlists as its copy of the same song.</en>
+            <es>Los favoritos de canciones de Navidrome son sus canciones destacadas con estrella, y tus listas son sus listas de reproducción: los cambios en un lado se reflejan en el otro. Las canciones de este dispositivo o Drive van a las listas de Navidrome como su copia de la misma canción.</es>
+        </string>
+        <string name="server_hide_password_cd">
+            <en>Hide password</en>
+            <es>Ocultar contraseña</es>
+        </string>
         <string name="server_in_library_info">
             <en>Sync to add Navidrome's songs to the library. They're listed apart from other sources; the switch above the library shows either or both.</en>
             <es>Sincroniza para añadir las canciones de Navidrome a la biblioteca. Se listan de forma independiente a las otras fuentes; el interruptor superior te permite ver una o ambas.</es>
@@ -723,31 +783,109 @@
             <en>Navidrome last answered %s</en>
             <es>Navidrome respondió por última vez %s</es>
         </string>
+        <string name="server_libraries">
+            <en>Libraries: %1$s</en>
+            <es>Bibliotecas: %1$s</es>
+        </string>
+        <string name="server_library_count_in_library">
+            <en>%1$s in the library</en>
+            <es>%1$s en la biblioteca</es>
+        </string>
         <string name="server_love_stars_lastfm">
             <en>Love Navidrome stars on Last.fm</en>
             <es>Añadir estrellas de Navidrome a favoritos de Last.fm</es>
+        </string>
+        <string name="server_love_stars_lastfm_dialog_desc">
+            <en>Songs starred on Navidrome become favourites here; with this on they're also loved on Last.fm, and unstarring them unloves them. Favourites you change here are always loved or unloved on Last.fm (when it's connected), whatever this setting.
+It applies to stars from now on: songs starred before aren't loved retroactively.</en>
+            <es>Las canciones destacadas con estrella en Navidrome se convierten en favoritos aquí; con esto activado también se marcan como favoritas en Last.fm, y quitarles la estrella las desmarca. Los favoritos que cambies aquí siempre se marcan o desmarcan en Last.fm (cuando está conectado), sea cual sea este ajuste.
+Se aplica a las estrellas a partir de ahora: las canciones destacadas antes no se marcan retroactivamente.</es>
+        </string>
+        <string name="server_love_stars_lastfm_dialog_title">
+            <en>Stars and Last.fm</en>
+            <es>Estrellas y Last.fm</es>
         </string>
         <string name="server_love_stars_lastfm_info">
             <en>Songs starred on Navidrome become favourites here; with this on they're also loved on Last.fm, and unstarring them unloves them. It applies to stars from now on: songs starred before aren't loved retroactively.</en>
             <es>Las canciones favoritas en Navidrome se convierten en favoritas aquí; al activar esto también se marcan como favoritas en Last.fm, y desmarcarlas las quita allí.Se aplica a los favoritos futuros: las canciones marcadas previamente no se sincronizan de forma retroactiva.</es>
         </string>
+        <string name="server_password_label">
+            <en>Password</en>
+            <es>Contraseña</es>
+        </string>
         <string name="server_password_security_note">
             <en>The password is stored encrypted on this phone and is never sent as is: each request is signed with it.</en>
             <es>La contraseña se almacena cifrada en este teléfono y nunca se envía en texto plano: cada petición se firma con ella.</es>
+        </string>
+        <string name="server_pending_plays_many">
+            <en>%1$s plays waiting to be sent to Navidrome</en>
+            <es>%1$s reproducciones pendientes de enviar a Navidrome</es>
+        </string>
+        <string name="server_pending_plays_one">
+            <en>1 play waiting to be sent to Navidrome</en>
+            <es>1 reproducción pendiente de enviar a Navidrome</es>
         </string>
         <string name="server_report_other_plays">
             <en>Report plays from other sources to Navidrome</en>
             <es>Enviar reproducciones de otras fuentes a Navidrome</es>
         </string>
+        <string name="server_report_other_plays_dialog_desc">
+            <en>Plays of songs on this device or Google Drive are also reported, to Navidrome's copy of the same song, so its play counts reflect all your listening.
+Navidrome's copy is found by artist and title, ignoring notes like "(Remastered)" but keeping live and demo versions apart (the same title and album first), so it can be imperfect: a song with several versions may be counted on a different version, and songs spelled differently aren't found. The same Last.fm warning applies.</en>
+            <es>Las reproducciones de canciones en este dispositivo o Google Drive también se envían a la copia de Navidrome de la misma canción, de modo que sus recuentos reflejen todo lo que escuchas.
+La copia de Navidrome se busca por artista y título, ignorando notas como "(Remastered)" pero manteniendo separadas las versiones en directo y maquetas (mismo título y álbum primero), por lo que puede ser imperfecto: una canción con varias versiones puede contabilizarse en una versión distinta, y las canciones con títulos escritos de forma diferente no se encontrarán. Se aplica el mismo aviso respecto a Last.fm.</es>
+        </string>
+        <string name="server_report_other_plays_dialog_title">
+            <en>Plays from other sources</en>
+            <es>Reproducciones de otras fuentes</es>
+        </string>
         <string name="server_report_other_plays_info">
             <en>Plays of songs on this device or Google Drive are also reported to Navidrome's copy of the same song, so its play counts reflect all your listening.</en>
             <es>Las reproducciones de canciones de este dispositivo o Google Drive también se comunican a la copia equivalente en Navidrome para que sus estadísticas reflejen toda tu actividad.</es>
+        </string>
+        <string name="server_report_server_plays">
+            <en>Report Navidrome song plays</en>
+            <es>Enviar reproducciones de Navidrome</es>
+        </string>
+        <string name="server_report_server_plays_dialog_desc">
+            <en>When a Navidrome song has played halfway, the app tells Navidrome, so its play counts and "recently played" include what you play here. The app scrobbles to Last.fm itself (Last.fm card).
+Warning: if scrobbling to Last.fm is also switched on in Navidrome (Personal settings → Last.fm), Navidrome forwards these plays to Last.fm as well, and they would be scrobbled twice.</en>
+            <es>Cuando una canción de Navidrome se reproduce hasta la mitad, la app notifica a Navidrome para que su contador de reproducciones y "escuchadas recientemente" incluyan lo que escuchas aquí. La app hace scrobbling a Last.fm directamente (tarjeta de Last.fm).
+Aviso: si el scrobbling a Last.fm también está activado en Navidrome (Ajustes personales → Last.fm), Navidrome reenviará estas reproducciones a Last.fm y se registrarán por duplicado.</es>
+        </string>
+        <string name="server_report_server_plays_dialog_title">
+            <en>Navidrome song plays</en>
+            <es>Reproducciones de Navidrome</es>
         </string>
         <string name="server_scrobble_warning_info">
             <en>When a Navidrome song has played halfway, the app tells Navidrome, so its play counts and "recently played" include what you play here. The app scrobbles to Last.fm itself (Last.fm settings).
 Warning: if scrobbling to Last.fm is also switched on in Navidrome (Personal settings → Last.fm), Navidrome forwards these plays to Last.fm as well, and they would be scrobbled twice.</en>
             <es>Cuando una canción de Navidrome se reproduce hasta la mitad, la app notifica a Navidrome para que su contador de reproducciones y "escuchadas recientemente" incluyan lo que escuchas aquí. La app hace scrobbling a Last.fm directamente (ajustes de Last.fm).
 Aviso: si el scrobbling a Last.fm también está activado en Navidrome (Ajustes personales → Last.fm), Navidrome reenviará estas reproducciones a Last.fm y se registrarán por duplicado.</es>
+        </string>
+        <string name="server_section_favourites_playlists">
+            <en>Favourites &amp; playlists</en>
+            <es>Favoritos y listas de reproducción</es>
+        </string>
+        <string name="server_section_library">
+            <en>Library</en>
+            <es>Biblioteca</es>
+        </string>
+        <string name="server_section_plays">
+            <en>Plays</en>
+            <es>Reproducciones</es>
+        </string>
+        <string name="server_show_password_cd">
+            <en>Show password</en>
+            <es>Mostrar contraseña</es>
+        </string>
+        <string name="server_song_count_many">
+            <en>%1$s songs</en>
+            <es>%1$s canciones</es>
+        </string>
+        <string name="server_song_count_one">
+            <en>1 song</en>
+            <es>1 canción</es>
         </string>
         <string name="server_songs_count">
             <en>%s songs on Navidrome</en>
@@ -757,9 +895,51 @@ Aviso: si el scrobbling a Last.fm también está activado en Navidrome (Ajustes 
             <en>Star favourites from other sources on Navidrome</en>
             <es>Añadir a favoritos en Navidrome los favoritos de otras fuentes</es>
         </string>
+        <string name="server_star_other_favourites_dialog_desc">
+            <en>Favourites of songs on this device or Google Drive are also starred on Navidrome's copy of the same song, and removing them unstars it. Unstarring that copy on Navidrome removes the favourite here too.
+Navidrome's copy is found by artist and title, ignoring notes like "(Remastered)" but keeping live and demo versions apart (the same title and album first), so it can be imperfect: a song with several versions may be starred on a different version, and songs spelled differently aren't found. Switching this off later leaves the stars on Navidrome as they are.</en>
+            <es>Los favoritos de canciones en este dispositivo o Google Drive también se destacan en la copia de Navidrome de la misma canción, y quitarlos les quita la estrella. Quitar la estrella a esa copia en Navidrome también elimina el favorito aquí.
+La copia de Navidrome se busca por artista y título, ignorando notas como "(Remastered)" pero distinguiendo versiones en directo y maquetas (mismo título y álbum primero), por lo que puede ser imperfecto: una canción con varias versiones puede destacarse en una versión diferente, y las canciones escritas de forma distinta no se encontrarán. Desactivar esto más tarde deja las estrellas en Navidrome como estén.</es>
+        </string>
+        <string name="server_star_other_favourites_dialog_title">
+            <en>Favourites from other sources</en>
+            <es>Favoritos de otras fuentes</es>
+        </string>
         <string name="server_subtitle_disconnected">
             <en>Stream your music from your own Navidrome server or another Subsonic-compatible one</en>
             <es>Reproduce música en streaming desde tu propio servidor Navidrome u otro compatible con Subsonic</es>
+        </string>
+        <string name="server_sync_collections">
+            <en>Sync favourites &amp; playlists</en>
+            <es>Sincronizar favoritos y listas</es>
+        </string>
+        <string name="server_sync_listing">
+            <en>Listing songs: %1$s%2$s</en>
+            <es>Listando canciones: %1$s%2$s</es>
+        </string>
+        <string name="server_sync_now">
+            <en>Sync now</en>
+            <es>Sincronizar ahora</es>
+        </string>
+        <string name="server_sync_of_total">
+            <en>of %1$s</en>
+            <es>de %1$s</es>
+        </string>
+        <string name="server_username_label">
+            <en>User name</en>
+            <es>Nombre de usuario</es>
+        </string>
+        <string name="settings_accent_color_blue">
+            <en>Blue</en>
+            <es>Azul</es>
+        </string>
+        <string name="settings_accent_color_red">
+            <en>Red</en>
+            <es>Rojo</es>
+        </string>
+        <string name="settings_accent_color_title">
+            <en>Accent color</en>
+            <es>Color de énfasis</es>
         </string>
         <string name="settings_appearance_subtitle">
             <en>How MusicMinchas looks</en>
@@ -821,9 +1001,25 @@ Aviso: si el scrobbling a Last.fm también está activado en Navidrome (Ajustes 
             <en>Light mode</en>
             <es>Modo claro</es>
         </string>
+        <string name="settings_title">
+            <en>Settings</en>
+            <es>Ajustes</es>
+        </string>
+        <string name="source_local">
+            <en>Local</en>
+            <es>Local</es>
+        </string>
         <string name="sources_add">
             <en>Add music sources</en>
             <es>Añadir fuentes de música</es>
+        </string>
+        <string name="sources_add_drive_folder">
+            <en>Add Drive folder</en>
+            <es>Añadir carpeta de Drive</es>
+        </string>
+        <string name="sources_add_folder">
+            <en>Add folder</en>
+            <es>Añadir carpeta</es>
         </string>
         <string name="sources_all">
             <en>All sources</en>
@@ -832,6 +1028,18 @@ Aviso: si el scrobbling a Last.fm también está activado en Navidrome (Ajustes 
         <string name="sources_catalog">
             <en>Streaming Catalog</en>
             <es>Catálogo de streaming</es>
+        </string>
+        <string name="sources_catalog_enable_toggle">
+            <en>Enable Deezer &amp; Apple Music catalog</en>
+            <es>Activar catálogo de Deezer y Apple Music</es>
+        </string>
+        <string name="sources_catalog_enrich_home">
+            <en>Enrich Home with Deezer</en>
+            <es>Enriquecer Inicio con Deezer</es>
+        </string>
+        <string name="sources_catalog_enrich_home_desc">
+            <en>Show trending charts and curated playlists on the Home tab</en>
+            <es>Mostrar listas de éxitos y listas recomendadas en la pestaña Inicio</es>
         </string>
         <string name="sources_catalog_explanation_discography">
             <en>• Artist discography: view an artist's full studio &amp; live discography on their page and spot albums missing from your library.</en>
@@ -853,9 +1061,31 @@ Aviso: si el scrobbling a Last.fm también está activado en Navidrome (Ajustes 
             <en>• Catalog search: find artists, albums and songs across Deezer &amp; Apple Music, matched against your Local, Google Drive and Navidrome library.</en>
             <es>• Búsqueda en catálogo: encuentra artistas, álbumes y canciones en Deezer y Apple Music, comparados con tu biblioteca local, de Google Drive y Navidrome.</es>
         </string>
+        <string name="sources_catalog_explanation_what">
+            <en>What both contribute:
+• Catalog search: find artists, albums and songs across Deezer &amp; Apple Music, matched against your Local, Google Drive and Navidrome library.
+• Public playlists (Deezer): search curated and user playlists on Deezer and import them into Playlists using the songs you own.
+• Artist discography: view an artist's full studio &amp; live discography on their page and spot albums missing from your library.</en>
+            <es>Qué aporta cada servicio:
+• Búsqueda en catálogo: encuentra artistas, álbumes y canciones en Deezer y Apple Music, cotejados con tu música local, de Google Drive y Navidrome.
+• Listas públicas (Deezer): busca listas públicas en Deezer e impórtalas a tus Listas usando tus canciones en propiedad.
+• Discografía del artista: consulta la discografía completa de estudio y en directo en su ficha y descubre qué álbumes te faltan.</es>
+        </string>
         <string name="sources_catalog_subtitle">
             <en>Apple Music &amp; Deezer integrations</en>
             <es>Integraciones con Apple Music y Deezer</es>
+        </string>
+        <string name="sources_catalog_subtitle_disabled">
+            <en>Browse and search the public Deezer &amp; Apple Music catalogs alongside your own library (no account needed)</en>
+            <es>Explora y busca en los catálogos públicos de Deezer y Apple Music junto con tu propia biblioteca (sin cuenta)</es>
+        </string>
+        <string name="sources_catalog_subtitle_enabled">
+            <en>Enabled · Public catalog search, Deezer playlist import &amp; artist discographies (no account needed)</en>
+            <es>Activado · Búsqueda en catálogo público, importación de listas de Deezer y discografías de artistas (sin cuenta)</es>
+        </string>
+        <string name="sources_catalog_title">
+            <en>Deezer &amp; Apple Music</en>
+            <es>Deezer y Apple Music</es>
         </string>
         <string name="sources_connect">
             <en>Connect</en>
@@ -897,13 +1127,37 @@ Aviso: si el scrobbling a Last.fm también está activado en Navidrome (Ajustes 
             <en>Google Drive</en>
             <es>Google Drive</es>
         </string>
+        <string name="sources_drive_choose_folders">
+            <en>Choose the Drive folders that hold your music. Only those folders and their sub-folders are imported.</en>
+            <es>Elige las carpetas de Drive donde está tu música. Solo se importan estas carpetas y sus subcarpetas.</es>
+        </string>
+        <string name="sources_drive_choose_folder_title">
+            <en>Choose a Drive folder</en>
+            <es>Elige una carpeta de Drive</es>
+        </string>
+        <string name="sources_drive_connect">
+            <en>Connect Google Drive</en>
+            <es>Conectar Google Drive</es>
+        </string>
         <string name="sources_drive_connected_as">
             <en>Connected as %s</en>
             <es>Conectado como %s</es>
         </string>
+        <string name="sources_drive_connected_as_count">
+            <en>Connected as %1$s · %2$d songs</en>
+            <es>Conectado como %1$s · %2$d canciones</es>
+        </string>
+        <string name="sources_drive_connected_count">
+            <en>Connected · %d songs</en>
+            <es>Conectado · %d canciones</es>
+        </string>
         <string name="sources_drive_delete_downloads_checkbox">
             <en>Also delete the downloaded songs from the phone</en>
             <es>Eliminar también del teléfono las canciones descargadas</es>
+        </string>
+        <string name="sources_drive_disconnect_confirm">
+            <en>Disconnect Google Drive?</en>
+            <es>¿Desconectar Google Drive?</es>
         </string>
         <string name="sources_drive_disconnect_dialog_message">
             <en>The Google Drive songs will be removed from the library. Plays, favourites and playlists are kept and come back if you connect the same Drive folders again. To refresh Google's access instead, use Reconnect.</en>
@@ -913,9 +1167,21 @@ Aviso: si el scrobbling a Last.fm también está activado en Navidrome (Ajustes 
             <en>Disconnect Google Drive?</en>
             <es>¿Desconectar Google Drive?</es>
         </string>
+        <string name="sources_drive_no_subfolders">
+            <en>No sub-folders</en>
+            <es>No hay subcarpetas</es>
+        </string>
+        <string name="sources_drive_open_folder_to_select">
+            <en>Open a folder to select it</en>
+            <es>Abre una carpeta para seleccionarla</es>
+        </string>
         <string name="sources_drive_reconnect">
             <en>Reconnect</en>
             <es>Volver a conectar</es>
+        </string>
+        <string name="sources_drive_reconnect_desc">
+            <en>Google asks you to sign in again before Drive songs can play. Your library is kept.</en>
+            <es>Google solicita iniciar sesión de nuevo para reproducir canciones de Drive. Tu biblioteca se mantendrá intacta.</es>
         </string>
         <string name="sources_drive_sign_in_again">
             <en>Google Drive needs you to sign in again</en>
@@ -925,6 +1191,10 @@ Aviso: si el scrobbling a Last.fm también está activado en Navidrome (Ajustes 
             <en>Stream audio files from your Drive without downloading them</en>
             <es>Reproduce archivos de audio en streaming desde Google Drive sin descargarlos</es>
         </string>
+        <string name="sources_drive_use_folder">
+            <en>Use “%1$s”</en>
+            <es>Usar «%1$s»</es>
+        </string>
         <string name="sources_empty_subtitle">
             <en>Add music sources to start listening</en>
             <es>Añade fuentes de música para empezar a escuchar</es>
@@ -933,6 +1203,10 @@ Aviso: si el scrobbling a Last.fm también está activado en Navidrome (Ajustes 
             <en>No music in library</en>
             <es>No hay música en la biblioteca</es>
         </string>
+        <string name="sources_folder_remove_cd">
+            <en>Remove folder</en>
+            <es>Eliminar carpeta</es>
+        </string>
         <string name="sources_last_synced">
             <en>Last synced: %s</en>
             <es>Última sincronización: %s</es>
@@ -940,6 +1214,18 @@ Aviso: si el scrobbling a Last.fm también está activado en Navidrome (Ajustes 
         <string name="sources_lastfm_awaiting_approval">
             <en>Approve MusicMinchas on the Last.fm page, then come back here</en>
             <es>Autoriza MusicMinchas en la página de Last.fm y luego regresa aquí</es>
+        </string>
+        <string name="sources_lastfm_connect">
+            <en>Connect Last.fm</en>
+            <es>Conectar Last.fm</es>
+        </string>
+        <string name="sources_lastfm_connected_as">
+            <en>Connected as %s</en>
+            <es>Conectado como %s</es>
+        </string>
+        <string name="sources_lastfm_history_title">
+            <en>Listening history</en>
+            <es>Historial de reproducción</es>
         </string>
         <string name="sources_lastfm_import_history_button">
             <en>Import history</en>
@@ -957,21 +1243,41 @@ Aviso: si el scrobbling a Last.fm también está activado en Navidrome (Ajustes 
             <en>Import new</en>
             <es>Importar recientes</es>
         </string>
+        <string name="sources_lastfm_imported_count">
+            <en>%d scrobbles imported</en>
+            <es>%d scrobbles importados</es>
+        </string>
         <string name="sources_lastfm_loved_tracks_desc">
             <en>Favouriting a song loves it on Last.fm, and removing it unloves it. Import your loved tracks to add those in your library to your favourites.</en>
             <es>Marcar una canción como favorita la añade a tus temas favoritos de Last.fm, y quitarla la desmarca. Importa tus temas favoritos para añadir los que tengas en tu biblioteca a tus favoritos.</es>
+        </string>
+        <string name="sources_lastfm_loved_tracks_title">
+            <en>Loved tracks</en>
+            <es>Temas favoritos</es>
         </string>
         <string name="sources_lastfm_min_duration_note">
             <en>Songs of 30 seconds or less aren't scrobbled.</en>
             <es>Las canciones de 30 segundos o menos no se scrobblean.</es>
         </string>
+        <string name="sources_lastfm_minutes_cap">
+            <en>%d minutes</en>
+            <es>%d minutos</es>
+        </string>
         <string name="sources_lastfm_no_time_limit">
             <en>no time limit</en>
             <es>sin límite de tiempo</es>
         </string>
+        <string name="sources_lastfm_open_again">
+            <en>Open Last.fm again</en>
+            <es>Abrir Last.fm de nuevo</es>
+        </string>
         <string name="sources_lastfm_pending_scrobbles">
             <en>%d scrobbles waiting to be sent.</en>
             <es>%d scrobbles pendientes de envío.</es>
+        </string>
+        <string name="sources_lastfm_reimport_all">
+            <en>Re-import all</en>
+            <es>Reimportar todo</es>
         </string>
         <string name="sources_lastfm_scrobble_cap">
             <en>…or after %s, whichever comes first</en>
@@ -981,6 +1287,10 @@ Aviso: si el scrobbling a Last.fm también está activado en Navidrome (Ajustes 
             <en>After %d%% of the song</en>
             <es>Tras el %d%% de la canción</es>
         </string>
+        <string name="sources_lastfm_scrobble_plays">
+            <en>Scrobble plays</en>
+            <es>Scrobblear reproducciones</es>
+        </string>
         <string name="sources_lastfm_scrobble_rule_title">
             <en>When to scrobble</en>
             <es>Cuándo hacer scrobbling</es>
@@ -988,6 +1298,10 @@ Aviso: si el scrobbling a Last.fm también está activado en Navidrome (Ajustes 
         <string name="sources_lastfm_subtitle_connected">
             <en>Scrobble what you play and bring in your Last.fm history and loved tracks</en>
             <es>Haz scrobbling de lo que escuchas e importa tu historial y temas favoritos de Last.fm</es>
+        </string>
+        <string name="sources_lastfm_unmatched_count">
+            <en>· %d of songs not in your library yet (added as plays when you add those songs)</en>
+            <es>· %d de canciones aún no en tu biblioteca (se añadirán como reproducciones cuando las agregues)</es>
         </string>
         <string name="sources_local">
             <en>Device Folders</en>
@@ -1029,6 +1343,18 @@ Aviso: si el scrobbling a Last.fm también está activado en Navidrome (Ajustes 
             <en>Nebula</en>
             <es>Nebula</es>
         </string>
+        <string name="sources_not_synced_yet">
+            <en>Not synced yet</en>
+            <es>Aún no sincronizado</es>
+        </string>
+        <string name="sources_rescan">
+            <en>Rescan</en>
+            <es>Volver a escanear</es>
+        </string>
+        <string name="sources_saf_add_folder">
+            <en>Add folder</en>
+            <es>Añadir carpeta</es>
+        </string>
         <string name="sources_saf_storage_external">
             <en>Storage %s</en>
             <es>Almacenamiento %s</es>
@@ -1040,6 +1366,14 @@ Aviso: si el scrobbling a Last.fm también está activado en Navidrome (Ajustes 
         <string name="sources_saf_subtitle">
             <en>Only the folders listed here are scanned, including their sub-folders (internal storage, SD card, USB).</en>
             <es>Solo se analizarán las carpetas indicadas aquí, incluyendo sus subcarpetas (almacenamiento interno, tarjeta SD, USB).</es>
+        </string>
+        <string name="sources_saf_subtitle_pattern">
+            <en>%d songs. Only the folders listed here are scanned, including their sub-folders (internal storage, SD card, USB).</en>
+            <es>%d canciones. Solo se escanean las carpetas aquí listadas y sus subcarpetas (almacenamiento interno, tarjeta SD, USB).</es>
+        </string>
+        <string name="sources_saf_title">
+            <en>Folders on this device</en>
+            <es>Carpetas en este dispositivo</es>
         </string>
         <string name="sources_server">
             <en>Navidrome / Subsonic</en>
@@ -1053,6 +1387,10 @@ Aviso: si el scrobbling a Last.fm también está activado en Navidrome (Ajustes 
             <en>Automatic sync</en>
             <es>Sincronización automática</es>
         </string>
+        <string name="sources_sync_everything">
+            <en>Sync everything now</en>
+            <es>Sincronizar todo ahora</es>
+        </string>
         <string name="sources_sync_status_idle">
             <en>Idle</en>
             <es>Inactivo</es>
@@ -1065,162 +1403,104 @@ Aviso: si el scrobbling a Last.fm también está activado en Navidrome (Ajustes 
             <en>Music Sources</en>
             <es>Fuentes de música</es>
         </string>
-        <string name="settings_title">
-            <en>Settings</en>
-            <es>Ajustes</es>
-        </string>
-        <string name="sources_add_folder">
-            <en>Add folder</en>
-            <es>Añadir carpeta</es>
-        </string>
-        <string name="sources_rescan">
-            <en>Rescan</en>
-            <es>Volver a escanear</es>
-        </string>
-        <string name="sources_add_drive_folder">
-            <en>Add Drive folder</en>
-            <es>Añadir carpeta de Drive</es>
-        </string>
-        <string name="sources_drive_connect">
-            <en>Connect Google Drive</en>
-            <es>Conectar Google Drive</es>
-        </string>
-        <string name="sources_drive_connected_count">
-            <en>Connected · %d songs</en>
-            <es>Conectado · %d canciones</es>
-        </string>
-        <string name="sources_drive_connected_as_count">
-            <en>Connected as %1$s · %2$d songs</en>
-            <es>Conectado como %1$s · %2$d canciones</es>
-        </string>
         <string name="sources_unplayable_skipped">
             <en>%d files skipped: no playable audio (usually DRM-protected Apple Music downloads)</en>
             <es>%d archivos omitidos: sin audio reproducible (normalmente descargas con DRM de Apple Music)</es>
-        </string>
-        <string name="sources_drive_choose_folders">
-            <en>Choose the Drive folders that hold your music. Only those folders and their sub-folders are imported.</en>
-            <es>Elige las carpetas de Drive donde está tu música. Solo se importan estas carpetas y sus subcarpetas.</es>
-        </string>
-        <string name="sources_not_synced_yet">
-            <en>Not synced yet</en>
-            <es>Aún no sincronizado</es>
-        </string>
-        <string name="sources_sync_everything">
-            <en>Sync everything now</en>
-            <es>Sincronizar todo ahora</es>
-        </string>
-        <string name="sync_mode_off">
-            <en>No automatic sync</en>
-            <es>Sin sincronización automática</es>
-        </string>
-        <string name="sync_mode_daily">
-            <en>Every 24 h</en>
-            <es>Cada 24 h</es>
         </string>
         <string name="sync_mode_app_start">
             <en>At app start</en>
             <es>Al abrir la app</es>
         </string>
-        <string name="sources_lastfm_connected_as">
-            <en>Connected as %s</en>
-            <es>Conectado como %s</es>
+        <string name="sync_mode_daily">
+            <en>Every 24 h</en>
+            <es>Cada 24 h</es>
         </string>
-        <string name="sources_lastfm_scrobble_plays">
-            <en>Scrobble plays</en>
-            <es>Scrobblear reproducciones</es>
+        <string name="sync_mode_off">
+            <en>No automatic sync</en>
+            <es>Sin sincronización automática</es>
         </string>
-        <string name="sources_lastfm_history_title">
-            <en>Listening history</en>
-            <es>Historial de reproducción</es>
+        <string name="settings_section_library">
+            <en>Library &amp; Content</en>
+            <es>Biblioteca y contenido</es>
         </string>
-        <string name="sources_lastfm_reimport_all">
-            <en>Re-import all</en>
-            <es>Reimportar todo</es>
+        <string name="settings_section_services">
+            <en>Services &amp; Output</en>
+            <es>Servicios y reproducción</es>
         </string>
-        <string name="sources_lastfm_loved_tracks_title">
-            <en>Loved tracks</en>
-            <es>Temas favoritos</es>
+        <string name="settings_section_data">
+            <en>Data &amp; Storage</en>
+            <es>Datos y almacenamiento</es>
         </string>
-        <string name="sources_lastfm_imported_count">
-            <en>%d scrobbles imported</en>
-            <es>%d scrobbles importados</es>
+        <string name="settings_section_general">
+            <en>General Preferences</en>
+            <es>Preferencias generales</es>
         </string>
-        <string name="sources_lastfm_unmatched_count">
-            <en>· %d of songs not in your library yet (added as plays when you add those songs)</en>
-            <es>· %d de canciones aún no en tu biblioteca (se añadirán como reproducciones cuando las agregues)</es>
+        <string name="settings_section_storage">
+            <en>Storage &amp; Servers</en>
+            <es>Almacenamiento y servidores</es>
         </string>
-        <string name="sources_lastfm_minutes_cap">
-            <en>%d minutes</en>
-            <es>%d minutos</es>
+        <string name="settings_section_addons">
+            <en>Music Add-ons</en>
+            <es>Complementos de música</es>
         </string>
-        <string name="source_local">
-            <en>Local</en>
-            <es>Local</es>
+        <string name="settings_section_addons_desc">
+            <en>External streaming and resolver services for tracks outside your library</en>
+            <es>Servicios externos de streaming y resolución para temas fuera de tu biblioteca</es>
         </string>
-        <string name="sources_saf_subtitle_pattern">
-            <en>%d songs. Only the folders listed here are scanned, including their sub-folders (internal storage, SD card, USB).</en>
-            <es>%d canciones. Solo se escanean las carpetas aquí listadas y sus subcarpetas (almacenamiento interno, tarjeta SD, USB).</es>
+        <string name="settings_section_catalog">
+            <en>Public Catalog &amp; Discovery</en>
+            <es>Catálogo público y descubrimiento</es>
         </string>
-        <string name="sources_saf_add_folder">
-            <en>Add folder</en>
-            <es>Añadir carpeta</es>
+        <string name="sources_summary_empty">
+            <en>Local folders, Google Drive, Subsonic server, Music Add-ons &amp; Catalog</en>
+            <es>Carpetas locales, Google Drive, servidor Subsonic, complementos y catálogo</es>
         </string>
-        <string name="sources_drive_reconnect_desc">
-            <en>Google asks you to sign in again before Drive songs can play. Your library is kept.</en>
-            <es>Google solicita iniciar sesión de nuevo para reproducir canciones de Drive. Tu biblioteca se mantendrá intacta.</es>
+        <string name="sources_summary_songs">
+            <en>%s songs</en>
+            <es>%s canciones</es>
         </string>
-        <string name="sources_drive_disconnect_confirm">
-            <en>Disconnect Google Drive?</en>
-            <es>¿Desconectar Google Drive?</es>
+        <string name="sources_more_addons_title">
+            <en>More Add-ons</en>
+            <es>Más complementos</es>
         </string>
-        <string name="sources_lastfm_open_again">
-            <en>Open Last.fm again</en>
-            <es>Abrir Last.fm de nuevo</es>
-        </string>
-        <string name="sources_lastfm_connect">
-            <en>Connect Last.fm</en>
-            <es>Conectar Last.fm</es>
-        </string>
-        <string name="sources_catalog_title">
-            <en>Deezer &amp; Apple Music</en>
-            <es>Deezer y Apple Music</es>
-        </string>
-        <string name="sources_catalog_subtitle_enabled">
-            <en>Enabled · Public catalog search, Deezer playlist import &amp; artist discographies (no account needed)</en>
-            <es>Activado · Búsqueda en catálogo público, importación de listas de Deezer y discografías de artistas (sin cuenta)</es>
-        </string>
-        <string name="sources_catalog_subtitle_disabled">
-            <en>Browse and search the public Deezer &amp; Apple Music catalogs alongside your own library (no account needed)</en>
-            <es>Explora y busca en los catálogos públicos de Deezer y Apple Music junto con tu propia biblioteca (sin cuenta)</es>
-        </string>
-        <string name="sources_catalog_enable_toggle">
-            <en>Enable Deezer &amp; Apple Music catalog</en>
-            <es>Activar catálogo de Deezer y Apple Music</es>
-        </string>
-        <string name="sources_catalog_enrich_home">
-            <en>Enrich Home with Deezer</en>
-            <es>Enriquecer Inicio con Deezer</es>
-        </string>
-        <string name="sources_catalog_enrich_home_desc">
-            <en>Show trending charts and curated playlists on the Home tab</en>
-            <es>Mostrar listas de éxitos y listas recomendadas en la pestaña Inicio</es>
-        </string>
-        <string name="sources_catalog_explanation_what">
-            <en>What both contribute:
-• Catalog search: find artists, albums and songs across Deezer &amp; Apple Music, matched against your Local, Google Drive and Navidrome library.
-• Public playlists (Deezer): search curated and user playlists on Deezer and import them into Playlists using the songs you own.
-• Artist discography: view an artist's full studio &amp; live discography on their page and spot albums missing from your library.</en>
-            <es>Qué aporta cada servicio:
-• Búsqueda en catálogo: encuentra artistas, álbumes y canciones en Deezer y Apple Music, cotejados con tu música local, de Google Drive y Navidrome.
-• Listas públicas (Deezer): busca listas públicas en Deezer e impórtalas a tus Listas usando tus canciones en propiedad.
-• Discografía del artista: consulta la discografía completa de estudio y en directo en su ficha y descubre qué álbumes te faltan.</es>
-        </string>
-        <string name="sources_saf_title">
-            <en>Folders on this device</en>
-            <es>Carpetas en este dispositivo</es>
+        <string name="sources_more_addons_subtitle">
+            <en>Additional streaming providers and resolvers will appear here</en>
+            <es>Nuevos proveedores de streaming y resolvers aparecerán aquí</es>
         </string>
     </section>
     <section name="Replay">
+        <string name="replay_comparison">
+            <en>%1$s%2$d%% plays vs %3$s</en>
+            <es>%1$s%2$d%% reproducciones vs %3$s</es>
+        </string>
+        <string name="replay_empty_plays">
+            <en>No plays counted in %s yet. A song counts once you've listened to half of it.</en>
+            <es>Aún no hay reproducciones en %s. Una canción cuenta cuando has escuchado al menos la mitad.</es>
+        </string>
+        <string name="replay_insight_new_to_you">
+            <en>New to you</en>
+            <es>Descubrimientos</es>
+        </string>
+        <string name="replay_insight_on_repeat">
+            <en>On repeat</en>
+            <es>En bucle</es>
+        </string>
+        <string name="replay_insight_on_repeat_desc">
+            <en>%1$s · %2$d× on %3$s</en>
+            <es>%1$s · %2$d veces el %3$s</es>
+        </string>
+        <string name="replay_insight_peak_hour">
+            <en>Peak hour</en>
+            <es>Hora punta</es>
+        </string>
+        <string name="replay_insight_top_genre">
+            <en>Top genre</en>
+            <es>Género principal</es>
+        </string>
+        <string name="replay_insights">
+            <en>Insights</en>
+            <es>Estadísticas y curiosidades</es>
+        </string>
         <string name="replay_minutes_listened">
             <en>Minutes listened</en>
             <es>Minutos escuchados</es>
@@ -1232,6 +1512,42 @@ Aviso: si el scrobbling a Last.fm también está activado en Navidrome (Ajustes 
         <string name="replay_peak_hour">
             <en>Peak listening hour</en>
             <es>Hora punta de escucha</es>
+        </string>
+        <string name="replay_play_top">
+            <en>Play top %d</en>
+            <es>Reproducir las %d mejores</es>
+        </string>
+        <string name="replay_plays_per_month">
+            <en>Plays per month</en>
+            <es>Reproducciones por mes</es>
+        </string>
+        <string name="replay_save_as_playlist">
+            <en>Save as playlist</en>
+            <es>Guardar como lista</es>
+        </string>
+        <string name="replay_show_all">
+            <en>Show all %d</en>
+            <es>Mostrar todas (%d)</es>
+        </string>
+        <string name="replay_show_top">
+            <en>Show top %d</en>
+            <es>Mostrar las %d mejores</es>
+        </string>
+        <string name="replay_shuffle_top">
+            <en>Shuffle top songs</en>
+            <es>Mezclar mejores canciones</es>
+        </string>
+        <string name="replay_stat_artists">
+            <en>artists</en>
+            <es>artistas</es>
+        </string>
+        <string name="replay_stat_listened">
+            <en>listened</en>
+            <es>escuchadas</es>
+        </string>
+        <string name="replay_stat_plays">
+            <en>plays</en>
+            <es>reproducciones</es>
         </string>
         <string name="replay_title">
             <en>Replay</en>
@@ -1249,81 +1565,13 @@ Aviso: si el scrobbling a Last.fm también está activado en Navidrome (Ajustes 
             <en>Top Songs</en>
             <es>Canciones principales</es>
         </string>
-        <string name="replay_year">
-            <en>Year in Music</en>
-            <es>El año en música</es>
-        </string>
-        <string name="replay_insights">
-            <en>Insights</en>
-            <es>Estadísticas y curiosidades</es>
-        </string>
-        <string name="replay_show_top">
-            <en>Show top %d</en>
-            <es>Mostrar las %d mejores</es>
-        </string>
-        <string name="replay_show_all">
-            <en>Show all %d</en>
-            <es>Mostrar todas (%d)</es>
-        </string>
-        <string name="replay_stat_plays">
-            <en>plays</en>
-            <es>reproducciones</es>
-        </string>
-        <string name="replay_stat_listened">
-            <en>listened</en>
-            <es>escuchadas</es>
-        </string>
-        <string name="replay_stat_artists">
-            <en>artists</en>
-            <es>artistas</es>
-        </string>
-        <string name="replay_play_top">
-            <en>Play top %d</en>
-            <es>Reproducir las %d mejores</es>
-        </string>
-        <string name="replay_shuffle_top">
-            <en>Shuffle top songs</en>
-            <es>Mezclar mejores canciones</es>
-        </string>
-        <string name="replay_save_as_playlist">
-            <en>Save as playlist</en>
-            <es>Guardar como lista</es>
-        </string>
-        <string name="replay_plays_per_month">
-            <en>Plays per month</en>
-            <es>Reproducciones por mes</es>
-        </string>
         <string name="replay_whole_year">
             <en>Whole %d</en>
             <es>Todo el año %d</es>
         </string>
-        <string name="replay_empty_plays">
-            <en>No plays counted in %s yet. A song counts once you've listened to half of it.</en>
-            <es>Aún no hay reproducciones en %s. Una canción cuenta cuando has escuchado al menos la mitad.</es>
-        </string>
-        <string name="replay_insight_new_to_you">
-            <en>New to you</en>
-            <es>Descubrimientos</es>
-        </string>
-        <string name="replay_insight_peak_hour">
-            <en>Peak hour</en>
-            <es>Hora punta</es>
-        </string>
-        <string name="replay_insight_on_repeat">
-            <en>On repeat</en>
-            <es>En bucle</es>
-        </string>
-        <string name="replay_insight_on_repeat_desc">
-            <en>%1$s · %2$d× on %3$s</en>
-            <es>%1$s · %2$d veces el %3$s</es>
-        </string>
-        <string name="replay_insight_top_genre">
-            <en>Top genre</en>
-            <es>Género principal</es>
-        </string>
-        <string name="replay_comparison">
-            <en>%1$s%2$d%% plays vs %3$s</en>
-            <es>%1$s%2$d%% reproducciones vs %3$s</es>
+        <string name="replay_year">
+            <en>Year in Music</en>
+            <es>El año en música</es>
         </string>
     </section>
     <section name="Discover">

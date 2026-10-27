@@ -1,5 +1,10 @@
 package com.kike.musicplayer.ui
 
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.material3.LocalMinimumInteractiveComponentSize
+import androidx.compose.ui.draw.scale
+import androidx.compose.ui.unit.Dp
+
 import androidx.compose.ui.res.stringResource
 import com.kike.musicplayer.R
 
@@ -31,6 +36,10 @@ import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.FolderShared
+import androidx.compose.material.icons.outlined.AddCircleOutline
+import androidx.compose.material3.CardDefaults
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.sp
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CircularProgressIndicator
@@ -69,6 +78,36 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.kike.musicplayer.data.db.Track
 
+/** Section header for settings categories with optional explanatory subtitle. */
+@Composable
+fun SettingsSectionHeader(
+    title: String,
+    subtitle: String? = null,
+    modifier: Modifier = Modifier,
+) {
+    Column(
+        modifier = modifier
+            .fillMaxWidth()
+            .padding(start = 4.dp, top = 8.dp, bottom = 2.dp),
+    ) {
+        Text(
+            text = title.uppercase(),
+            style = MaterialTheme.typography.labelSmall,
+            fontWeight = FontWeight.Bold,
+            color = MaterialTheme.colorScheme.primary,
+            letterSpacing = 1.sp,
+        )
+        if (subtitle != null) {
+            Text(
+                text = subtitle,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(top = 2.dp),
+            )
+        }
+    }
+}
+
 /** Settings: the music sources (own page), downloads, Last.fm and metadata. */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -96,7 +135,7 @@ fun SourcesScreen(
         TopAppBar(
             windowInsets = NoTopInsets,
             title = { Text(stringResource(R.string.settings_title)) },
-            navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back") } },
+            navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, stringResource(R.string.action_back)) } },
         )
         Column(
             Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 12.dp, vertical = 8.dp),
@@ -105,14 +144,40 @@ fun SourcesScreen(
             status?.let { Text(it, color = MaterialTheme.colorScheme.primary) }
             error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
 
+            // 1. Library & Content
+            SettingsSectionHeader(stringResource(R.string.settings_section_library))
             MusicSourcesEntry(vm, onOpenMusicSources)
 
-            LanguageCard(vm)
-
-            AppearanceCard(vm)
-
+            // 2. Services & Playback
+            SettingsSectionHeader(stringResource(R.string.settings_section_services))
+            SourceCard(
+                "Last.fm",
+                when {
+                    lastFm.user != null -> stringResource(R.string.sources_lastfm_connected_as, lastFm.user!!)
+                    lastFm.awaitingApproval -> stringResource(R.string.sources_lastfm_awaiting_approval)
+                    else -> stringResource(R.string.sources_lastfm_subtitle_connected)
+                },
+            ) {
+                lastFm.message?.let { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) }
+                when {
+                    lastFm.user != null -> {
+                        ScrobbleControls(scrobbling, pendingScrobbles, vm::setScrobbleSettings)
+                        HistoryImport(scrobbleCounts, importStatus, vm::importScrobbles)
+                        LovedTracks(importStatus, vm::importLoved)
+                        OutlinedButton(onClick = vm::disconnectLastFm) { Text(stringResource(R.string.sources_disconnect)) }
+                    }
+                    lastFm.awaitingApproval -> Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Button(onClick = { vm.connectLastFm { uriHandler.openUri(it.toString()) } }) { Text(stringResource(R.string.sources_lastfm_open_again)) }
+                        OutlinedButton(onClick = vm::cancelLastFmConnect) { Text(stringResource(R.string.action_cancel)) }
+                    }
+                    else -> Button(onClick = { vm.connectLastFm { uriHandler.openUri(it.toString()) } }) { Text(stringResource(R.string.sources_lastfm_connect)) }
+                }
+            }
             SonosPlaybackCard(vm)
 
+            // 3. Data & Storage
+            SettingsSectionHeader(stringResource(R.string.settings_section_data))
+            MetadataCard(vm, pending, progress)
             SourceCard(
                 stringResource(R.string.sources_downloads),
                 stringResource(R.string.sources_downloads_subtitle),
@@ -139,34 +204,12 @@ fun SourcesScreen(
                     dismissButton = { TextButton(onClick = { confirmDeleteDownloads = false }) { Text(stringResource(R.string.action_cancel)) } },
                 )
             }
-
-            SourceCard(
-                "Last.fm",
-                when {
-                    lastFm.user != null -> stringResource(R.string.sources_lastfm_connected_as, lastFm.user!!)
-                    lastFm.awaitingApproval -> stringResource(R.string.sources_lastfm_awaiting_approval)
-                    else -> stringResource(R.string.sources_lastfm_subtitle_connected)
-                },
-            ) {
-                lastFm.message?.let { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) }
-                when {
-                    lastFm.user != null -> {
-                        ScrobbleControls(scrobbling, pendingScrobbles, vm::setScrobbleSettings)
-                        HistoryImport(scrobbleCounts, importStatus, vm::importScrobbles)
-                        LovedTracks(importStatus, vm::importLoved)
-                        OutlinedButton(onClick = vm::disconnectLastFm) { Text(stringResource(R.string.sources_disconnect)) }
-                    }
-                    lastFm.awaitingApproval -> Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Button(onClick = { vm.connectLastFm { uriHandler.openUri(it.toString()) } }) { Text(stringResource(R.string.sources_lastfm_open_again)) }
-                        OutlinedButton(onClick = vm::cancelLastFmConnect) { Text(stringResource(R.string.action_cancel)) }
-                    }
-                    else -> Button(onClick = { vm.connectLastFm { uriHandler.openUri(it.toString()) } }) { Text(stringResource(R.string.sources_lastfm_connect)) }
-                }
-            }
-
-            MetadataCard(vm, pending, progress)
-
             SyncCard(vm)
+
+            // 4. General Preferences
+            SettingsSectionHeader(stringResource(R.string.settings_section_general))
+            LanguageCard(vm)
+            AppearanceCard(vm)
         }
     }
 }
@@ -265,6 +308,7 @@ private fun MusicSourcesEntry(vm: LibraryViewModel, onOpen: () -> Unit) {
     val account by vm.driveAccount.collectAsState()
     val server by vm.subsonicState.collectAsState()
     val catalog by vm.catalogEnabled.collectAsState()
+    val nebula by vm.nebulaState.collectAsState()
     val needsReconnect by vm.driveNeedsReconnect.collectAsState()
     val number = java.text.NumberFormat.getIntegerInstance()
     val songParts = buildList {
@@ -274,13 +318,22 @@ private fun MusicSourcesEntry(vm: LibraryViewModel, onOpen: () -> Unit) {
             add("${server.server?.substringBefore(' ') ?: "Navidrome"} ${number.format(counts[Track.SOURCE_SUBSONIC] ?: 0)}")
         }
     }
+    val totalSongs = (counts[Track.SOURCE_SAF] ?: 0) + (counts[Track.SOURCE_DRIVE] ?: 0) + (counts[Track.SOURCE_SUBSONIC] ?: 0)
     val summary = buildString {
-        if (songParts.isNotEmpty()) append(songParts.joinToString(" · ")).append(" songs")
+        if (songParts.isNotEmpty()) {
+            append(songParts.joinToString(" · "))
+            append(" · ")
+            append(stringResource(R.string.sources_summary_songs, number.format(totalSongs)))
+        }
+        if (nebula.manifestUrl != null) {
+            if (isNotEmpty()) append(" · ")
+            append("Nebula")
+        }
         if (catalog) {
             if (isNotEmpty()) append(" · ")
             append("Deezer / Apple Music")
         }
-        if (isEmpty()) append("Folders on this device, Google Drive, Navidrome, Deezer & Apple Music")
+        if (isEmpty()) append(stringResource(R.string.sources_summary_empty))
     }
     Card(Modifier.fillMaxWidth().clickable(onClick = onOpen)) {
         Row(Modifier.padding(horizontal = 12.dp, vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -330,7 +383,7 @@ fun MusicSourcesScreen(
         TopAppBar(
             windowInsets = NoTopInsets,
             title = { Text(stringResource(R.string.sources_title)) },
-            navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back") } },
+            navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, stringResource(R.string.action_back)) } },
         )
         Column(
             Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 12.dp, vertical = 8.dp),
@@ -338,6 +391,9 @@ fun MusicSourcesScreen(
         ) {
             status?.let { Text(it, color = MaterialTheme.colorScheme.primary) }
             error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
+
+            // 1. Storage & Servers
+            SettingsSectionHeader(stringResource(R.string.settings_section_storage))
 
             SourceCard(
                 stringResource(R.string.sources_saf_title),
@@ -392,14 +448,31 @@ fun MusicSourcesScreen(
                         if (driveFolders.isNotEmpty()) OutlinedButton(onClick = { vm.refreshDrive() }) { Text(stringResource(R.string.action_sync)) }
                     }
                     if (driveFolders.isNotEmpty()) {
-                        Text(stringResource(R.string.sources_sync_card_title), style = MaterialTheme.typography.labelLarge, modifier = Modifier.padding(top = 8.dp))
-                        DriveSyncMode.entries.forEach { mode ->
-                            Row(
-                                Modifier.fillMaxWidth().selectable(selected = syncMode == mode, onClick = { vm.setSyncMode(mode) }),
-                                verticalAlignment = Alignment.CenterVertically,
-                            ) {
-                                RadioButton(selected = syncMode == mode, onClick = null)
-                                Text(stringResource(mode.labelRes), Modifier.padding(start = 8.dp))
+                        Text(
+                            stringResource(R.string.sources_sync_card_title),
+                            style = MaterialTheme.typography.labelLarge,
+                            modifier = Modifier.padding(top = 6.dp, bottom = 2.dp),
+                        )
+                        CompositionLocalProvider(LocalMinimumInteractiveComponentSize provides Dp.Unspecified) {
+                            DriveSyncMode.entries.forEach { mode ->
+                                Row(
+                                    Modifier
+                                        .fillMaxWidth()
+                                        .selectable(selected = syncMode == mode, onClick = { vm.setSyncMode(mode) })
+                                        .padding(vertical = 1.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                ) {
+                                    RadioButton(
+                                        selected = syncMode == mode,
+                                        onClick = null,
+                                        modifier = Modifier.scale(0.8f),
+                                    )
+                                    Text(
+                                        stringResource(mode.labelRes),
+                                        style = MaterialTheme.typography.bodySmall,
+                                        modifier = Modifier.padding(start = 2.dp),
+                                    )
+                                }
                             }
                         }
                         Text(
@@ -426,7 +499,48 @@ fun MusicSourcesScreen(
 
             ServerCard(vm)
 
+            // 2. Music Add-ons
+            SettingsSectionHeader(
+                title = stringResource(R.string.settings_section_addons),
+                subtitle = stringResource(R.string.settings_section_addons_desc),
+            )
+
             NebulaCard(vm)
+
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                colors = CardDefaults.cardColors(
+                    containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f),
+                ),
+            ) {
+                Row(
+                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                ) {
+                    Icon(
+                        Icons.Outlined.AddCircleOutline,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(20.dp),
+                    )
+                    Column {
+                        Text(
+                            stringResource(R.string.sources_more_addons_title),
+                            style = MaterialTheme.typography.labelMedium,
+                            fontWeight = FontWeight.SemiBold,
+                        )
+                        Text(
+                            stringResource(R.string.sources_more_addons_subtitle),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                }
+            }
+
+            // 3. Public Catalog & Discovery
+            SettingsSectionHeader(stringResource(R.string.settings_section_catalog))
 
             CatalogSourceCard(vm)
         }
@@ -584,16 +698,15 @@ private fun HistoryImport(counts: ScrobbleCounts?, status: ImportStatus, onImpor
 @Composable
 private fun LovedTracks(status: ImportStatus, onImport: () -> Unit) {
     HorizontalDivider(Modifier.padding(vertical = 4.dp))
-    Text("Loved tracks", style = MaterialTheme.typography.labelLarge)
+    Text(stringResource(R.string.sources_lastfm_loved_tracks_title), style = MaterialTheme.typography.labelLarge)
     Text(
-        "Favouriting a song loves it on Last.fm, and removing it unloves it. Import your loved tracks " +
-            "to add those in your library to your favourites.",
+        stringResource(R.string.sources_lastfm_loved_tracks_desc),
         style = MaterialTheme.typography.bodySmall,
         color = MaterialTheme.colorScheme.onSurfaceVariant,
     )
     status.text?.takeIf { status.loved }?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary) }
     Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-        OutlinedButton(onClick = onImport, enabled = !status.running) { Text("Import loved tracks") }
+        OutlinedButton(onClick = onImport, enabled = !status.running) { Text(stringResource(R.string.sources_lastfm_import_loved_button)) }
         if (status.running && status.loved) CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp)
     }
 }
@@ -606,7 +719,7 @@ private fun FolderRow(icon: androidx.compose.ui.graphics.vector.ImageVector, lab
     Row(verticalAlignment = Alignment.CenterVertically) {
         Icon(icon, null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
         Text(label, Modifier.weight(1f).padding(start = 8.dp), maxLines = 2, overflow = TextOverflow.Ellipsis)
-        IconButton(onClick = onRemove) { Icon(Icons.Default.Delete, "Remove folder") }
+        IconButton(onClick = onRemove) { Icon(Icons.Default.Delete, stringResource(R.string.sources_folder_remove_cd)) }
     }
 }
 
@@ -639,6 +752,7 @@ private fun LanguageCard(vm: LibraryViewModel) {
 @Composable
 private fun AppearanceCard(vm: LibraryViewModel) {
     val dark by vm.darkMode.collectAsState()
+    val accentColor by vm.accentColor.collectAsState()
     val fullCover by vm.fullScreenCover.collectAsState()
     SourceCard(stringResource(R.string.settings_appearance_title), stringResource(R.string.settings_appearance_subtitle)) {
         SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
@@ -650,6 +764,21 @@ private fun AppearanceCard(vm: LibraryViewModel) {
                 ) { Text(label) }
             }
         }
+        Text(
+            stringResource(R.string.settings_accent_color_title),
+            style = MaterialTheme.typography.labelMedium,
+            modifier = Modifier.padding(top = 4.dp),
+        )
+        SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
+            listOf("red" to stringResource(R.string.settings_accent_color_red), "blue" to stringResource(R.string.settings_accent_color_blue)).forEachIndexed { index, (colorKey, label) ->
+                SegmentedButton(
+                    selected = accentColor == colorKey,
+                    onClick = { vm.setAccentColor(colorKey) },
+                    shape = SegmentedButtonDefaults.itemShape(index, 2),
+                ) { Text(label) }
+            }
+        }
+        HorizontalDivider(Modifier.padding(vertical = 4.dp))
         Row(verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) {
                 Text(stringResource(R.string.settings_edge_to_edge_title))
@@ -686,11 +815,13 @@ private fun SonosPlaybackCard(vm: LibraryViewModel) {
 }
 
 @Composable
-internal fun SourceCard(title: String, subtitle: String, content: @Composable () -> Unit) {
+internal fun SourceCard(title: String, subtitle: String? = null, content: @Composable () -> Unit) {
     Card(Modifier.fillMaxWidth()) {
         Column(Modifier.padding(horizontal = 14.dp, vertical = 12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
             Text(title, style = MaterialTheme.typography.titleMedium)
-            Text(subtitle, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            if (!subtitle.isNullOrBlank()) {
+                Text(subtitle, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
             content()
         }
     }
@@ -716,11 +847,12 @@ internal fun relativeTime(time: Long): String {
 }
 
 /** "content://.../tree/primary%3AMusic%2FFLAC" -> "Internal storage / Music/FLAC" */
+@Composable
 private fun folderLabel(uri: String): String {
     val docId = Uri.parse(uri).lastPathSegment ?: return uri
     val volume = docId.substringBefore(':')
     val path = docId.substringAfter(':', "")
-    val volumeName = if (volume == "primary") "Internal storage" else "Storage $volume"
+    val volumeName = if (volume == "primary") stringResource(R.string.sources_saf_storage_internal) else stringResource(R.string.sources_saf_storage_external, volume)
     return if (path.isEmpty()) volumeName else "$volumeName / $path"
 }
 
@@ -737,9 +869,9 @@ fun DriveFolderPickerScreen(vm: LibraryViewModel, onClose: () -> Unit, contentPa
         TopAppBar(
             windowInsets = NoTopInsets,
             title = {
-                Text(current?.name ?: "Choose a Drive folder", maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text(current?.name ?: stringResource(R.string.sources_drive_choose_folder_title), maxLines = 1, overflow = TextOverflow.Ellipsis)
             },
-            navigationIcon = { IconButton(onClick = back) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back") } },
+            navigationIcon = { IconButton(onClick = back) { Icon(Icons.AutoMirrored.Filled.ArrowBack, stringResource(R.string.action_back)) } },
         )
         if (state.path.size > 1) {
             Text(
@@ -760,7 +892,7 @@ fun DriveFolderPickerScreen(vm: LibraryViewModel, onClose: () -> Unit, contentPa
                 else -> {
                     val entries = if (state.path.isEmpty()) DriveBrowserState.TOP_LEVEL else state.children
                     if (entries.isEmpty()) {
-                        Text("No sub-folders", Modifier.align(Alignment.Center), color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text(stringResource(R.string.sources_drive_no_subfolders), Modifier.align(Alignment.Center), color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                     LazyColumn(Modifier.fillMaxSize()) {
                         items(entries, key = { it.id }) { folder ->
@@ -789,7 +921,7 @@ fun DriveFolderPickerScreen(vm: LibraryViewModel, onClose: () -> Unit, contentPa
                 enabled = canSelect,
                 modifier = Modifier.fillMaxWidth().padding(16.dp),
             ) {
-                Text(if (canSelect) "Use “${current.name}”" else "Open a folder to select it", maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text(if (canSelect) stringResource(R.string.sources_drive_use_folder, current.name) else stringResource(R.string.sources_drive_open_folder_to_select), maxLines = 1, overflow = TextOverflow.Ellipsis)
             }
         }
     }

@@ -703,8 +703,10 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
     val darkMode = settings.darkMode
+    val accentColor = settings.accentColor
     val fullScreenCover = settings.fullScreenCover
     fun setDarkMode(enabled: Boolean) = settings.setDarkMode(enabled)
+    fun setAccentColor(color: String) = settings.setAccentColor(color)
     fun setFullScreenCover(enabled: Boolean) = settings.setFullScreenCover(enabled)
     val sonosDownsample = settings.sonosDownsample
     fun setSonosDownsample(enabled: Boolean) = settings.setSonosDownsample(enabled)

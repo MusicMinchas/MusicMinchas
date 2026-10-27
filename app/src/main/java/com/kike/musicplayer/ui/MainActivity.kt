@@ -128,6 +128,7 @@ class MainActivity : ComponentActivity() {
         enableEdgeToEdge()
         setContent {
             val dark by libraryVm.darkMode.collectAsState()
+            val accentColor by libraryVm.accentColor.collectAsState()
             val language by libraryVm.language.collectAsState()
             var initialLanguage by remember { mutableStateOf<String?>(null) }
             LaunchedEffect(language) {
@@ -137,7 +138,7 @@ class MainActivity : ComponentActivity() {
                     recreate()
                 }
             }
-            MusicPlayerTheme(dark) { App() }
+            MusicPlayerTheme(dark = dark, accentColor = accentColor) { App() }
         }
         handleLastFmCallback(intent)
     }

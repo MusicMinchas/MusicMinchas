@@ -54,11 +54,7 @@ internal fun NebulaCard(vm: LibraryViewModel) {
 
     SourceCard(
         title = stringResource(R.string.nebula_card_title),
-        subtitle = if (!connected) {
-            stringResource(R.string.nebula_card_subtitle_disconnected)
-        } else {
-            stringResource(R.string.nebula_card_subtitle_connected, state.addonName ?: "Nebula")
-        },
+        subtitle = if (!connected) stringResource(R.string.nebula_card_subtitle_disconnected) else null,
     ) {
         state.message?.let {
             Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
@@ -103,7 +99,7 @@ internal fun NebulaCard(vm: LibraryViewModel) {
 
                 Column(Modifier.weight(1f)) {
                     Text(
-                        state.addonName ?: "Nebula (Tidal - Torrents)",
+                        state.addonName ?: stringResource(R.string.sources_nebula),
                         style = MaterialTheme.typography.bodyLarge,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
