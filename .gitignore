@@ -10,3 +10,5 @@ keystore.properties
 releases/
 lastfm.properties
 ticketmaster.properties
+__pycache__/
+*.pyc

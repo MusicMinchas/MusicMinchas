@@ -32,6 +32,9 @@ import androidx.compose.material.icons.filled.Category
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Repeat
 import androidx.compose.material.icons.filled.Schedule
+import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.res.pluralStringResource
+import com.kike.musicplayer.R
 import androidx.compose.material.icons.filled.Shuffle
 import androidx.compose.material3.Button
 import androidx.compose.material3.DropdownMenu
@@ -93,7 +96,7 @@ fun ReplayScreen(
         val r = replay
         TopAppBar(
             windowInsets = NoTopInsets,
-            title = { Text("Replay") },
+            title = { Text(stringResource(R.string.replay_title)) },
             navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back") } },
             actions = { if (r != null) YearPicker(r) { libraryVm.setReplayPeriod(ReplayPeriod(it)) } },
         )
@@ -121,7 +124,7 @@ fun ReplayScreen(
             if (r.plays == 0) {
                 item {
                     Text(
-                        "No plays counted in $label yet. A song counts once you've listened to half of it.",
+                        stringResource(R.string.replay_empty_plays, label),
                         Modifier.padding(16.dp),
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
@@ -129,7 +132,7 @@ fun ReplayScreen(
                 return@LazyColumn
             }
             if (r.topArtists.isNotEmpty()) {
-                item { SectionTitle("Top artists") }
+                item { SectionTitle(stringResource(R.string.replay_top_artists)) }
                 item {
                     LazyRow(contentPadding = PaddingValues(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
                         itemsIndexed(r.topArtists, key = { _, a -> a.name }) { i, artist ->
@@ -150,7 +153,7 @@ fun ReplayScreen(
                 }
             }
             if (r.topAlbums.isNotEmpty()) {
-                item { SectionTitle("Top albums") }
+                item { SectionTitle(stringResource(R.string.replay_top_albums)) }
                 item {
                     LazyRow(contentPadding = PaddingValues(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                         itemsIndexed(r.topAlbums, key = { _, a -> a.key }) { i, album ->
@@ -170,7 +173,7 @@ fun ReplayScreen(
                 }
             }
             if (r.topTracks.isNotEmpty()) {
-                item { SectionTitle("Top songs") }
+                item { SectionTitle(stringResource(R.string.replay_top_songs)) }
                 val top = r.topTracks.first().plays.toFloat()
                 val shown = if (allSongs) r.topTracks else r.topTracks.take(TOP_SONGS)
                 itemsIndexed(shown, key = { _, t -> "t" + t.item.id }) { index, ranked ->
@@ -189,12 +192,12 @@ fun ReplayScreen(
                 if (r.topTracks.size > TOP_SONGS) {
                     item {
                         TextButton(onClick = { allSongs = !allSongs }, Modifier.padding(start = 8.dp)) {
-                            Text(if (allSongs) "Show top $TOP_SONGS" else "Show all ${r.topTracks.size}")
+                            Text(if (allSongs) stringResource(R.string.replay_show_top, TOP_SONGS) else stringResource(R.string.replay_show_all, r.topTracks.size))
                         }
                     }
                 }
             }
-            item { SectionTitle("Insights") }
+            item { SectionTitle(stringResource(R.string.replay_insights)) }
             item { Insights(r) }
         }
     }
@@ -219,26 +222,26 @@ private fun YearPicker(r: Replay, onPick: (Int) -> Unit) {
 @Composable
 private fun Header(r: Replay, label: String, onPlay: () -> Unit, onShuffle: () -> Unit, onSave: () -> Unit) {
     Surface(
-        Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
+        Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp),
         shape = RoundedCornerShape(24.dp),
         color = MaterialTheme.colorScheme.primaryContainer,
         contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
     ) {
-        Column(Modifier.padding(20.dp)) {
+        Column(Modifier.padding(horizontal = 12.dp, vertical = 18.dp)) {
             Text(label, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
             comparison(r)?.let { Text(it, style = MaterialTheme.typography.bodyMedium) }
-            Row(Modifier.fillMaxWidth().padding(top = 16.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                StatTile(compact(r.plays.toLong()), if (r.plays == 1) "play" else "plays")
-                StatTile(hours(r.listenedMs), "listened")
-                StatTile(compact(r.artists.toLong()), if (r.artists == 1) "artist" else "artists")
+            Row(Modifier.fillMaxWidth().padding(top = 16.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                StatTile(compact(r.plays.toLong()), stringResource(R.string.replay_stat_plays))
+                StatTile(hours(r.listenedMs), stringResource(R.string.replay_stat_listened))
+                StatTile(compact(r.artists.toLong()), stringResource(R.string.replay_stat_artists))
             }
             if (r.topTracks.isNotEmpty()) {
                 Row(Modifier.padding(top = 16.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     Button(onClick = onPlay) {
-                        Icon(Icons.Default.PlayArrow, null); Spacer(Modifier.width(4.dp)); Text("Play top ${r.topTracks.size}")
+                        Icon(Icons.Default.PlayArrow, null); Spacer(Modifier.width(4.dp)); Text(stringResource(R.string.replay_play_top, r.topTracks.size))
                     }
-                    FilledTonalIconButton(onClick = onShuffle) { Icon(Icons.Default.Shuffle, "Shuffle top songs") }
-                    FilledTonalIconButton(onClick = onSave) { Icon(Icons.AutoMirrored.Filled.PlaylistAdd, "Save as playlist") }
+                    FilledTonalIconButton(onClick = onShuffle) { Icon(Icons.Default.Shuffle, stringResource(R.string.replay_shuffle_top)) }
+                    FilledTonalIconButton(onClick = onSave) { Icon(Icons.AutoMirrored.Filled.PlaylistAdd, stringResource(R.string.replay_save_as_playlist)) }
                 }
             }
         }
@@ -248,10 +251,27 @@ private fun Header(r: Replay, label: String, onPlay: () -> Unit, onShuffle: () -
 @Composable
 private fun RowScope.StatTile(value: String, label: String) {
     Column(
-        Modifier.weight(1f).clip(RoundedCornerShape(12.dp)).background(MaterialTheme.colorScheme.surface).padding(horizontal = 12.dp, vertical = 8.dp),
+        Modifier
+            .weight(1f)
+            .clip(RoundedCornerShape(12.dp))
+            .background(MaterialTheme.colorScheme.surface)
+            .padding(horizontal = 8.dp, vertical = 8.dp),
     ) {
-        Text(value, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface, maxLines = 1, softWrap = false)
-        Text(label, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Text(
+            text = value,
+            style = MaterialTheme.typography.titleMedium,
+            fontWeight = FontWeight.Bold,
+            color = MaterialTheme.colorScheme.onSurface,
+            maxLines = 1,
+            softWrap = false,
+        )
+        Text(
+            text = label,
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
     }
 }
 
@@ -262,10 +282,10 @@ private fun MonthChart(r: Replay, onPick: (Int) -> Unit, onWholeYear: () -> Unit
     Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text(
-                "Plays per month", Modifier.weight(1f),
+                stringResource(R.string.replay_plays_per_month), Modifier.weight(1f),
                 style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
-            if (r.period.month != null) TextButton(onClick = onWholeYear) { Text("Whole ${r.period.year}") }
+            if (r.period.month != null) TextButton(onClick = onWholeYear) { Text(stringResource(R.string.replay_whole_year, r.period.year)) }
         }
         Row(Modifier.fillMaxWidth().height(96.dp), verticalAlignment = Alignment.Bottom, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
             r.monthPlays.forEachIndexed { i, n ->
@@ -315,13 +335,13 @@ private fun RankBadge(rank: Int, modifier: Modifier = Modifier) {
 @Composable
 private fun Insights(r: Replay) {
     val tiles = buildList {
-        if (r.newArtists > 0) add(Triple(Icons.Default.AutoAwesome, "New to you", if (r.newArtists == 1) "1 artist" else "${r.newArtists} artists"))
-        r.peakHour?.let { add(Triple(Icons.Default.Schedule, "Peak hour", "%02d:00–%02d:00".format(it, (it + 1) % 24))) }
+        if (r.newArtists > 0) add(Triple(Icons.Default.AutoAwesome, stringResource(R.string.replay_insight_new_to_you), count(r.newArtists, "artist")))
+        r.peakHour?.let { add(Triple(Icons.Default.Schedule, stringResource(R.string.replay_insight_peak_hour), "%02d:00–%02d:00".format(it, (it + 1) % 24))) }
         r.onRepeat?.let {
             val day = it.day.format(DateTimeFormatter.ofPattern("d MMM", Locale.getDefault()))
-            add(Triple(Icons.Default.Repeat, "On repeat", "${it.track.title} · ${it.plays}× on $day"))
+            add(Triple(Icons.Default.Repeat, stringResource(R.string.replay_insight_on_repeat), stringResource(R.string.replay_insight_on_repeat_desc, it.track.title, it.plays, day)))
         }
-        r.topGenre?.let { add(Triple(Icons.Default.Category, "Top genre", it)) }
+        r.topGenre?.let { add(Triple(Icons.Default.Category, stringResource(R.string.replay_insight_top_genre), it)) }
     }
     Column(Modifier.padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
         tiles.chunked(2).forEach { pair ->
@@ -347,12 +367,13 @@ private fun RowScope.InsightTile(icon: ImageVector, title: String, value: String
 }
 
 /** "+12% vs September", "−30% vs 2025", or null when there is nothing to compare with. */
+@Composable
 private fun comparison(r: Replay): String? {
     val before = r.previousPlays ?: return null
     if (r.plays == 0) return null
     val change = ((r.plays - before) * 100.0 / before).toInt()
     val previous = r.period.month?.let { monthName(if (it == 1) 12 else it - 1, TextStyle.FULL) } ?: "${r.period.year - 1}"
-    return "${if (change >= 0) "+" else "−"}${kotlin.math.abs(change)}% plays vs $previous"
+    return stringResource(R.string.replay_comparison, if (change >= 0) "+" else "−", kotlin.math.abs(change), previous)
 }
 
 private const val TOP_SONGS = 10

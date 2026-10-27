@@ -30,6 +30,8 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.ui.res.pluralStringResource
+import com.kike.musicplayer.R
 import androidx.compose.runtime.Composable
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.fillMaxHeight
@@ -37,6 +39,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.ui.res.stringResource
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.TextButton
@@ -382,6 +385,15 @@ fun sourceName(source: String): String = when (source) {
     else -> "On this device"
 }
 
+@Composable
+fun count(n: Int, noun: String): String = when (noun) {
+    "song" -> pluralStringResource(R.plurals.songs_count, n, n)
+    "album" -> pluralStringResource(R.plurals.albums_count, n, n)
+    "artist" -> pluralStringResource(R.plurals.artists_count, n, n)
+    "play" -> pluralStringResource(R.plurals.plays_count, n, n)
+    else -> if (n == 1) "1 $noun" else "$n ${noun}s"
+}
+
 /** A small submarine (Subsonic), drawn on the 24-unit grid of the Material icons. */
 val SubmarineIcon: ImageVector by lazy {
     ImageVector.Builder("Submarine", 24.dp, 24.dp, 24f, 24f).apply {
@@ -484,27 +496,27 @@ fun TrackRow(
         Box {
             IconButton(onClick = { menu = true }) { Icon(Icons.Default.MoreVert, "More") }
             DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
-                DropdownMenuItem(text = { Text("Play next") }, onClick = { menu = false; onPlayNext() })
-                DropdownMenuItem(text = { Text("Add to queue") }, onClick = { menu = false; onAddToQueue() })
+                DropdownMenuItem(text = { Text(stringResource(R.string.action_play_next)) }, onClick = { menu = false; onPlayNext() })
+                DropdownMenuItem(text = { Text(stringResource(R.string.action_add_to_queue)) }, onClick = { menu = false; onAddToQueue() })
                 DropdownMenuItem(
-                    text = { Text(if (track.id in favourites.ids) "Remove from Favourites" else "Add to Favourites") },
+                    text = { Text(if (track.id in favourites.ids) stringResource(R.string.action_remove_from_favourites) else stringResource(R.string.action_add_to_favourites)) },
                     onClick = { menu = false; favourites.toggle(track.id, track) },
                 )
-                DropdownMenuItem(text = { Text("Add to playlist…") }, onClick = { menu = false; addToPlaylist = true })
+                DropdownMenuItem(text = { Text(stringResource(R.string.action_add_to_playlist)) }, onClick = { menu = false; addToPlaylist = true })
                 onRemoveFromPlaylist?.let { remove ->
-                    DropdownMenuItem(text = { Text("Remove from playlist") }, onClick = { menu = false; remove() })
+                    DropdownMenuItem(text = { Text(stringResource(R.string.action_remove_from_playlist)) }, onClick = { menu = false; remove() })
                 }
                 DropdownMenuItem(
-                    text = { Text("Go to Artist") },
+                    text = { Text(stringResource(R.string.action_go_to_artist)) },
                     onClick = { menu = false; navigation.openArtist(listOf(track.artist, track.albumArtist), track) },
                 )
                 if (track.album != null) {
-                    DropdownMenuItem(text = { Text("Go to Album") }, onClick = { menu = false; navigation.openAlbum(track.albumKey, track) })
+                    DropdownMenuItem(text = { Text(stringResource(R.string.action_go_to_album)) }, onClick = { menu = false; navigation.openAlbum(track.albumKey, track) })
                 }
                 if (track.isRemote) when (track.downloadState) {
-                    Track.DOWNLOADED -> DropdownMenuItem(text = { Text("Remove download") }, onClick = { menu = false; downloads.remove(track) })
+                    Track.DOWNLOADED -> DropdownMenuItem(text = { Text(stringResource(R.string.action_delete_download)) }, onClick = { menu = false; downloads.remove(track) })
                     Track.DOWNLOAD_QUEUED -> Unit
-                    else -> DropdownMenuItem(text = { Text("Download") }, onClick = { menu = false; downloads.download(listOf(track)) })
+                    else -> DropdownMenuItem(text = { Text(stringResource(R.string.action_download)) }, onClick = { menu = false; downloads.download(listOf(track)) })
                 }
             }
         }

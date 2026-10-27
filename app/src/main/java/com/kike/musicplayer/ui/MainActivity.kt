@@ -11,6 +11,11 @@ import androidx.compose.material3.Icon
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.platform.LocalContext
+import android.content.Context
+import androidx.compose.ui.res.stringResource
+import com.kike.musicplayer.R
+import android.app.LocaleManager
 import androidx.compose.ui.Alignment
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.fillMaxSize
@@ -87,11 +92,51 @@ class MainActivity : ComponentActivity() {
     private val libraryVm: LibraryViewModel by viewModels()
     private val playerVm: PlayerViewModel by viewModels()
 
+    override fun attachBaseContext(newBase: Context) {
+        val prefs = newBase.getSharedPreferences("settings", Context.MODE_PRIVATE)
+        val lang = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            val lm = newBase.getSystemService(LocaleManager::class.java)
+            val locales = lm?.applicationLocales
+            if (locales != null && !locales.isEmpty) {
+                val tag = locales[0].toLanguageTag().lowercase()
+                when {
+                    tag.startsWith("es") -> "es"
+                    tag.startsWith("en") -> "en"
+                    else -> "system"
+                }
+            } else {
+                prefs.getString("app_language", "system") ?: "system"
+            }
+        } else {
+            prefs.getString("app_language", "system") ?: "system"
+        }
+
+        val context = if (lang != "system") {
+            val locale = java.util.Locale.forLanguageTag(lang)
+            val config = android.content.res.Configuration(newBase.resources.configuration)
+            config.setLocale(locale)
+            config.setLayoutDirection(locale)
+            newBase.createConfigurationContext(config)
+        } else {
+            newBase
+        }
+        super.attachBaseContext(context)
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         setContent {
             val dark by libraryVm.darkMode.collectAsState()
+            val language by libraryVm.language.collectAsState()
+            var initialLanguage by remember { mutableStateOf<String?>(null) }
+            LaunchedEffect(language) {
+                if (initialLanguage == null) {
+                    initialLanguage = language
+                } else if (initialLanguage != language) {
+                    recreate()
+                }
+            }
             MusicPlayerTheme(dark) { App() }
         }
         handleLastFmCallback(intent)
@@ -361,12 +406,13 @@ class MainActivity : ComponentActivity() {
                         Screen.NowPlaying -> NowPlayingScreen(playerVm, ::pop, { push(Screen.Queue) }, padding, fullCover)
                         Screen.Queue -> QueueScreen(playerVm, ::pop, padding)
                         Screen.DriveFolders -> DriveFolderPickerScreen(libraryVm, ::pop, padding)
-                        Screen.RecentTracks -> TrackListScreen("Recently Played", playlists.recentTracks, playerVm, ::pop, padding)
-                        Screen.HeavyRotation -> TrackListScreen("Heavy Rotation", playlists.heavyRotation.map { it.item }, playerVm, ::pop, padding)
+                        Screen.RecentTracks -> TrackListScreen(stringResource(R.string.home_recently_played), playlists.recentTracks, playerVm, ::pop, padding)
+                        Screen.HeavyRotation -> TrackListScreen(stringResource(R.string.home_heavy_rotation), playlists.heavyRotation.map { it.item }, playerVm, ::pop, padding)
                         Screen.MostPlayed -> {
                             val counts = playlists.mostPlayed.associate { it.item.id to it.plays }
-                            TrackListScreen("Most Played", playlists.mostPlayed.map { it.item }, playerVm, ::pop, padding) { t ->
-                                counts[t.id]?.let { if (it == 1) "1 play" else "$it plays" }
+                            val res = androidx.compose.ui.platform.LocalContext.current.resources
+                            TrackListScreen(stringResource(R.string.home_most_played), playlists.mostPlayed.map { it.item }, playerVm, ::pop, padding) { t ->
+                                counts[t.id]?.let { res.getQuantityString(R.plurals.plays_count, it, it) }
                             }
                         }
                         Screen.NewPlaylist -> NewPlaylistScreen(libraryVm, null, onDone = ::pop, onBack = ::pop, contentPadding = padding)
@@ -377,7 +423,7 @@ class MainActivity : ComponentActivity() {
                             userPlaylists.firstOrNull { it.id == screen.id }, libraryVm, playerVm,
                             onAddSongs = { push(Screen.AddToPlaylist(screen.id)) }, onBack = ::pop, contentPadding = padding,
                         )
-                        Screen.Favourites -> TrackListScreen("Favourite Songs", playlists.favourites, playerVm, ::pop, padding)
+                        Screen.Favourites -> TrackListScreen(stringResource(R.string.home_favourites), playlists.favourites, playerVm, ::pop, padding)
                         Screen.Replay -> ReplayScreen(libraryVm, playerVm, onOpenAlbum = { push(Screen.AlbumDetail(it)) }, onBack = ::pop, contentPadding = padding)
                         is Screen.GenreDetail -> GenreScreen(
                             screen.key, libraryVm, playerVm,
@@ -385,14 +431,21 @@ class MainActivity : ComponentActivity() {
                         )
                         is Screen.MixDetail -> {
                             val mix = mixes.firstOrNull { it.id == screen.id }
-                            TrackListScreen(mix?.title ?: "", mix?.tracks, playerVm, ::pop, padding, subtitle = mix?.subtitle)
+                            TrackListScreen(
+                                title = mix?.let { mixDisplayTitle(it) } ?: "",
+                                tracks = mix?.tracks,
+                                playerVm = playerVm,
+                                onBack = ::pop,
+                                contentPadding = padding,
+                                subtitle = mix?.let { mixDisplaySubtitle(it) },
+                            )
                         }
                         Screen.RecentAlbums -> AlbumListScreen(
-                            "Recently Played Albums", playlists.recentAlbums, playerVm, downloadable = true,
+                            stringResource(R.string.home_recently_played_albums), playlists.recentAlbums, playerVm, downloadable = true,
                             onOpenAlbum = { push(Screen.AlbumDetail(it)) }, onBack = ::pop, contentPadding = padding,
                         )
                         Screen.AddedAlbums -> AlbumListScreen(
-                            "Recently Added Albums", playlists.addedAlbums, playerVm, downloadable = true,
+                            stringResource(R.string.home_recently_added_albums), playlists.addedAlbums, playerVm, downloadable = true,
                             onOpenAlbum = { push(Screen.AlbumDetail(it)) }, onBack = ::pop, contentPadding = padding,
                         )
                         Screen.Mixes -> MixListScreen(mixes, playerVm, onOpenMix = { push(Screen.MixDetail(it)) }, onBack = ::pop, contentPadding = padding)

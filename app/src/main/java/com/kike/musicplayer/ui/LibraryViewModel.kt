@@ -708,6 +708,8 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
     fun setFullScreenCover(enabled: Boolean) = settings.setFullScreenCover(enabled)
     val sonosDownsample = settings.sonosDownsample
     fun setSonosDownsample(enabled: Boolean) = settings.setSonosDownsample(enabled)
+    val language = settings.language
+    fun setLanguage(tag: String) = settings.setLanguage(tag)
     val driveAccount = driveAuth.account
     val driveNeedsReconnect = driveAuth.needsReconnect
 

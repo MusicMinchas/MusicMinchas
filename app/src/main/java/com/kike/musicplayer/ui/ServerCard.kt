@@ -47,6 +47,8 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.res.stringResource
+import com.kike.musicplayer.R
 import java.text.NumberFormat
 
 /** Signing in to a Navidrome (or other Subsonic) server. */
@@ -60,10 +62,10 @@ internal fun ServerCard(vm: LibraryViewModel) {
 
     SourceCard(
         "Navidrome",
-        if (!connected) "Stream your music from your own Navidrome server or another Subsonic-compatible one"
+        if (!connected) stringResource(R.string.server_subtitle_disconnected)
         else buildString {
-            append("Connected as ${state.username} to ${state.server ?: "Navidrome"}")
-            state.songCount?.let { append(" · ${NumberFormat.getIntegerInstance().format(it)} songs on Navidrome") }
+            append(stringResource(R.string.server_connected_as, state.username ?: "", state.server ?: "Navidrome"))
+            state.songCount?.let { append(" · " + stringResource(R.string.server_songs_count, NumberFormat.getIntegerInstance().format(it))) }
         },
     ) {
         state.message?.let { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) }
@@ -80,7 +82,7 @@ internal fun ServerCard(vm: LibraryViewModel) {
             }
             if (state.checkedAt > 0) {
                 Text(
-                    "Navidrome last answered ${relativeTime(state.checkedAt)}",
+                    stringResource(R.string.server_last_answered, relativeTime(state.checkedAt)),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )

@@ -825,10 +825,10 @@ fun CatalogSectionScreen(
             windowInsets = NoTopInsets,
             title = {
                 Column {
-                    Text(section.title, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    Text(sectionDisplayTitle(section), maxLines = 1, overflow = TextOverflow.Ellipsis)
                     if (!section.subtitle.isNullOrBlank()) {
                         Text(
-                            section.subtitle,
+                            sectionDisplaySubtitle(section) ?: section.subtitle.orEmpty(),
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             maxLines = 1,

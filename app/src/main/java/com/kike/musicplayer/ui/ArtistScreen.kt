@@ -303,6 +303,6 @@ private fun FollowButton(following: Boolean, onClick: () -> Unit) {
     }
 }
 
-private fun count(n: Int, noun: String) = if (n == 1) "1 $noun" else "$n ${noun}s"
+
 
 private const val TOP_SONGS = 10

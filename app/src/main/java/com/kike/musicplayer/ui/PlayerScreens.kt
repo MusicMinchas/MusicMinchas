@@ -30,6 +30,8 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.QueueMusic
+import androidx.compose.ui.res.stringResource
+import com.kike.musicplayer.R
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Lyrics
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -151,7 +153,7 @@ fun MiniPlayer(playerVm: PlayerViewModel, onOpen: () -> Unit) {
 private fun PlayPauseIcon(s: PlayerUiState, onClick: () -> Unit) {
     IconButton(onClick = onClick) {
         if (s.isBuffering && !s.isPlaying) CircularProgressIndicator(Modifier.size(24.dp), strokeWidth = 2.dp)
-        else Icon(if (s.isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow, if (s.isPlaying) "Pause" else "Play")
+        else Icon(if (s.isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow, if (s.isPlaying) stringResource(R.string.player_pause) else stringResource(R.string.player_play))
     }
 }
 
@@ -488,13 +490,13 @@ private fun ColumnScope.NowPlayingDetails(
             else Icon(Icons.Default.Cast, "Play on a speaker", tint = MaterialTheme.colorScheme.onSurfaceVariant)
         }
         IconButton(onClick = onOpenQueue) {
-            Icon(Icons.AutoMirrored.Filled.QueueMusic, "Queue", tint = MaterialTheme.colorScheme.onSurfaceVariant)
+            Icon(Icons.AutoMirrored.Filled.QueueMusic, stringResource(R.string.player_queue), tint = MaterialTheme.colorScheme.onSurfaceVariant)
         }
     }
     s.upNext.firstOrNull()?.let { next ->
         // A slim line rather than a full-height button, so it fits under the big cover.
         Text(
-            "Up next: ${next.item.mediaMetadata.title}", maxLines = 1, overflow = TextOverflow.Ellipsis,
+            stringResource(R.string.player_up_next, next.item.mediaMetadata.title ?: ""), maxLines = 1, overflow = TextOverflow.Ellipsis,
             color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.labelLarge,
             modifier = Modifier.clip(RoundedCornerShape(8.dp)).clickable(onClick = onOpenQueue)
                 .padding(horizontal = 12.dp, vertical = 6.dp),
@@ -581,7 +583,7 @@ private fun CastSheet(playerVm: PlayerViewModel, onDismiss: () -> Unit) {
                             modifier = Modifier.size(22.dp),
                         )
                         Text(
-                            "Sample rates higher than 48 kHz$rateStr are not supported by Sonos. Enable hi-res downsampling in Settings to play on Sonos.",
+                            stringResource(R.string.sonos_hires_not_supported_warning, rateStr),
                             style = MaterialTheme.typography.bodyMedium,
                             color = MaterialTheme.colorScheme.onErrorContainer,
                         )
@@ -771,7 +773,7 @@ fun QueueScreen(playerVm: PlayerViewModel, onBack: () -> Unit, contentPadding: P
     Column(Modifier.fillMaxSize().padding(contentPadding)) {
         TopAppBar(
             windowInsets = NoTopInsets,
-            title = { Text("Queue") },
+            title = { Text(stringResource(R.string.queue_title)) },
             navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.Default.KeyboardArrowDown, "Close") } },
             actions = { if (s.upNext.isNotEmpty()) TextButton(onClick = { playerVm.clearUpNext() }) { Text("Clear") } },
         )
@@ -784,7 +786,7 @@ fun QueueScreen(playerVm: PlayerViewModel, onBack: () -> Unit, contentPadding: P
             }
             item(key = "header") {
                 SectionHeader(
-                    if (s.shuffle) "Up next (shuffled — turn shuffle off to reorder)" else "Up next · ${items.size}"
+                    if (s.shuffle) stringResource(R.string.queue_up_next_shuffled) else stringResource(R.string.queue_up_next_count, items.size)
                 )
             }
             items(items, key = { "q${it.playlistIndex}" }) { entry ->

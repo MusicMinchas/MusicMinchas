@@ -32,6 +32,8 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import sh.calvin.reorderable.ReorderableItem
 import sh.calvin.reorderable.rememberReorderableLazyListState
 import androidx.compose.material.icons.filled.Clear
+import androidx.compose.ui.res.stringResource
+import com.kike.musicplayer.R
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Checkbox
@@ -112,7 +114,7 @@ fun NewPlaylistScreen(
                 windowInsets = NoTopInsets,
                 title = {
                     Column {
-                        Text(existing?.let { "Add to ${it.name}" } ?: "New playlist", maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        Text(existing?.let { "Add to ${it.name}" } ?: stringResource(R.string.playlist_new), maxLines = 1, overflow = TextOverflow.Ellipsis)
                         Text(
                             if (selected.isEmpty()) "Tick the songs to add" else if (selected.size == 1) "1 song selected" else "${selected.size} songs selected",
                             style = MaterialTheme.typography.bodySmall,
@@ -190,7 +192,7 @@ fun NewPlaylistScreen(
                     libraryVm.createPlaylist(name, selected.toList())
                     naming = false
                     onDone()
-                }) { Text("Create") }
+                }) { Text(stringResource(R.string.playlist_create)) }
             },
             dismissButton = { TextButton(onClick = { naming = false }) { Text("Cancel") } },
         )
@@ -204,10 +206,10 @@ fun RenamePlaylistDialog(current: String, onDismiss: () -> Unit, onRename: (Stri
     var name by remember { mutableStateOf(TextFieldValue(current, TextRange(current.length))) }
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("Rename playlist") },
+        title = { Text(stringResource(R.string.playlist_rename_title)) },
         text = { OutlinedTextField(value = name, onValueChange = { name = it }, singleLine = true) },
         confirmButton = {
-            TextButton(onClick = { onRename(name.text); onDismiss() }, enabled = name.text.isNotBlank()) { Text("Rename") }
+            TextButton(onClick = { onRename(name.text); onDismiss() }, enabled = name.text.isNotBlank()) { Text(stringResource(R.string.action_rename)) }
         },
         dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
     )
@@ -250,7 +252,7 @@ fun PlaylistScreen(
                 title = { Text(playlist?.name ?: "", maxLines = 1, overflow = TextOverflow.Ellipsis) },
                 navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back") } },
                 actions = {
-                    if (playlist != null) IconButton(onClick = { renaming = true }) { Icon(Icons.Default.Edit, "Rename") }
+                    if (playlist != null) IconButton(onClick = { renaming = true }) { Icon(Icons.Default.Edit, stringResource(R.string.action_rename)) }
                 },
             )
             if (playlist == null) return@Column

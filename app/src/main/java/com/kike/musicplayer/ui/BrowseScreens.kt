@@ -309,4 +309,4 @@ internal fun AlphabetBar(jumps: List<Jump>, modifier: Modifier = Modifier, onJum
     }
 }
 
-private fun count(n: Int, noun: String) = if (n == 1) "1 $noun" else "$n ${noun}s"
+

@@ -9,6 +9,7 @@ import android.content.pm.ServiceInfo
 import android.os.IBinder
 import androidx.core.app.NotificationCompat
 import androidx.core.app.ServiceCompat
+import com.kike.musicplayer.R
 import com.kike.musicplayer.container
 import com.kike.musicplayer.ui.MainActivity
 import kotlinx.coroutines.CoroutineScope
@@ -29,7 +30,7 @@ class DownloadService : Service() {
     override fun onCreate() {
         super.onCreate()
         notifications = getSystemService(NotificationManager::class.java)
-        notifications.createNotificationChannel(NotificationChannel(CHANNEL, "Downloads", NotificationManager.IMPORTANCE_LOW))
+        notifications.createNotificationChannel(NotificationChannel(CHANNEL, getString(R.string.channel_downloads_name), NotificationManager.IMPORTANCE_LOW))
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {

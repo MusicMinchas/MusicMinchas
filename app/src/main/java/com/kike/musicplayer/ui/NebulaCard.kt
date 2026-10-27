@@ -40,6 +40,8 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import coil3.compose.SubcomposeAsyncImage
+import androidx.compose.ui.res.stringResource
+import com.kike.musicplayer.R
 
 /**
  * Settings card inside Music Sources for connecting a Stremio / Eclipse Music Nebula manifest URL.
@@ -51,11 +53,11 @@ internal fun NebulaCard(vm: LibraryViewModel) {
     var confirmDisconnect by remember { mutableStateOf(false) }
 
     SourceCard(
-        title = "Nebula add-on Manifest",
+        title = stringResource(R.string.nebula_card_title),
         subtitle = if (!connected) {
-            "Stream lossless FLAC audio via Torbox cache for music not in your library using your Eclipse / Stremio add-on manifest URL"
+            stringResource(R.string.nebula_card_subtitle_disconnected)
         } else {
-            "${state.addonName ?: "Nebula"} · Connected · Lossless FLAC"
+            stringResource(R.string.nebula_card_subtitle_connected, state.addonName ?: "Nebula")
         },
     ) {
         state.message?.let {
@@ -118,7 +120,7 @@ internal fun NebulaCard(vm: LibraryViewModel) {
                         overflow = TextOverflow.Ellipsis,
                     )
                     Text(
-                        "Quality: Lossless FLAC (Torbox cache)",
+                        stringResource(R.string.nebula_quality_badge),
                         style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.primary,
                     )
@@ -129,7 +131,7 @@ internal fun NebulaCard(vm: LibraryViewModel) {
                 onClick = { confirmDisconnect = true },
                 modifier = Modifier.padding(top = 4.dp),
             ) {
-                Text("Disconnect")
+                Text(stringResource(R.string.sources_disconnect))
             }
         }
     }
@@ -137,21 +139,21 @@ internal fun NebulaCard(vm: LibraryViewModel) {
     if (confirmDisconnect) {
         AlertDialog(
             onDismissRequest = { confirmDisconnect = false },
-            title = { Text("Disconnect Nebula add-on?") },
+            title = { Text(stringResource(R.string.nebula_disconnect_confirm)) },
             text = {
-                Text("MusicMinchas will stop streaming unowned tracks from Torbox. Your owned library songs are unaffected.")
+                Text(stringResource(R.string.nebula_disconnect_message))
             },
             confirmButton = {
                 TextButton(onClick = {
                     confirmDisconnect = false
                     vm.disconnectNebula()
                 }) {
-                    Text("Disconnect")
+                    Text(stringResource(R.string.sources_disconnect))
                 }
             },
             dismissButton = {
                 TextButton(onClick = { confirmDisconnect = false }) {
-                    Text("Cancel")
+                    Text(stringResource(R.string.action_cancel))
                 }
             },
         )
@@ -170,7 +172,7 @@ private fun NebulaConnectForm(
         OutlinedTextField(
             value = manifestUrl,
             onValueChange = { manifestUrl = it },
-            label = { Text("Add-on manifest URL") },
+            label = { Text(stringResource(R.string.nebula_manifest_url_label)) },
             placeholder = { Text("https://nebula.eclipsemusic.app/.../manifest.json") },
             singleLine = false,
             maxLines = 3,
@@ -202,7 +204,7 @@ private fun NebulaConnectForm(
                         color = MaterialTheme.colorScheme.onPrimary,
                     )
                 }
-                Text(if (busy) "Connecting…" else "Connect Add-on")
+                Text(if (busy) stringResource(R.string.nebula_connecting) else stringResource(R.string.nebula_connect_button))
             }
         }
     }

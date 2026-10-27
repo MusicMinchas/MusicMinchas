@@ -1,5 +1,8 @@
 package com.kike.musicplayer.ui
 
+import androidx.compose.ui.res.stringResource
+import com.kike.musicplayer.R
+
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.AlertDialog
@@ -92,7 +95,7 @@ fun SourcesScreen(
     Column(Modifier.fillMaxSize().padding(contentPadding)) {
         TopAppBar(
             windowInsets = NoTopInsets,
-            title = { Text("Settings") },
+            title = { Text(stringResource(R.string.settings_title)) },
             navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back") } },
         )
         Column(
@@ -104,46 +107,45 @@ fun SourcesScreen(
 
             MusicSourcesEntry(vm, onOpenMusicSources)
 
+            LanguageCard(vm)
+
             AppearanceCard(vm)
 
             SonosPlaybackCard(vm)
 
             SourceCard(
-                "Downloaded songs",
-                "Google Drive and Navidrome songs kept on the phone (Music/MusicMinchas), so they play without internet",
+                stringResource(R.string.sources_downloads),
+                stringResource(R.string.sources_downloads_subtitle),
             ) {
                 val songs = downloads?.songs ?: 0
                 Text(
-                    if (songs == 0) "No songs downloaded" else "${if (songs == 1) "1 song" else "$songs songs"} · ${formatBytes(downloads!!.bytes)}",
+                    if (songs == 0) stringResource(R.string.sources_downloads_none) else "${count(songs, "song")} · ${formatBytes(downloads!!.bytes)}",
                     style = MaterialTheme.typography.bodyMedium,
                 )
                 if (songs > 0) {
-                    OutlinedButton(onClick = { confirmDeleteDownloads = true }) { Text("Delete all downloads") }
+                    OutlinedButton(onClick = { confirmDeleteDownloads = true }) { Text(stringResource(R.string.sources_delete_all_downloads)) }
                 }
             }
             if (confirmDeleteDownloads) {
                 AlertDialog(
                     onDismissRequest = { confirmDeleteDownloads = false },
-                    title = { Text("Delete all downloads?") },
+                    title = { Text(stringResource(R.string.sources_delete_downloads_confirm)) },
                     text = {
-                        Text(
-                            "The ${downloads?.songs ?: 0} downloaded songs are removed from the phone and play from " +
-                                "Google Drive again. Plays, favourites and the files on Drive are not affected."
-                        )
+                        Text(stringResource(R.string.sources_delete_downloads_dialog_message, downloads?.songs ?: 0))
                     },
                     confirmButton = {
-                        TextButton(onClick = { confirmDeleteDownloads = false; vm.removeAllDownloads() }) { Text("Delete") }
+                        TextButton(onClick = { confirmDeleteDownloads = false; vm.removeAllDownloads() }) { Text(stringResource(R.string.action_delete)) }
                     },
-                    dismissButton = { TextButton(onClick = { confirmDeleteDownloads = false }) { Text("Cancel") } },
+                    dismissButton = { TextButton(onClick = { confirmDeleteDownloads = false }) { Text(stringResource(R.string.action_cancel)) } },
                 )
             }
 
             SourceCard(
                 "Last.fm",
                 when {
-                    lastFm.user != null -> "Connected as ${lastFm.user}"
-                    lastFm.awaitingApproval -> "Approve MusicMinchas on the Last.fm page, then come back here"
-                    else -> "Scrobble what you play and bring in your Last.fm history and loved tracks"
+                    lastFm.user != null -> stringResource(R.string.sources_lastfm_connected_as, lastFm.user!!)
+                    lastFm.awaitingApproval -> stringResource(R.string.sources_lastfm_awaiting_approval)
+                    else -> stringResource(R.string.sources_lastfm_subtitle_connected)
                 },
             ) {
                 lastFm.message?.let { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) }
@@ -152,13 +154,13 @@ fun SourcesScreen(
                         ScrobbleControls(scrobbling, pendingScrobbles, vm::setScrobbleSettings)
                         HistoryImport(scrobbleCounts, importStatus, vm::importScrobbles)
                         LovedTracks(importStatus, vm::importLoved)
-                        OutlinedButton(onClick = vm::disconnectLastFm) { Text("Disconnect") }
+                        OutlinedButton(onClick = vm::disconnectLastFm) { Text(stringResource(R.string.sources_disconnect)) }
                     }
                     lastFm.awaitingApproval -> Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Button(onClick = { vm.connectLastFm { uriHandler.openUri(it.toString()) } }) { Text("Open Last.fm again") }
-                        OutlinedButton(onClick = vm::cancelLastFmConnect) { Text("Cancel") }
+                        Button(onClick = { vm.connectLastFm { uriHandler.openUri(it.toString()) } }) { Text(stringResource(R.string.sources_lastfm_open_again)) }
+                        OutlinedButton(onClick = vm::cancelLastFmConnect) { Text(stringResource(R.string.action_cancel)) }
                     }
-                    else -> Button(onClick = { vm.connectLastFm { uriHandler.openUri(it.toString()) } }) { Text("Connect Last.fm") }
+                    else -> Button(onClick = { vm.connectLastFm { uriHandler.openUri(it.toString()) } }) { Text(stringResource(R.string.sources_lastfm_connect)) }
                 }
             }
 
@@ -180,40 +182,38 @@ private fun MetadataCard(
     val mb by vm.metaMusicBrainz.collectAsState()
     val anyOnline = deezer || apple || mb
     SourceCard(
-        "Metadata & cover art",
-        "Embedded tags and artwork are read from your files first. Missing artist photos, album covers, " +
-            "release years and genres are fetched dynamically as you browse Artists and Albums (rather than " +
-            "in bulk when music is added), using the providers switched on below in priority order.",
+        stringResource(R.string.sources_metadata_title),
+        stringResource(R.string.sources_metadata_intro),
     ) {
         ProviderToggleRow(
             title = "Deezer",
-            subtitle = "Artist photos (1000×1000), album covers, release years & genres (fast, up to 50 req / 5 s)",
+            subtitle = stringResource(R.string.sources_metadata_deezer_subtitle),
             checked = deezer,
             onCheckedChange = vm::setMetaDeezer,
         )
         HorizontalDivider(Modifier.padding(vertical = 2.dp))
         ProviderToggleRow(
             title = "Apple Music",
-            subtitle = "Album covers (1000×1000), track-level genres, release years & Album Artist (~20 req / min)",
+            subtitle = stringResource(R.string.sources_metadata_apple_subtitle),
             checked = apple,
             onCheckedChange = vm::setMetaApple,
         )
         HorizontalDivider(Modifier.padding(vertical = 2.dp))
         ProviderToggleRow(
-            title = "MusicBrainz & Cover Art Archive",
-            subtitle = "Release & recording matching, MBIDs, Cover Art Archive & Wikidata artist photos (1 req / s)",
+            title = stringResource(R.string.sources_metadata_musicbrainz_title),
+            subtitle = stringResource(R.string.sources_metadata_musicbrainz_subtitle),
             checked = mb,
             onCheckedChange = vm::setMetaMusicBrainz,
         )
         HorizontalDivider(Modifier.padding(vertical = 4.dp))
         Text(
             progress?.let { "${it.stage}: ${it.done} of ${it.total}" }
-                ?: "$pending songs with incomplete file tags (enriched as you browse, or all at once below)",
+                ?: stringResource(R.string.sources_metadata_pending_songs, pending),
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
         OutlinedButton(onClick = { vm.retryMetadata() }, enabled = anyOnline && progress == null) {
-            Text("Retry songs with missing info")
+            Text(stringResource(R.string.sources_metadata_fetch_now))
         }
     }
 }
@@ -234,27 +234,25 @@ private fun ProviderToggleRow(title: String, subtitle: String, checked: Boolean,
 private fun SyncCard(vm: LibraryViewModel) {
     val sync by vm.autoSync.collectAsState()
     SourceCard(
-        "Sync",
-        "One switch instead of importing and syncing in each card: Last.fm \"Import new\" and loved tracks, then " +
-            "Navidrome's favourites and playlists, for the services that are connected.",
+        stringResource(R.string.sources_sync_card_title),
+        stringResource(R.string.sources_sync_card_subtitle),
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text(
-                "Sync Listening History, Favourites, Playlists and Loved tracks across MusicMinchas and connected " +
-                    "services like Last.fm and Navidrome (if connected) every 24 hours",
+                stringResource(R.string.sources_sync_card_subtitle),
                 Modifier.weight(1f),
                 style = MaterialTheme.typography.bodyMedium,
             )
             Switch(checked = sync.enabled, onCheckedChange = vm::setAutoSync, modifier = Modifier.padding(start = 8.dp))
         }
         if (sync.lastRun > 0) {
-            Text("Last synced ${relativeTime(sync.lastRun)}", style = MaterialTheme.typography.labelMedium)
+            Text(stringResource(R.string.sources_last_synced, relativeTime(sync.lastRun)), style = MaterialTheme.typography.labelMedium)
             sync.summary?.let {
                 Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
         }
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-            OutlinedButton(onClick = vm::syncEverything, enabled = !sync.running) { Text("Sync everything now") }
+            OutlinedButton(onClick = vm::syncEverything, enabled = !sync.running) { Text(stringResource(R.string.sources_sync_everything)) }
             if (sync.running) CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp)
         }
     }
@@ -270,7 +268,7 @@ private fun MusicSourcesEntry(vm: LibraryViewModel, onOpen: () -> Unit) {
     val needsReconnect by vm.driveNeedsReconnect.collectAsState()
     val number = java.text.NumberFormat.getIntegerInstance()
     val songParts = buildList {
-        counts[Track.SOURCE_SAF]?.takeIf { it > 0 }?.let { add("Local ${number.format(it)}") }
+        counts[Track.SOURCE_SAF]?.takeIf { it > 0 }?.let { add("${stringResource(R.string.source_local)} ${number.format(it)}") }
         if (account != null) add("GDrive ${number.format(counts[Track.SOURCE_DRIVE] ?: 0)}")
         if (server.address != null) {
             add("${server.server?.substringBefore(' ') ?: "Navidrome"} ${number.format(counts[Track.SOURCE_SUBSONIC] ?: 0)}")
@@ -288,14 +286,14 @@ private fun MusicSourcesEntry(vm: LibraryViewModel, onOpen: () -> Unit) {
         Row(Modifier.padding(horizontal = 12.dp, vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
             Icon(Icons.Default.LibraryMusic, null, tint = MaterialTheme.colorScheme.primary)
             Column(Modifier.weight(1f).padding(start = 12.dp)) {
-                Text("Music sources", style = MaterialTheme.typography.titleMedium)
+                Text(stringResource(R.string.sources_title), style = MaterialTheme.typography.titleMedium)
                 Text(
                     summary,
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
                 if (needsReconnect && account != null) {
-                    Text("Google Drive needs you to sign in again", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
+                    Text(stringResource(R.string.sources_drive_sign_in_again), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
                 }
             }
             Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, null)
@@ -331,7 +329,7 @@ fun MusicSourcesScreen(
     Column(Modifier.fillMaxSize().padding(contentPadding)) {
         TopAppBar(
             windowInsets = NoTopInsets,
-            title = { Text("Music sources") },
+            title = { Text(stringResource(R.string.sources_title)) },
             navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back") } },
         )
         Column(
@@ -342,48 +340,46 @@ fun MusicSourcesScreen(
             error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
 
             SourceCard(
-                "Folders on this device",
-                "${counts[Track.SOURCE_SAF] ?: 0} songs. Only the folders listed here are scanned, " +
-                    "including their sub-folders (internal storage, SD card, USB).",
+                stringResource(R.string.sources_saf_title),
+                stringResource(R.string.sources_saf_subtitle_pattern, counts[Track.SOURCE_SAF] ?: 0),
             ) {
                 folders.forEach { uri ->
                     FolderRow(Icons.Default.Folder, folderLabel(uri)) { vm.removeFolder(uri) }
                 }
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Button(onClick = onAddFolder) { Text("Add folder") }
-                    if (folders.isNotEmpty()) OutlinedButton(onClick = { vm.refreshAll() }) { Text("Rescan") }
+                    Button(onClick = onAddFolder) { Text(stringResource(R.string.sources_saf_add_folder)) }
+                    if (folders.isNotEmpty()) OutlinedButton(onClick = { vm.refreshAll() }) { Text(stringResource(R.string.sources_rescan)) }
                 }
             }
 
             SourceCard(
                 "Google Drive",
                 when {
-                    account == null -> "Stream audio files from your Drive without downloading them"
-                    else -> "Connected${if (account!!.isNotBlank()) " as $account" else ""} · " +
-                        "${counts[Track.SOURCE_DRIVE] ?: 0} songs"
+                    account == null -> stringResource(R.string.sources_drive_subtitle_disconnected)
+                    account!!.isNotBlank() -> stringResource(R.string.sources_drive_connected_as_count, account!!, counts[Track.SOURCE_DRIVE] ?: 0)
+                    else -> stringResource(R.string.sources_drive_connected_count, counts[Track.SOURCE_DRIVE] ?: 0)
                 },
             ) {
                 driveMessage?.let { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) }
                 if (account != null && needsReconnect) {
                     Text(
-                        "Google asks you to sign in again before Drive songs can play. Your library is kept.",
+                        stringResource(R.string.sources_drive_reconnect_desc),
                         color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall,
                     )
                 }
                 if (account == null) {
-                    Button(onClick = onConnectDrive) { Text("Connect Google Drive") }
+                    Button(onClick = onConnectDrive) { Text(stringResource(R.string.sources_drive_connect)) }
                 } else {
                     if (driveFolders.isEmpty()) {
                         Text(
-                            "Choose the Drive folders that hold your music. Only those folders and their " +
-                                "sub-folders are imported.",
+                            stringResource(R.string.sources_drive_choose_folders),
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.primary,
                         )
                     }
                     if (unplayable > 0) {
                         Text(
-                            "$unplayable files skipped: no playable audio (usually DRM-protected Apple Music downloads)",
+                            stringResource(R.string.sources_unplayable_skipped, unplayable),
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
@@ -392,30 +388,30 @@ fun MusicSourcesScreen(
                         FolderRow(Icons.Default.Cloud, folder.name) { vm.removeDriveFolder(folder.id) }
                     }
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Button(onClick = onAddDriveFolder) { Text("Add Drive folder") }
-                        if (driveFolders.isNotEmpty()) OutlinedButton(onClick = { vm.refreshDrive() }) { Text("Sync") }
+                        Button(onClick = onAddDriveFolder) { Text(stringResource(R.string.sources_add_drive_folder)) }
+                        if (driveFolders.isNotEmpty()) OutlinedButton(onClick = { vm.refreshDrive() }) { Text(stringResource(R.string.action_sync)) }
                     }
                     if (driveFolders.isNotEmpty()) {
-                        Text("Automatic sync", style = MaterialTheme.typography.labelLarge, modifier = Modifier.padding(top = 8.dp))
+                        Text(stringResource(R.string.sources_sync_card_title), style = MaterialTheme.typography.labelLarge, modifier = Modifier.padding(top = 8.dp))
                         DriveSyncMode.entries.forEach { mode ->
                             Row(
                                 Modifier.fillMaxWidth().selectable(selected = syncMode == mode, onClick = { vm.setSyncMode(mode) }),
                                 verticalAlignment = Alignment.CenterVertically,
                             ) {
                                 RadioButton(selected = syncMode == mode, onClick = null)
-                                Text(mode.label, Modifier.padding(start = 8.dp))
+                                Text(stringResource(mode.labelRes), Modifier.padding(start = 8.dp))
                             }
                         }
                         Text(
-                            if (lastSync == 0L) "Not synced yet" else "Last synced ${relativeTime(lastSync)}",
+                            if (lastSync == 0L) stringResource(R.string.sources_not_synced_yet) else stringResource(R.string.sources_last_synced, relativeTime(lastSync)),
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                     }
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        if (needsReconnect) Button(onClick = onConnectDrive) { Text("Reconnect") }
-                        else OutlinedButton(onClick = onConnectDrive) { Text("Reconnect") }
-                        OutlinedButton(onClick = { confirmDisconnect = true }) { Text("Disconnect") }
+                        if (needsReconnect) Button(onClick = onConnectDrive) { Text(stringResource(R.string.sources_drive_reconnect)) }
+                        else OutlinedButton(onClick = onConnectDrive) { Text(stringResource(R.string.sources_drive_reconnect)) }
+                        OutlinedButton(onClick = { confirmDisconnect = true }) { Text(stringResource(R.string.sources_disconnect)) }
                     }
                 }
             }
@@ -443,12 +439,12 @@ private fun CatalogSourceCard(vm: LibraryViewModel) {
     val enabled by vm.catalogEnabled.collectAsState()
     val deezerHomeEnrichment by vm.deezerHomeEnrichment.collectAsState()
     SourceCard(
-        "Deezer & Apple Music",
-        if (enabled) "Enabled · Public catalog search, Deezer playlist import & artist discographies (no account needed)"
-        else "Browse and search the public Deezer & Apple Music catalogs alongside your own library (no account needed)",
+        stringResource(R.string.sources_catalog_title),
+        if (enabled) stringResource(R.string.sources_catalog_subtitle_enabled)
+        else stringResource(R.string.sources_catalog_subtitle_disabled),
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Text("Enable Deezer & Apple Music catalog", Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium)
+            Text(stringResource(R.string.sources_catalog_enable_toggle), Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium)
             Switch(
                 checked = enabled,
                 onCheckedChange = { checked ->
@@ -460,9 +456,9 @@ private fun CatalogSourceCard(vm: LibraryViewModel) {
         }
         Row(verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) {
-                Text("Enrich Home with Deezer", style = MaterialTheme.typography.bodyMedium)
+                Text(stringResource(R.string.sources_catalog_enrich_home), style = MaterialTheme.typography.bodyMedium)
                 Text(
-                    "Show trending charts and curated playlists on the Home tab",
+                    stringResource(R.string.sources_catalog_enrich_home_desc),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -479,15 +475,12 @@ private fun CatalogSourceCard(vm: LibraryViewModel) {
             )
         }
         Text(
-            "What both contribute:\n" +
-                "• Catalog search: find artists, albums and songs across Deezer & Apple Music, matched against your Local, Google Drive and Navidrome library.\n" +
-                "• Public playlists (Deezer): search curated and user playlists on Deezer and import them into Playlists using the songs you own.\n" +
-                "• Artist discography: view an artist's full studio & live discography on their page and spot albums missing from your library.",
+            stringResource(R.string.sources_catalog_explanation_what),
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
         Text(
-            "Limitations: catalog & metadata only — MusicMinchas never streams or plays audio from Deezer or Apple Music (playback always uses your own sources). Public playlist search comes from Deezer, as Apple Music's public API does not offer unauthenticated playlist search.",
+            stringResource(R.string.sources_catalog_explanation_limitations),
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
@@ -500,13 +493,11 @@ private fun DisconnectDriveDialog(songs: Int, downloaded: Int, onDismiss: () -> 
     var deleteDownloads by remember { mutableStateOf(false) }
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("Disconnect Google Drive?") },
+        title = { Text(stringResource(R.string.sources_drive_disconnect_confirm)) },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 Text(
-                    "The ${if (songs == 1) "1 Google Drive song" else "$songs Google Drive songs"} will be removed from the " +
-                        "library. Plays, favourites and playlists are kept and come back if you connect the same Drive " +
-                        "folders again. To refresh Google's access instead, use Reconnect."
+                    stringResource(R.string.sources_drive_disconnect_dialog_message, count(songs, "song"))
                 )
                 if (downloaded > 0) {
                     Row(
@@ -515,15 +506,15 @@ private fun DisconnectDriveDialog(songs: Int, downloaded: Int, onDismiss: () -> 
                     ) {
                         Checkbox(checked = deleteDownloads, onCheckedChange = null)
                         Text(
-                            "Also delete the ${if (downloaded == 1) "downloaded song" else "$downloaded downloaded songs"} from the phone",
+                            stringResource(R.string.sources_drive_delete_downloads_checkbox),
                             Modifier.padding(start = 12.dp),
                         )
                     }
                 }
             }
         },
-        confirmButton = { TextButton(onClick = { onConfirm(deleteDownloads) }) { Text("Disconnect") } },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
+        confirmButton = { TextButton(onClick = { onConfirm(deleteDownloads) }) { Text(stringResource(R.string.sources_disconnect)) } },
+        dismissButton = { TextButton(onClick = onDismiss) { Text(stringResource(R.string.action_cancel)) } },
     )
 }
 
@@ -531,7 +522,7 @@ private fun DisconnectDriveDialog(songs: Int, downloaded: Int, onDismiss: () -> 
 @Composable
 private fun ScrobbleControls(settings: ScrobbleSettings, pending: Int, onChange: (ScrobbleSettings) -> Unit) {
     Row(verticalAlignment = Alignment.CenterVertically) {
-        Text("Scrobble plays", Modifier.weight(1f))
+        Text(stringResource(R.string.sources_lastfm_scrobble_plays), Modifier.weight(1f))
         Switch(checked = settings.enabled, onCheckedChange = { onChange(settings.copy(enabled = it)) })
     }
     if (!settings.enabled) return
@@ -541,14 +532,14 @@ private fun ScrobbleControls(settings: ScrobbleSettings, pending: Int, onChange:
     fun save() = onChange(
         settings.copy(rule = ScrobbleRule(percent.roundToInt(), cap.roundToInt().takeIf { it < NO_CAP }))
     )
-    Text("After ${percent.roundToInt()}% of the song", style = MaterialTheme.typography.bodyMedium)
+    Text(stringResource(R.string.sources_lastfm_scrobble_percent, percent.roundToInt()), style = MaterialTheme.typography.bodyMedium)
     DotSlider(
         value = percent, onValueChange = { percent = it }, onValueChangeFinished = ::save,
         valueRange = ScrobbleRule.MIN_PERCENT.toFloat()..100f, steps = 9,
         inactiveTrackColor = MaterialTheme.colorScheme.outlineVariant,
     )
-    val capLabel = cap.roundToInt().let { if (it >= NO_CAP) "no time limit" else "$it minutes" }
-    Text("…or after $capLabel, whichever comes first", style = MaterialTheme.typography.bodyMedium)
+    val capLabel = cap.roundToInt().let { if (it >= NO_CAP) stringResource(R.string.sources_lastfm_no_time_limit) else stringResource(R.string.sources_lastfm_minutes_cap, it) }
+    Text(stringResource(R.string.sources_lastfm_scrobble_cap, capLabel), style = MaterialTheme.typography.bodyMedium)
     DotSlider(
         value = cap, onValueChange = { cap = it }, onValueChangeFinished = ::save,
         valueRange = ScrobbleRule.MIN_CAP_MINUTES.toFloat()..NO_CAP.toFloat(),
@@ -556,8 +547,8 @@ private fun ScrobbleControls(settings: ScrobbleSettings, pending: Int, onChange:
         inactiveTrackColor = MaterialTheme.colorScheme.outlineVariant,
     )
     Text(
-        "Songs of 30 seconds or less aren't scrobbled." +
-            if (pending > 0) " $pending ${if (pending == 1) "scrobble" else "scrobbles"} waiting to be sent." else "",
+        stringResource(R.string.sources_lastfm_min_duration_note) +
+            if (pending > 0) " " + stringResource(R.string.sources_lastfm_pending_scrobbles, pending) else "",
         style = MaterialTheme.typography.bodySmall,
         color = MaterialTheme.colorScheme.onSurfaceVariant,
     )
@@ -567,15 +558,13 @@ private fun ScrobbleControls(settings: ScrobbleSettings, pending: Int, onChange:
 @Composable
 private fun HistoryImport(counts: ScrobbleCounts?, status: ImportStatus, onImport: (everything: Boolean) -> Unit) {
     HorizontalDivider(Modifier.padding(vertical = 4.dp))
-    Text("Listening history", style = MaterialTheme.typography.labelLarge)
+    Text(stringResource(R.string.sources_lastfm_history_title), style = MaterialTheme.typography.labelLarge)
     Text(
         when {
             counts == null || counts.total == 0 ->
-                "Import your scrobbles: plays of songs in your library are added to your plays " +
-                    "(Replay, Most Played, mixes)."
-            else -> "${counts.total} scrobbles imported" +
-                if (counts.unmatched > 0) " · ${counts.unmatched} of songs not in your library yet " +
-                    "(added as plays when you add those songs)" else ""
+                stringResource(R.string.sources_lastfm_import_history_desc)
+            else -> stringResource(R.string.sources_lastfm_imported_count, counts.total) +
+                if (counts.unmatched > 0) stringResource(R.string.sources_lastfm_unmatched_count, counts.unmatched) else ""
         },
         style = MaterialTheme.typography.bodySmall,
         color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -584,9 +573,9 @@ private fun HistoryImport(counts: ScrobbleCounts?, status: ImportStatus, onImpor
     Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
         val first = counts == null || counts.total == 0
         Button(onClick = { onImport(first) }, enabled = !status.running) {
-            Text(if (first) "Import history" else "Import new")
+            Text(if (first) stringResource(R.string.sources_lastfm_import_history_button) else stringResource(R.string.sources_lastfm_import_new_button))
         }
-        if (!first) OutlinedButton(onClick = { onImport(true) }, enabled = !status.running) { Text("Re-import all") }
+        if (!first) OutlinedButton(onClick = { onImport(true) }, enabled = !status.running) { Text(stringResource(R.string.sources_lastfm_reimport_all)) }
         if (status.running && !status.loved) CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp)
     }
 }
@@ -621,15 +610,39 @@ private fun FolderRow(icon: androidx.compose.ui.graphics.vector.ImageVector, lab
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun LanguageCard(vm: LibraryViewModel) {
+    val language by vm.language.collectAsState()
+    SourceCard(stringResource(R.string.settings_language_title), stringResource(R.string.settings_language_subtitle)) {
+        val options = listOf(
+            "system" to stringResource(R.string.settings_language_system),
+            "en" to stringResource(R.string.settings_language_en),
+            "es" to stringResource(R.string.settings_language_es),
+        )
+        SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
+            options.forEachIndexed { index, (tag, label) ->
+                SegmentedButton(
+                    selected = language == tag,
+                    onClick = { vm.setLanguage(tag) },
+                    shape = SegmentedButtonDefaults.itemShape(index, options.size),
+                ) {
+                    Text(label, maxLines = 1)
+                }
+            }
+        }
+    }
+}
+
 /** Appearance: light or dark (black and red) theme, and Now Playing's full-width cover. */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun AppearanceCard(vm: LibraryViewModel) {
     val dark by vm.darkMode.collectAsState()
     val fullCover by vm.fullScreenCover.collectAsState()
-    SourceCard("Appearance", "How MusicMinchas looks") {
+    SourceCard(stringResource(R.string.settings_appearance_title), stringResource(R.string.settings_appearance_subtitle)) {
         SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
-            listOf(false to "Light mode", true to "Dark mode").forEachIndexed { index, (value, label) ->
+            listOf(false to stringResource(R.string.settings_theme_light), true to stringResource(R.string.settings_theme_dark)).forEachIndexed { index, (value, label) ->
                 SegmentedButton(
                     selected = dark == value,
                     onClick = { vm.setDarkMode(value) },
@@ -639,9 +652,9 @@ private fun AppearanceCard(vm: LibraryViewModel) {
         }
         Row(verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) {
-                Text("Full screen cover art")
+                Text(stringResource(R.string.settings_edge_to_edge_title))
                 Text(
-                    "Now Playing shows the cover across the whole width of the screen",
+                    stringResource(R.string.settings_edge_to_edge_subtitle),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -655,14 +668,14 @@ private fun AppearanceCard(vm: LibraryViewModel) {
 private fun SonosPlaybackCard(vm: LibraryViewModel) {
     val downsample by vm.sonosDownsample.collectAsState()
     SourceCard(
-        "Sonos playback",
-        "Sonos S2 speakers support lossless audio up to 24-bit / 48 kHz",
+        stringResource(R.string.settings_sonos_title),
+        stringResource(R.string.settings_sonos_subtitle),
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) {
-                Text("Downsample hi-res audio (> 48 kHz)")
+                Text(stringResource(R.string.settings_sonos_downsample_title))
                 Text(
-                    "Convert 88.2 / 176.4 kHz to 44.1 kHz and 96 / 192 kHz to 48 kHz (24-bit FLAC) on the fly for all sources. Songs up to 48 kHz are sent untouched.",
+                    stringResource(R.string.settings_sonos_downsample_subtitle),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -691,13 +704,14 @@ private fun formatBytes(bytes: Long): String = when {
 }
 
 /** "just now", "5 min ago", "3 h ago", "2 days ago" */
+@Composable
 internal fun relativeTime(time: Long): String {
     val minutes = (System.currentTimeMillis() - time) / 60_000
     return when {
-        minutes < 1 -> "just now"
-        minutes < 60 -> "$minutes min ago"
-        minutes < 48 * 60 -> "${minutes / 60} h ago"
-        else -> "${minutes / (24 * 60)} days ago"
+        minutes < 1 -> stringResource(R.string.relative_time_just_now)
+        minutes < 60 -> stringResource(R.string.relative_time_minutes_ago, minutes.toInt())
+        minutes < 48 * 60 -> stringResource(R.string.relative_time_hours_ago, (minutes / 60).toInt())
+        else -> stringResource(R.string.relative_time_days_ago, (minutes / (24 * 60)).toInt())
     }
 }
 

@@ -39,17 +39,20 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.annotation.StringRes
+import androidx.compose.ui.res.stringResource
+import com.kike.musicplayer.R
 import com.kike.musicplayer.data.catalog.CatalogPlaylist
 import com.kike.musicplayer.data.db.SavedCatalogPlaylist
 import com.kike.musicplayer.data.db.Track
 import com.kike.musicplayer.data.db.mosaicCovers
 
-private fun count(n: Int, noun: String) = if (n == 1) "1 $noun" else "$n ${noun}s"
 
-enum class PlaylistCategoryType {
-    PERSONAL,
-    APPLE_MUSIC,
-    DEEZER,
+
+enum class PlaylistCategoryType(@StringRes val titleRes: Int) {
+    PERSONAL(R.string.playlist_category_personal),
+    APPLE_MUSIC(R.string.playlist_category_apple_music),
+    DEEZER(R.string.playlist_category_deezer),
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -63,11 +66,7 @@ fun PlaylistCategoryScreen(
     onBack: () -> Unit,
     contentPadding: PaddingValues,
 ) {
-    val title = when (type) {
-        PlaylistCategoryType.PERSONAL -> "Personal Playlists"
-        PlaylistCategoryType.APPLE_MUSIC -> "Apple Music Playlists"
-        PlaylistCategoryType.DEEZER -> "Deezer Playlists"
-    }
+    val title = stringResource(type.titleRes)
 
     val userPlaylists by libraryVm.userPlaylists.collectAsState()
     val savedCatalogPlaylists by libraryVm.savedCatalogPlaylists.collectAsState()

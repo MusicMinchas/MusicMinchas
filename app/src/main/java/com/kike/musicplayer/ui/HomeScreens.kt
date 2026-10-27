@@ -48,6 +48,8 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.res.stringResource
+import com.kike.musicplayer.R
 import com.kike.musicplayer.data.db.Track
 import com.kike.musicplayer.data.db.albumCovers
 import com.kike.musicplayer.data.catalog.CatalogPlaylist
@@ -93,8 +95,8 @@ fun HomeTab(
                 Column(Modifier.padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     val recent = playlists.recentTracks
                     PlaylistTile(
-                        title = "Recently Played",
-                        subtitle = if (recent.isEmpty()) "Nothing played yet" else "${recent.size} songs",
+                        title = stringResource(R.string.home_recently_played),
+                        subtitle = if (recent.isEmpty()) stringResource(R.string.home_empty_recent_subtitle) else count(recent.size, "song"),
                         // One cover per album (see albumCovers).
                         covers = recent.albumCovers(),
                         onOpen = onOpenRecentTracks,
@@ -113,42 +115,42 @@ fun HomeTab(
                     horizontalArrangement = Arrangement.spacedBy(12.dp),
                 ) {
                     CollectionCard(
-                        title = "Replay ${r?.period?.year ?: ""}".trim(),
-                        subtitle = if (r == null || r.plays == 0) "Your most played" else "${r.plays} plays",
+                        title = "${stringResource(R.string.home_replay)} ${r?.period?.year ?: ""}".trim(),
+                        subtitle = if (r == null || r.plays == 0) stringResource(R.string.home_empty_replay_subtitle) else count(r.plays, "play"),
                         tracks = top, onOpen = onOpenReplay,
                         onPlay = { playerVm.playTracks(top, 0) },
                         modifier = Modifier.width(MIX_CARD_WIDTH),
                     )
                     val rotation = playlists.heavyRotation.map { it.item }
                     CollectionCard(
-                        title = "Heavy Rotation",
-                        subtitle = if (rotation.isEmpty()) "Your current favorites" else count(rotation.size, "song"),
+                        title = stringResource(R.string.home_heavy_rotation),
+                        subtitle = if (rotation.isEmpty()) stringResource(R.string.home_empty_rotation_subtitle) else count(rotation.size, "song"),
                         tracks = rotation, onOpen = onOpenHeavyRotation,
                         onPlay = { playerVm.playTracks(rotation, 0) },
                         modifier = Modifier.width(MIX_CARD_WIDTH),
                     )
                     CollectionCard(
-                        title = "Favourite Songs",
-                        subtitle = if (favourites.isEmpty()) "Tap the heart on a song" else count(favourites.size, "song"),
+                        title = stringResource(R.string.home_favourites),
+                        subtitle = if (favourites.isEmpty()) stringResource(R.string.home_empty_favourites_subtitle) else count(favourites.size, "song"),
                         tracks = favourites, onOpen = onOpenFavourites,
                         onPlay = { playerVm.playTracks(favourites, 0) },
                         modifier = Modifier.width(MIX_CARD_WIDTH),
                     )
                     CollectionCard(
-                        title = "Most Played",
-                        subtitle = if (most.isEmpty()) "Nothing played yet" else count(most.size, "song"),
+                        title = stringResource(R.string.home_most_played),
+                        subtitle = if (most.isEmpty()) stringResource(R.string.home_empty_most_played_subtitle) else count(most.size, "song"),
                         tracks = most, onOpen = onOpenMostPlayed,
                         onPlay = { playerVm.playTracks(most, 0) },
                         modifier = Modifier.width(MIX_CARD_WIDTH),
                     )
                 }
             }
-            item { SectionTitle("Made for you", onClick = onOpenMixes.takeIf { mixes.isNotEmpty() }) }
+            item { SectionTitle(stringResource(R.string.home_made_for_you), onClick = onOpenMixes.takeIf { mixes.isNotEmpty() }) }
             item {
                 if (mixes.isEmpty()) {
                     Text(
-                        "Mixes appear once genres have been fetched for your artists (Sources › online lookup) " +
-                            "and grow better as you listen.",
+                        stringResource(R.string.home_mixes_empty_hint),
+
                         Modifier.padding(horizontal = 16.dp),
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -157,7 +159,7 @@ fun HomeTab(
                     LazyRow(contentPadding = PaddingValues(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                         items(mixes, key = { it.id }) { mix ->
                             CollectionCard(
-                                mix.title, mix.subtitle, mix.tracks,
+                                mixDisplayTitle(mix), mixDisplaySubtitle(mix), mix.tracks,
                                 onOpen = { onOpenMix(mix.id) }, onPlay = { playerVm.playTracks(mix.tracks, 0) },
                                 modifier = Modifier.width(MIX_CARD_WIDTH),
                             )
@@ -168,17 +170,17 @@ fun HomeTab(
             if (deezerEnrichment && deezerContent != null) {
                 val sTrending = deezerContent?.sections?.find { it.id == "trending" }
                 if (sTrending != null && sTrending.playlists.isNotEmpty()) {
-                    item { SectionTitle(sTrending.title, sTrending.subtitle, onClick = { onOpenCatalogSection(sTrending) }) }
+                    item { SectionTitle(sectionDisplayTitle(sTrending), sectionDisplaySubtitle(sTrending), onClick = { onOpenCatalogSection(sTrending) }) }
                     item { DeezerPlaylistRow(sTrending.playlists.take(10), onOpenCatalogPlaylist) }
                 }
                 val sCharts = deezerContent?.sections?.find { it.id == "top_charts" }
                 if (sCharts != null && sCharts.playlists.isNotEmpty()) {
-                    item { SectionTitle(sCharts.title, sCharts.subtitle, onClick = { onOpenCatalogSection(sCharts) }) }
+                    item { SectionTitle(sectionDisplayTitle(sCharts), sectionDisplaySubtitle(sCharts), onClick = { onOpenCatalogSection(sCharts) }) }
                     item { DeezerPlaylistRow(sCharts.playlists.take(10), onOpenCatalogPlaylist) }
                 }
             }
             if (playlists.recentAlbums.isNotEmpty()) {
-                item { SectionTitle("Recently played albums", onClick = onOpenRecentAlbums) }
+                item { SectionTitle(stringResource(R.string.home_recently_played_albums), onClick = onOpenRecentAlbums) }
                 item { AlbumRow(playlists.recentAlbums.take(HOME_ALBUMS), onOpenAlbum) }
             }
             if (deezerEnrichment && deezerContent != null) {
@@ -186,12 +188,12 @@ fun HomeTab(
                     .filter { it.id != "trending" && it.id != "top_charts" }
                 val s1 = otherSections.getOrNull(0)
                 if (s1 != null && s1.playlists.isNotEmpty()) {
-                    item { SectionTitle(s1.title, s1.subtitle, onClick = { onOpenCatalogSection(s1) }) }
+                    item { SectionTitle(sectionDisplayTitle(s1), sectionDisplaySubtitle(s1), onClick = { onOpenCatalogSection(s1) }) }
                     item { DeezerPlaylistRow(s1.playlists.take(10), onOpenCatalogPlaylist) }
                 }
             }
             if (playlists.addedAlbums.isNotEmpty()) {
-                item { SectionTitle("Recently added albums", onClick = onOpenAddedAlbums) }
+                item { SectionTitle(stringResource(R.string.home_recently_added_albums), onClick = onOpenAddedAlbums) }
                 item { AlbumRow(playlists.addedAlbums.take(HOME_ALBUMS), onOpenAlbum) }
             }
             if (deezerEnrichment && deezerContent != null) {
@@ -200,7 +202,7 @@ fun HomeTab(
                     .drop(1)
                 for (section in remaining) {
                     if (section.playlists.isNotEmpty()) {
-                        item { SectionTitle(section.title, section.subtitle, onClick = { onOpenCatalogSection(section) }) }
+                        item { SectionTitle(sectionDisplayTitle(section), sectionDisplaySubtitle(section), onClick = { onOpenCatalogSection(section) }) }
                         item { DeezerPlaylistRow(section.playlists.take(10), onOpenCatalogPlaylist) }
                     }
                 }
@@ -315,7 +317,7 @@ fun MixListScreen(
     Column(Modifier.fillMaxSize().padding(contentPadding)) {
         TopAppBar(
             windowInsets = NoTopInsets,
-            title = { Text("Made for you") },
+            title = { Text(stringResource(R.string.home_made_for_you)) },
             navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back") } },
         )
         LazyVerticalGrid(
@@ -326,7 +328,7 @@ fun MixListScreen(
             modifier = Modifier.fillMaxSize(),
         ) {
             gridItems(mixes, key = { it.id }) { mix ->
-                CollectionCard(mix.title, mix.subtitle, mix.tracks,
+                CollectionCard(mixDisplayTitle(mix), mixDisplaySubtitle(mix), mix.tracks,
                     onOpen = { onOpenMix(mix.id) }, onPlay = { playerVm.playTracks(mix.tracks, 0) })
             }
         }
@@ -335,6 +337,92 @@ fun MixListScreen(
 
 /** Albums in a Home row; their pages show [LibraryViewModel]'s full 30. */
 private const val HOME_ALBUMS = 10
+
+@Composable
+fun mixDisplayTitle(mix: Mix): String {
+    return when {
+        mix.id.startsWith("because:") -> {
+            val artist = mix.title.removePrefix("Because you listened to ")
+            stringResource(R.string.mix_because, artist)
+        }
+        mix.id.startsWith("genre:") -> {
+            val genre = mix.title.removeSuffix(" Mix")
+            stringResource(R.string.mix_genre, genre)
+        }
+        mix.id.startsWith("decade:") -> {
+            val decade = mix.title.removeSuffix("s Mix")
+            stringResource(R.string.mix_decade, decade)
+        }
+        mix.id == "rediscover" -> stringResource(R.string.mix_rediscover_title)
+        mix.id == "forgotten" -> stringResource(R.string.mix_forgotten_title)
+        mix.id == "fresh" -> stringResource(R.string.mix_fresh_title)
+        else -> mix.title
+    }
+}
+
+@Composable
+fun mixDisplaySubtitle(mix: Mix): String {
+    return when (mix.id) {
+        "rediscover" -> stringResource(R.string.mix_rediscover_subtitle)
+        "forgotten" -> stringResource(R.string.mix_forgotten_subtitle)
+        "fresh" -> stringResource(R.string.mix_fresh_subtitle)
+        else -> mix.subtitle
+    }
+}
+
+@Composable
+fun sectionDisplayTitle(section: com.kike.musicplayer.data.catalog.DeezerHomeSection): String {
+    return when (section.id) {
+        "trending" -> stringResource(R.string.home_trending_deezer)
+        "top_charts" -> stringResource(R.string.home_top_charts_deezer)
+        "rock" -> stringResource(R.string.catalog_genre_rock)
+        "metal" -> stringResource(R.string.catalog_genre_metal)
+        "alternative" -> stringResource(R.string.catalog_genre_alternative)
+        "classical" -> stringResource(R.string.catalog_genre_classical)
+        "acoustic" -> stringResource(R.string.catalog_genre_acoustic)
+        "pop" -> stringResource(R.string.catalog_genre_pop)
+        "electronic" -> stringResource(R.string.catalog_genre_electronic)
+        "jazz" -> stringResource(R.string.catalog_genre_jazz)
+        "blues" -> stringResource(R.string.catalog_genre_blues)
+        "rnb" -> stringResource(R.string.catalog_genre_rnb)
+        "rap" -> stringResource(R.string.catalog_genre_rap)
+        "soundtracks" -> stringResource(R.string.catalog_genre_soundtracks)
+        "mood_focus" -> stringResource(R.string.catalog_mood_focus)
+        "mood_workout" -> stringResource(R.string.catalog_mood_workout)
+        "mood_chill" -> stringResource(R.string.catalog_mood_chill)
+        "mood_party" -> stringResource(R.string.catalog_mood_party)
+        "mood_sleep" -> stringResource(R.string.catalog_mood_sleep)
+        "mood_morning" -> stringResource(R.string.catalog_mood_morning)
+        else -> section.title
+    }
+}
+
+@Composable
+fun sectionDisplaySubtitle(section: com.kike.musicplayer.data.catalog.DeezerHomeSection): String? {
+    return when (section.id) {
+        "trending" -> stringResource(R.string.home_trending_deezer_subtitle)
+        "top_charts" -> stringResource(R.string.home_top_charts_deezer_subtitle)
+        "rock" -> stringResource(R.string.catalog_genre_rock_sub)
+        "metal" -> stringResource(R.string.catalog_genre_metal_sub)
+        "alternative" -> stringResource(R.string.catalog_genre_alternative_sub)
+        "classical" -> stringResource(R.string.catalog_genre_classical_sub)
+        "acoustic" -> stringResource(R.string.catalog_genre_acoustic_sub)
+        "pop" -> stringResource(R.string.catalog_genre_pop_sub)
+        "electronic" -> stringResource(R.string.catalog_genre_electronic_sub)
+        "jazz" -> stringResource(R.string.catalog_genre_jazz_sub)
+        "blues" -> stringResource(R.string.catalog_genre_blues_sub)
+        "rnb" -> stringResource(R.string.catalog_genre_rnb_sub)
+        "rap" -> stringResource(R.string.catalog_genre_rap_sub)
+        "soundtracks" -> stringResource(R.string.catalog_genre_soundtracks_sub)
+        "mood_focus" -> stringResource(R.string.catalog_mood_focus_sub)
+        "mood_workout" -> stringResource(R.string.catalog_mood_workout_sub)
+        "mood_chill" -> stringResource(R.string.catalog_mood_chill_sub)
+        "mood_party" -> stringResource(R.string.catalog_mood_party_sub)
+        "mood_sleep" -> stringResource(R.string.catalog_mood_sleep_sub)
+        "mood_morning" -> stringResource(R.string.catalog_mood_morning_sub)
+        else -> section.subtitle
+    }
+}
 
 /**
  * A mix or playlist card: 2×2 cover mosaic (one cover when fewer than four) with a play button,
@@ -409,4 +497,4 @@ internal fun CoverMosaic(tracks: List<Track>, modifier: Modifier = Modifier) {
 }
 
 
-private fun count(n: Int, noun: String) = if (n == 1) "1 $noun" else "$n ${noun}s"
+

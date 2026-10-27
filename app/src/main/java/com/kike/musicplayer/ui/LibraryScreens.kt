@@ -1,5 +1,10 @@
 package com.kike.musicplayer.ui
 
+import androidx.compose.material3.LocalMinimumInteractiveComponentSize
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.material3.Surface
 import androidx.compose.material3.CircularProgressIndicator
@@ -88,11 +93,13 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.annotation.StringRes
 import androidx.activity.compose.BackHandler
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.material3.FilterChip
 import com.kike.musicplayer.R
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.foundation.background
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.foundation.rememberScrollState
@@ -163,54 +170,118 @@ fun LibraryScreen(
     var tab by rememberSaveable { mutableIntStateOf(0) }
     val tabStates = rememberSaveableStateHolder()
     // Search filters; none selected means all three kinds.
-    var filters by rememberSaveable { mutableStateOf(setOf<String>()) }
+    var filters by rememberSaveable { mutableStateOf(setOf<SearchFilter>()) }
+    var searchExpanded by rememberSaveable { mutableStateOf(false) }
+    val isSearching = searchExpanded || query.isNotEmpty()
+    val focusRequester = remember { FocusRequester() }
+    LaunchedEffect(searchExpanded) {
+        if (searchExpanded) {
+            kotlinx.coroutines.delay(50)
+            focusRequester.requestFocus()
+        }
+    }
     val focusManager = LocalFocusManager.current
     // While the keyboard is up, let the system Back gesture dismiss the keyboard first so the full
     // list of search results can be seen; a second Back (with the keyboard down) clears the search.
-    BackHandler(enabled = query.isNotEmpty() && !WindowInsets.isImeVisible) {
+    BackHandler(enabled = isSearching && !WindowInsets.isImeVisible) {
         libraryVm.setQuery("")
+        searchExpanded = false
         focusManager.clearFocus()
     }
 
     Column(Modifier.fillMaxSize().padding(contentPadding)) {
-        TopAppBar(
-            windowInsets = NoTopInsets,
-            title = { Text(stringResource(R.string.app_name)) },
-            actions = {
-                val available by libraryVm.availableScopes.collectAsState()
-                if (available.size + (if (catalogEnabled) 1 else 0) > 1) {
-                    val server = libraryVm.subsonicState.collectAsState().value.server
-                    SourcesMenu(
-                        available = available,
-                        hidden = libraryVm.hiddenScopes.collectAsState().value,
-                        serverName = server?.substringBefore(' ')?.takeIf { it.isNotBlank() } ?: "Navidrome",
-                        catalogEnabled = catalogEnabled,
-                        catalogShown = catalogShown,
-                        onToggle = libraryVm::toggleScope,
-                        onToggleCatalog = libraryVm::toggleCatalogShown,
-                    )
+        CompositionLocalProvider(LocalMinimumInteractiveComponentSize provides Dp.Unspecified) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(start = 16.dp, end = 4.dp, top = 2.dp, bottom = 0.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    text = stringResource(R.string.app_name),
+                    style = MaterialTheme.typography.titleLarge,
+                    fontWeight = FontWeight.Bold,
+                    maxLines = 1,
+                    softWrap = false,
+                )
+                IconButton(
+                    onClick = onOpenSources,
+                    modifier = Modifier.size(36.dp),
+                ) {
+                    Icon(Icons.Default.Tune, contentDescription = stringResource(R.string.settings_title), modifier = Modifier.size(22.dp))
                 }
-                IconButton(onClick = onOpenSources) { Icon(Icons.Default.Tune, "Settings") }
-            },
-        )
-        SearchField(query, libraryVm::setQuery, Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp))
+            }
+            val available by libraryVm.availableScopes.collectAsState()
+            val showSources = available.size + (if (catalogEnabled) 1 else 0) > 1
+            if (isSearching) {
+                SearchField(
+                    query = query,
+                    onChange = libraryVm::setQuery,
+                    onCollapse = {
+                        libraryVm.setQuery("")
+                        searchExpanded = false
+                        focusManager.clearFocus()
+                    },
+                    focusRequester = focusRequester,
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 2.dp),
+                )
+            } else {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(start = 10.dp, end = 16.dp, top = 0.dp, bottom = 2.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    IconButton(
+                        onClick = { searchExpanded = true },
+                        modifier = Modifier.size(32.dp),
+                    ) {
+                        Icon(
+                            Icons.Default.Search,
+                            contentDescription = stringResource(R.string.search_hint),
+                            modifier = Modifier.size(20.dp),
+                        )
+                    }
+                    if (showSources) {
+                        val server = libraryVm.subsonicState.collectAsState().value.server
+                        SourcesMenu(
+                            available = available,
+                            hidden = libraryVm.hiddenScopes.collectAsState().value,
+                            serverName = server?.substringBefore(' ')?.takeIf { it.isNotBlank() } ?: "Navidrome",
+                            catalogEnabled = catalogEnabled,
+                            catalogShown = catalogShown,
+                            onToggle = libraryVm::toggleScope,
+                            onToggleCatalog = libraryVm::toggleCatalogShown,
+                        )
+                    }
+                }
+            }
+        }
         if (query.isNotEmpty()) {
             val filterKinds = buildList {
-                add(SEARCH_ARTISTS)
-                add(SEARCH_ALBUMS)
-                add(SEARCH_SONGS)
-                if (catalogEnabled && catalogShown) add(SEARCH_PLAYLISTS)
+                add(SearchFilter.ARTISTS)
+                add(SearchFilter.ALBUMS)
+                add(SearchFilter.SONGS)
+                if (catalogEnabled && catalogShown) add(SearchFilter.PLAYLISTS)
             }
             Row(
-                Modifier.padding(horizontal = 12.dp),
-                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = 4.dp),
+                horizontalArrangement = Arrangement.spacedBy(4.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 filterKinds.forEach { kind ->
                     FilterChip(
                         selected = kind in filters,
                         onClick = { filters = if (kind in filters) filters - kind else filters + kind },
-                        label = { Text(kind, maxLines = 1) },
+                        label = {
+                            Text(
+                                stringResource(kind.labelRes),
+                                maxLines = 1,
+                                style = MaterialTheme.typography.labelMedium,
+                            )
+                        },
                     )
                 }
             }
@@ -237,10 +308,23 @@ fun LibraryScreen(
             return@Column
         }
         // Narrow tabs, so five fit across a phone; the rest scroll in.
-        PrimaryScrollableTabRow(selectedTabIndex = tab, edgePadding = 4.dp, minTabWidth = 0.dp) {
-            LIBRARY_TABS.forEachIndexed { i, label ->
-                Tab(selected = tab == i, onClick = { tab = i }) {
-                    Text(label, Modifier.padding(horizontal = 10.dp, vertical = 14.dp), style = MaterialTheme.typography.titleSmall)
+        PrimaryScrollableTabRow(
+            selectedTabIndex = tab,
+            edgePadding = 4.dp,
+            minTabWidth = 0.dp,
+            modifier = Modifier.height(36.dp),
+        ) {
+            LibraryTab.all.forEachIndexed { i, libraryTab ->
+                Tab(
+                    selected = tab == i,
+                    onClick = { tab = i },
+                    modifier = Modifier.height(36.dp),
+                ) {
+                    Text(
+                        stringResource(libraryTab.titleRes),
+                        Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
+                        style = MaterialTheme.typography.titleSmall,
+                    )
                 }
             }
         }
@@ -250,20 +334,21 @@ fun LibraryScreen(
             EmptyLibrary(onOpenMusicSources)
             return@Column
         }
-        tabStates.SaveableStateProvider(LIBRARY_TABS[tab]) {
-            when (LIBRARY_TABS[tab]) {
-                "Home" -> HomeTab(
+        val currentTab = LibraryTab.all.getOrElse(tab) { LibraryTab.HOME }
+        tabStates.SaveableStateProvider(currentTab.name) {
+            when (currentTab) {
+                LibraryTab.HOME -> HomeTab(
                     libraryVm, playerVm, onOpenReplay, onOpenHeavyRotation, onOpenMostPlayed, onOpenFavourites, onOpenRecentTracks,
                     onOpenMix, onOpenMixes, onOpenRecentAlbums, onOpenAddedAlbums, onOpenAlbum,
                     onOpenCatalogPlaylist = onOpenCatalogPlaylist,
                     onOpenCatalogSection = onOpenCatalogSection,
                 )
-                "Discover" -> DiscoverTab(libraryVm, onOpenArtist, onOpenAlbum, onOpenFollowing)
-                "Albums" -> AlbumsTab(libraryVm, onOpenAlbum)
-                "Artists" -> ArtistsTab(libraryVm, onOpenArtist)
-                "Genres" -> GenresTab(libraryVm.genreList.collectAsState().value, onOpenGenre)
-                "Songs" -> SongsTab(libraryVm, playerVm)
-                "Playlists" -> {
+                LibraryTab.DISCOVER -> DiscoverTab(libraryVm, onOpenArtist, onOpenAlbum, onOpenFollowing)
+                LibraryTab.ALBUMS -> AlbumsTab(libraryVm, onOpenAlbum)
+                LibraryTab.ARTISTS -> ArtistsTab(libraryVm, onOpenArtist)
+                LibraryTab.GENRES -> GenresTab(libraryVm.genreList.collectAsState().value, onOpenGenre)
+                LibraryTab.SONGS -> SongsTab(libraryVm, playerVm)
+                LibraryTab.PLAYLISTS -> {
                     val savedPlaylists by libraryVm.savedCatalogPlaylists.collectAsState()
                     PlaylistsTab(
                         playlists = playlists,
@@ -304,10 +389,11 @@ private fun SourcesMenu(
 ) {
     var open by remember { mutableStateOf(false) }
     val shown = available.filter { it !in hidden }.ifEmpty { available }
+    val localLabel = stringResource(R.string.source_local)
     fun label(scope: Int) = when (scope) {
         Track.SCOPE_DRIVE -> "GDrive"
         Track.SCOPE_SERVER -> serverName
-        else -> "Local"
+        else -> localLabel
     }
     fun icon(scope: Int) = when (scope) {
         Track.SCOPE_DRIVE -> Icons.Default.Cloud
@@ -325,7 +411,7 @@ private fun SourcesMenu(
             label = {
                 Text(
                     when {
-                        allShown -> "All sources"
+                        allShown -> stringResource(R.string.sources_all)
                         activeLabels.size == 1 -> activeLabels.single()
                         else -> activeLabels.joinToString(" + ")
                     },
@@ -340,7 +426,7 @@ private fun SourcesMenu(
                 )
             },
             trailingIcon = { Icon(Icons.Default.ArrowDropDown, null, Modifier.size(18.dp)) },
-            modifier = Modifier.widthIn(max = 200.dp),
+            modifier = Modifier.height(32.dp).widthIn(max = 260.dp),
         )
         DropdownMenu(expanded = open, onDismissRequest = { open = false }) {
             available.forEach { scope ->
@@ -366,19 +452,27 @@ private fun SourcesMenu(
     }
 }
 
-private fun count(n: Int, noun: String) =if (n == 1) "1 $noun" else "$n ${noun}s"
+
 
 /** The library search box: an outlined pill like OutlinedTextField, but 44 dp tall instead of 56. */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun SearchField(query: String, onChange: (String) -> Unit, modifier: Modifier = Modifier) {
+private fun SearchField(
+    query: String,
+    onChange: (String) -> Unit,
+    onCollapse: () -> Unit,
+    focusRequester: FocusRequester,
+    modifier: Modifier = Modifier,
+) {
     val interaction = remember { MutableInteractionSource() }
     val colors = OutlinedTextFieldDefaults.colors()
     val shape = RoundedCornerShape(22.dp)
     BasicTextField(
         value = query,
         onValueChange = onChange,
-        modifier = modifier.height(44.dp),
+        modifier = modifier
+            .height(44.dp)
+            .focusRequester(focusRequester),
         singleLine = true,
         textStyle = MaterialTheme.typography.bodyLarge.copy(color = MaterialTheme.colorScheme.onSurface),
         cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
@@ -391,10 +485,24 @@ private fun SearchField(query: String, onChange: (String) -> Unit, modifier: Mod
             singleLine = true,
             visualTransformation = VisualTransformation.None,
             interactionSource = interaction,
-            placeholder = { Text("Search artists, albums, songs") },
-            leadingIcon = { Icon(Icons.Default.Search, null) },
+            placeholder = {
+                Text(
+                    stringResource(R.string.search_hint),
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            },
+            leadingIcon = {
+                IconButton(onClick = onCollapse, modifier = Modifier.size(40.dp)) {
+                    Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+                }
+            },
             trailingIcon = {
-                if (query.isNotEmpty()) IconButton(onClick = { onChange("") }) { Icon(Icons.Default.Clear, "Clear") }
+                if (query.isNotEmpty()) {
+                    IconButton(onClick = { onChange("") }, modifier = Modifier.size(40.dp)) {
+                        Icon(Icons.Default.Clear, contentDescription = "Clear")
+                    }
+                }
             },
             colors = colors,
             contentPadding = PaddingValues(horizontal = 12.dp, vertical = 0.dp),
@@ -403,11 +511,30 @@ private fun SearchField(query: String, onChange: (String) -> Unit, modifier: Mod
     }
 }
 
-private val LIBRARY_TABS = listOf("Home", "Discover", "Playlists", "Albums", "Artists", "Genres", "Songs")
-private const val SEARCH_ARTISTS = "Artists"
-private const val SEARCH_ALBUMS = "Albums"
-private const val SEARCH_SONGS = "Songs"
-private const val SEARCH_PLAYLISTS = "Playlists"
+enum class LibraryTab(@StringRes val titleRes: Int) {
+    HOME(R.string.tab_home),
+    DISCOVER(R.string.tab_discover),
+    PLAYLISTS(R.string.tab_playlists),
+    ALBUMS(R.string.tab_albums),
+    ARTISTS(R.string.tab_artists),
+    GENRES(R.string.tab_genres),
+    SONGS(R.string.tab_songs);
+
+    companion object {
+        val all: List<LibraryTab> = entries
+    }
+}
+
+enum class SearchFilter(@StringRes val labelRes: Int) {
+    ARTISTS(R.string.search_filter_artists),
+    ALBUMS(R.string.search_filter_albums),
+    SONGS(R.string.search_filter_songs),
+    PLAYLISTS(R.string.search_filter_playlists);
+}
+
+
+
+
 
 @Composable
 internal fun ArtistRow(name: String, albumCount: Int, songCount: Int, photo: String?, onClick: () -> Unit) {
@@ -451,7 +578,7 @@ internal fun ArtistPhoto(url: String?, modifier: Modifier = Modifier) {
 private fun SearchResultsList(
     results: SearchResults,
     catalogResults: com.kike.musicplayer.data.catalog.CatalogSearchResults,
-    filters: Set<String>,
+    filters: Set<SearchFilter>,
     currentId: String?,
     libraryVm: LibraryViewModel,
     playerVm: PlayerViewModel,
@@ -468,10 +595,10 @@ private fun SearchResultsList(
         collapsedSections = if (key in collapsedSections) collapsedSections - key else collapsedSections + key
     }
 
-    fun show(kind: String) = filters.isEmpty() || kind in filters
-    val artists = if (show(SEARCH_ARTISTS)) results.artists else emptyList()
-    val albums = if (show(SEARCH_ALBUMS)) results.albums else emptyList()
-    val songs = if (show(SEARCH_SONGS)) results.songs else emptyList()
+    fun show(filter: SearchFilter) = filters.isEmpty() || filter in filters
+    val artists = if (show(SearchFilter.ARTISTS)) results.artists else emptyList()
+    val albums = if (show(SearchFilter.ALBUMS)) results.albums else emptyList()
+    val songs = if (show(SearchFilter.SONGS)) results.songs else emptyList()
 
     val libArtistKeys = remember(results.artists) {
         results.artists.mapTo(HashSet()) { com.kike.musicplayer.data.discover.Names.comparable(it.name) }
@@ -489,23 +616,23 @@ private fun SearchResultsList(
 
     // Keep catalog artists in search results even if owned in library (badged with "In library").
     val catArtists = remember(catalogResults.artists, filters) {
-        if (!show(SEARCH_ARTISTS)) emptyList()
+        if (!show(SearchFilter.ARTISTS)) emptyList()
         else catalogResults.artists
     }
     val catAlbums = remember(catalogResults.albums, libAlbumKeys, filters) {
-        if (!show(SEARCH_ALBUMS)) emptyList()
+        if (!show(SearchFilter.ALBUMS)) emptyList()
         else catalogResults.albums.filter {
             (com.kike.musicplayer.data.discover.Names.comparable(it.artist) + "\u0001" + com.kike.musicplayer.data.discover.Names.releaseKey(it.title)) !in libAlbumKeys
         }
     }
     val catSongs = remember(catalogResults.songs, libSongKeys, filters) {
-        if (!show(SEARCH_SONGS)) emptyList()
+        if (!show(SearchFilter.SONGS)) emptyList()
         else catalogResults.songs.filter {
             (com.kike.musicplayer.data.discover.Names.comparable(it.artist) + "\u0001" + com.kike.musicplayer.data.discover.Names.comparable(it.title)) !in libSongKeys
         }
     }
     val catPlaylists = remember(catalogResults.playlists, filters) {
-        if (!show(SEARCH_PLAYLISTS)) emptyList()
+        if (!show(SearchFilter.PLAYLISTS)) emptyList()
         else catalogResults.playlists
     }
 
@@ -526,7 +653,7 @@ private fun SearchResultsList(
         if (artists.isNotEmpty()) {
             val collapsed = "artists" in collapsedSections
             item {
-                ResultsHeader("Artists", artists.size, collapsed) { toggleSection("artists") }
+                ResultsHeader(stringResource(R.string.tab_artists), artists.size, collapsed) { toggleSection("artists") }
             }
             if (!collapsed) {
                 items(artists, key = { "ar:" + it.name }) { artist ->
@@ -544,7 +671,7 @@ private fun SearchResultsList(
         if (albums.isNotEmpty()) {
             val collapsed = "albums" in collapsedSections
             item {
-                ResultsHeader("Albums", albums.size, collapsed) { toggleSection("albums") }
+                ResultsHeader(stringResource(R.string.tab_albums), albums.size, collapsed) { toggleSection("albums") }
             }
             if (!collapsed) {
                 items(albums, key = { "al:" + it.key }) { album ->
@@ -571,7 +698,7 @@ private fun SearchResultsList(
         if (songs.isNotEmpty()) {
             val collapsed = "songs" in collapsedSections
             item {
-                ResultsHeader("Songs", songs.size, collapsed) { toggleSection("songs") }
+                ResultsHeader(stringResource(R.string.tab_songs), songs.size, collapsed) { toggleSection("songs") }
             }
             if (!collapsed) {
                 itemsIndexed(songs, key = { _, t -> "so:" + t.id }) { index, track ->
@@ -604,7 +731,7 @@ private fun SearchResultsList(
         if (catArtists.isNotEmpty()) {
             val collapsed = "cat_artists" in collapsedSections
             item {
-                ResultsHeader("Artists on Deezer & Apple Music", catArtists.size, collapsed) { toggleSection("cat_artists") }
+                ResultsHeader(stringResource(R.string.search_cat_artists), catArtists.size, collapsed) { toggleSection("cat_artists") }
             }
             if (!collapsed) {
                 items(catArtists, key = { "cat-ar:" + it.id }) { artist ->
@@ -621,8 +748,8 @@ private fun SearchResultsList(
                         Column(Modifier.padding(start = 14.dp)) {
                             Text(artist.name, maxLines = 1, overflow = TextOverflow.Ellipsis)
                             val sub = buildList {
-                                if (inLib) add("In library")
-                                artist.albumCount?.takeIf { it > 0 }?.let { add(count(it, "album")) }
+                                if (inLib) add(stringResource(R.string.cat_in_library))
+                                artist.albumCount?.takeIf { it > 0 }?.let { add(pluralStringResource(R.plurals.albums_count, it, it)) }
                                 add(if (artist.source == com.kike.musicplayer.data.catalog.CatalogPlaylist.SOURCE_APPLE) "Apple Music" else "Deezer")
                             }.joinToString(" · ")
                             Text(sub, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -634,7 +761,7 @@ private fun SearchResultsList(
         if (catAlbums.isNotEmpty()) {
             val collapsed = "cat_albums" in collapsedSections
             item {
-                ResultsHeader("Albums on Deezer & Apple Music", catAlbums.size, collapsed) { toggleSection("cat_albums") }
+                ResultsHeader(stringResource(R.string.search_cat_albums), catAlbums.size, collapsed) { toggleSection("cat_albums") }
             }
             if (!collapsed) {
                 items(catAlbums, key = { "cat-al:" + it.id }) { album ->
@@ -659,7 +786,7 @@ private fun SearchResultsList(
         if (catSongs.isNotEmpty()) {
             val collapsed = "cat_songs" in collapsedSections
             item {
-                ResultsHeader("Songs on Deezer & Apple Music", catSongs.size, collapsed) { toggleSection("cat_songs") }
+                ResultsHeader(stringResource(R.string.search_cat_songs), catSongs.size, collapsed) { toggleSection("cat_songs") }
             }
             if (!collapsed) {
                 items(catSongs, key = { "cat-so:" + it.id }) { track ->
@@ -688,7 +815,7 @@ private fun SearchResultsList(
         if (catPlaylists.isNotEmpty()) {
             val collapsed = "cat_playlists" in collapsedSections
             item {
-                ResultsHeader("Playlists on Deezer", catPlaylists.size, collapsed) { toggleSection("cat_playlists") }
+                ResultsHeader(stringResource(R.string.search_cat_playlists), catPlaylists.size, collapsed) { toggleSection("cat_playlists") }
             }
             if (!collapsed) {
                 items(catPlaylists, key = { "cat-pl:" + it.id }) { playlist ->
@@ -700,8 +827,8 @@ private fun SearchResultsList(
                         Column(Modifier.padding(start = 12.dp)) {
                             Text(playlist.title, maxLines = 1, overflow = TextOverflow.Ellipsis)
                             val sub = buildList {
-                                playlist.creator?.takeIf { it.isNotBlank() }?.let { add("by $it") }
-                                if (playlist.trackCount > 0) add(count(playlist.trackCount, "song"))
+                                playlist.creator?.takeIf { it.isNotBlank() }?.let { add(stringResource(R.string.search_by_creator, it)) }
+                                if (playlist.trackCount > 0) add(pluralStringResource(R.plurals.songs_count, playlist.trackCount, playlist.trackCount))
                                 add("Deezer")
                             }.joinToString(" · ")
                             Text(
@@ -767,14 +894,14 @@ private fun EmptyLibrary(onOpenSources: () -> Unit) {
         verticalArrangement = Arrangement.Center,
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
-        Text("No music yet", style = MaterialTheme.typography.titleLarge)
+        Text(stringResource(R.string.sources_empty_title), style = MaterialTheme.typography.titleLarge)
         Spacer(Modifier.height(8.dp))
         Text(
-            "Pick the folders on this device or in Google Drive that hold your music.",
+            stringResource(R.string.sources_empty_subtitle),
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
         Spacer(Modifier.height(16.dp))
-        Button(onClick = onOpenSources) { Text("Add music sources") }
+        Button(onClick = onOpenSources) { Text(stringResource(R.string.sources_add)) }
     }
 }
 
@@ -786,10 +913,10 @@ fun PlayShuffleRow(onPlay: () -> Unit, onShuffle: () -> Unit, enabled: Boolean, 
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Button(onClick = onPlay, enabled = enabled) {
-            Icon(Icons.Default.PlayArrow, null); Spacer(Modifier.width(4.dp)); Text("Play")
+            Icon(Icons.Default.PlayArrow, null); Spacer(Modifier.width(4.dp)); Text(stringResource(R.string.action_play))
         }
         FilledTonalButton(onClick = onShuffle, enabled = enabled) {
-            Icon(Icons.Default.Shuffle, null); Spacer(Modifier.width(4.dp)); Text("Shuffle")
+            Icon(Icons.Default.Shuffle, null); Spacer(Modifier.width(4.dp)); Text(stringResource(R.string.action_shuffle))
         }
         downloads?.let { DownloadButton(it) }
     }
@@ -1069,20 +1196,20 @@ private fun PlaylistsTab(
                     horizontalArrangement = Arrangement.spacedBy(12.dp),
                 ) {
                     val card = Modifier.width(160.dp)
-                    CollectionCard("Recently Played", if (recent.isEmpty()) "Nothing played yet" else count(recent.size, "song"),
+                    CollectionCard(stringResource(R.string.home_recently_played), if (recent.isEmpty()) stringResource(R.string.home_empty_recent_subtitle) else count(recent.size, "song"),
                         recent, onOpenRecentTracks, { playerVm.playTracks(recent, 0) }, card)
-                    CollectionCard("Recently Played Albums",
-                        if (albums.isEmpty()) "Nothing played yet" else count(playlists.recentAlbums.size, "album"),
+                    CollectionCard(stringResource(R.string.home_recently_played_albums),
+                        if (albums.isEmpty()) stringResource(R.string.home_empty_recent_subtitle) else count(playlists.recentAlbums.size, "album"),
                         albums, onOpenRecentAlbums, { playerVm.playTracks(albums, 0) }, card)
-                    CollectionCard("Recently Added Albums",
-                        if (added.isEmpty()) "Nothing added yet" else count(playlists.addedAlbums.size, "album"),
+                    CollectionCard(stringResource(R.string.home_recently_added_albums),
+                        if (added.isEmpty()) stringResource(R.string.home_empty_added_subtitle) else count(playlists.addedAlbums.size, "album"),
                         added, onOpenAddedAlbums, { playerVm.playTracks(added, 0) }, card)
-                    CollectionCard("Heavy Rotation",
-                        if (rotation.isEmpty()) "Your current favorites" else count(rotation.size, "song"),
+                    CollectionCard(stringResource(R.string.home_heavy_rotation),
+                        if (rotation.isEmpty()) stringResource(R.string.home_empty_rotation_subtitle) else count(rotation.size, "song"),
                         rotation, onOpenHeavyRotation, { playerVm.playTracks(rotation, 0) }, card)
-                    CollectionCard("Most Played", if (most.isEmpty()) "Nothing played yet" else count(most.size, "song"),
+                    CollectionCard(stringResource(R.string.home_most_played), if (most.isEmpty()) stringResource(R.string.home_empty_most_played_subtitle) else count(most.size, "song"),
                         most, onOpenMostPlayed, { playerVm.playTracks(most, 0) }, card)
-                    CollectionCard("Favourite Songs", if (favourites.isEmpty()) "Tap the heart on a song" else count(favourites.size, "song"),
+                    CollectionCard(stringResource(R.string.home_favourites), if (favourites.isEmpty()) stringResource(R.string.home_empty_favourites_subtitle) else count(favourites.size, "song"),
                         favourites, onOpenFavourites, { playerVm.playTracks(favourites, 0) }, card)
                 }
             }
@@ -1090,7 +1217,7 @@ private fun PlaylistsTab(
             // Category 1: Personal Playlists
             item {
                 CategoryHeaderRow(
-                    title = "Personal",
+                    title = stringResource(PlaylistCategoryType.PERSONAL.titleRes),
                     count = sortedPersonal.size,
                     onOpenCategory = { onOpenPlaylistCategory(PlaylistCategoryType.PERSONAL) },
                 )
@@ -1098,7 +1225,7 @@ private fun PlaylistsTab(
             item {
                 if (sortedPersonal.isEmpty()) {
                     Text(
-                        "Tap + to create a playlist or import from Apple Music / Deezer.",
+                        stringResource(R.string.playlist_personal_empty),
                         Modifier.padding(horizontal = 16.dp, vertical = 6.dp),
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -1134,7 +1261,7 @@ private fun PlaylistsTab(
             // Category 2: Apple Music Playlists
             item {
                 CategoryHeaderRow(
-                    title = "Apple Music",
+                    title = stringResource(PlaylistCategoryType.APPLE_MUSIC.titleRes),
                     count = applePlaylists.size,
                     onOpenCategory = { onOpenPlaylistCategory(PlaylistCategoryType.APPLE_MUSIC) },
                 )
@@ -1142,7 +1269,7 @@ private fun PlaylistsTab(
             item {
                 if (applePlaylists.isEmpty()) {
                     Text(
-                        "No Apple Music playlists imported yet. Tap + to import an Apple Music playlist.",
+                        stringResource(R.string.playlist_apple_empty),
                         Modifier.padding(horizontal = 16.dp, vertical = 6.dp),
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -1168,7 +1295,7 @@ private fun PlaylistsTab(
                             CatalogPlaylistCard(
                                 title = playlist.title,
                                 subtitle = buildList {
-                                    playlist.creator?.takeIf { it.isNotBlank() }?.let { add("by $it") }
+                                    playlist.creator?.takeIf { it.isNotBlank() }?.let { add(stringResource(R.string.search_by_creator, it)) }
                                     add(count(playlist.trackCount, "song"))
                                 }.joinToString(" · "),
                                 coverUrl = playlist.coverUrl,
@@ -1190,7 +1317,7 @@ private fun PlaylistsTab(
             // Category 3: Deezer Playlists
             item {
                 CategoryHeaderRow(
-                    title = "Deezer",
+                    title = stringResource(PlaylistCategoryType.DEEZER.titleRes),
                     count = deezerPlaylists.size,
                     onOpenCategory = { onOpenPlaylistCategory(PlaylistCategoryType.DEEZER) },
                 )
@@ -1198,7 +1325,7 @@ private fun PlaylistsTab(
             item {
                 if (deezerPlaylists.isEmpty()) {
                     Text(
-                        "No Deezer playlists saved yet. Search for playlists on Deezer or tap + to import.",
+                        stringResource(R.string.playlist_deezer_empty),
                         Modifier.padding(horizontal = 16.dp, vertical = 6.dp),
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -1224,7 +1351,7 @@ private fun PlaylistsTab(
                             CatalogPlaylistCard(
                                 title = playlist.title,
                                 subtitle = buildList {
-                                    playlist.creator?.takeIf { it.isNotBlank() }?.let { add("by $it") }
+                                    playlist.creator?.takeIf { it.isNotBlank() }?.let { add(stringResource(R.string.search_by_creator, it)) }
                                     add(count(playlist.trackCount, "song"))
                                 }.joinToString(" · "),
                                 coverUrl = playlist.coverUrl,

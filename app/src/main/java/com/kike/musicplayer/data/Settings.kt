@@ -1,19 +1,26 @@
 package com.kike.musicplayer.data
 
+import android.app.LocaleManager
 import android.content.Context
+import android.os.Build
+import android.os.LocaleList
+import androidx.appcompat.app.AppCompatDelegate
+import androidx.core.os.LocaleListCompat
 import androidx.core.content.edit
+import androidx.annotation.StringRes
+import com.kike.musicplayer.R
 import com.kike.musicplayer.data.drive.DriveFolder
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 
-enum class DriveSyncMode(val label: String) {
-    OFF("No automatic sync"),
-    DAILY("Every 24 h"),
-    APP_START("At app start"),
+enum class DriveSyncMode(@StringRes val labelRes: Int, val label: String) {
+    OFF(R.string.sync_mode_off, "No automatic sync"),
+    DAILY(R.string.sync_mode_daily, "Every 24 h"),
+    APP_START(R.string.sync_mode_app_start, "At app start"),
 }
 
-class Settings(context: Context, name: String = "settings") {
+class Settings(private val context: Context, name: String = "settings") {
     private val prefs = context.getSharedPreferences(name, Context.MODE_PRIVATE)
 
     private val _safFolders = MutableStateFlow(prefs.getStringSet(KEY_SAF, emptySet())!!.toSet())
@@ -249,7 +256,58 @@ class Settings(context: Context, name: String = "settings") {
         _sonosDownsample.value = enabled
     }
 
+    private val _language = MutableStateFlow(getAppLanguage())
+    /** App display language: "system", "en", or "es". */
+    val language: StateFlow<String> = _language.asStateFlow()
+
+    fun getAppLanguage(): String {
+        val saved = prefs.getString(KEY_LANGUAGE, null)
+        if (saved != null) return saved
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            val localeManager = context.getSystemService(LocaleManager::class.java)
+            val locales = localeManager?.applicationLocales
+            if (locales != null && !locales.isEmpty) {
+                val tag = locales[0].toLanguageTag().lowercase()
+                return when {
+                    tag.startsWith("es") -> "es"
+                    tag.startsWith("en") -> "en"
+                    else -> "system"
+                }
+            }
+        }
+        val locales = AppCompatDelegate.getApplicationLocales()
+        if (locales.isEmpty) return "system"
+        val tag = locales.toLanguageTags().lowercase()
+        return when {
+            tag.startsWith("es") -> "es"
+            tag.startsWith("en") -> "en"
+            else -> "system"
+        }
+    }
+
+    fun setLanguage(tag: String) {
+        prefs.edit { putString(KEY_LANGUAGE, tag) }
+        _language.value = tag
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            val localeManager = context.getSystemService(LocaleManager::class.java)
+            if (localeManager != null) {
+                localeManager.applicationLocales = if (tag == "system") {
+                    LocaleList.getEmptyLocaleList()
+                } else {
+                    LocaleList.forLanguageTags(tag)
+                }
+            }
+        }
+        val localeList = if (tag == "system") {
+            LocaleListCompat.getEmptyLocaleList()
+        } else {
+            LocaleListCompat.forLanguageTags(tag)
+        }
+        AppCompatDelegate.setApplicationLocales(localeList)
+    }
+
     private companion object {
+        const val KEY_LANGUAGE = "app_language"
         const val KEY_SAF = "saf_folders"
         const val KEY_HIDDEN_SCOPES = "hidden_scopes"
         const val KEY_INDEX_VERSION = "index_version"

@@ -61,6 +61,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.res.stringResource
+import com.kike.musicplayer.R
 import coil3.compose.AsyncImage
 import coil3.compose.SubcomposeAsyncImage
 import com.kike.musicplayer.data.db.DiscoverItem
@@ -109,7 +111,7 @@ fun DiscoverTab(
             item {
                 Row(Modifier.fillMaxWidth().padding(start = 16.dp, end = 4.dp, top = 8.dp), verticalAlignment = Alignment.CenterVertically) {
                     Text(
-                        "New releases", Modifier.weight(1f),
+                        stringResource(R.string.discover_new_releases), Modifier.weight(1f),
                         style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold,
                     )
                     TextButton(onClick = onOpenFollowing) {
@@ -120,7 +122,7 @@ fun DiscoverTab(
             }
             item {
                 if (releases.isEmpty()) {
-                    EmptyNote(if (refreshing) "Looking for releases…" else "No releases in the last 3 months")
+                    EmptyNote(if (refreshing) stringResource(R.string.discover_looking_for_releases) else stringResource(R.string.discover_no_releases))
                 } else {
                     LazyRow(contentPadding = PaddingValues(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                         items(releases, key = { it.id }) { release ->
@@ -139,17 +141,17 @@ fun DiscoverTab(
                     Modifier.fillMaxWidth().clickable { pickCountry = true }.padding(start = 16.dp, end = 16.dp, top = 24.dp, bottom = 8.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    Text("Concerts in ${countryName(country)}", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-                    Icon(Icons.Default.ArrowDropDown, "Change country")
+                    Text(stringResource(R.string.discover_concerts_in, countryName(country)), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                    Icon(Icons.Default.ArrowDropDown, stringResource(R.string.discover_change_country))
                 }
             }
             if (concerts.isEmpty()) {
-                item { EmptyNote(if (refreshing) "Looking for concerts…" else "No concerts announced in ${countryName(country)}") }
+                item { EmptyNote(if (refreshing) stringResource(R.string.discover_looking_for_concerts) else stringResource(R.string.discover_no_concerts_in, countryName(country))) }
             }
             items(concerts, key = { it.id }) { concert -> ConcertRow(concert) { open(concert.url) } }
-            item { SectionTitle("News") }
+            item { SectionTitle(stringResource(R.string.discover_section_news)) }
             if (news.isEmpty()) {
-                item { EmptyNote(if (refreshing) "Looking for news…" else "No news in the last 30 days") }
+                item { EmptyNote(if (refreshing) stringResource(R.string.discover_looking_for_news) else stringResource(R.string.discover_no_news)) }
             }
             items(news, key = { it.id }) { story -> NewsRow(story, photos[story.artist.lowercase()]) { open(story.url) } }
         }
@@ -246,7 +248,7 @@ private fun ConcertRow(concert: DiscoverItem, onClick: () -> Unit) {
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
             Text(
-                start.format(DateTimeFormatter.ofPattern("MMM", Locale.ENGLISH)).uppercase(),
+                start.format(DateTimeFormatter.ofPattern("MMM", Locale.getDefault())).uppercase(),
                 style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onPrimaryContainer,
             )
             Text(
@@ -263,7 +265,7 @@ private fun ConcertRow(concert: DiscoverItem, onClick: () -> Unit) {
             val time = if (start.toLocalTime().toSecondOfDay() == 0) null else start.format(DateTimeFormatter.ofPattern("HH:mm"))
             val event = concert.title.takeIf { Names.comparable(it) != Names.comparable(concert.artist) }
             Text(
-                listOfNotNull(start.format(DateTimeFormatter.ofPattern(if (start.year == LocalDate.now().year) "EEEE" else "EEEE yyyy", Locale.ENGLISH)), time, event).joinToString(" · "),
+                listOfNotNull(start.format(DateTimeFormatter.ofPattern(if (start.year == LocalDate.now().year) "EEEE" else "EEEE yyyy", Locale.getDefault())), time, event).joinToString(" · "),
                 style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
                 maxLines = 1, overflow = TextOverflow.Ellipsis,
             )
@@ -314,7 +316,7 @@ private fun CountryDialog(current: String, onPick: (String) -> Unit, onDismiss: 
     val listState = rememberLazyListState((countries.indexOfFirst { it.first == current } - 3).coerceAtLeast(0))
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("Concerts in") },
+        title = { Text(stringResource(R.string.discover_select_country)) },
         text = {
             LazyColumn(Modifier.height(420.dp), state = listState) {
                 items(countries, key = { it.first }) { (code, name) ->
@@ -328,7 +330,7 @@ private fun CountryDialog(current: String, onPick: (String) -> Unit, onDismiss: 
                 }
             }
         },
-        confirmButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
+        confirmButton = { TextButton(onClick = onDismiss) { Text(stringResource(R.string.action_cancel)) } },
     )
 }
 
@@ -362,13 +364,13 @@ fun FollowingScreen(vm: LibraryViewModel, onOpenArtist: (String) -> Unit, onBack
 
 private fun localDate(millis: Long): LocalDate = Instant.ofEpochMilli(millis).atZone(ZoneOffset.UTC).toLocalDate()
 
-private fun countryName(code: String): String = Locale.Builder().setRegion(code).build().getDisplayCountry(Locale.ENGLISH)
+private fun countryName(code: String): String = Locale.Builder().setRegion(code).build().getDisplayCountry(Locale.getDefault())
 
 /** "Out today", "3 days ago", "Out 7 Nov", "12 Sep" (with the year when it isn't this year's). */
 private fun releaseWhen(date: LocalDate, today: LocalDate): String {
     val days = ChronoUnit.DAYS.between(date, today)
     val pattern = if (date.year == today.year) "d MMM" else "d MMM yyyy"
-    val formatted = date.format(DateTimeFormatter.ofPattern(pattern, Locale.ENGLISH))
+    val formatted = date.format(DateTimeFormatter.ofPattern(pattern, Locale.getDefault()))
     return when {
         days == 0L -> "Out today"
         days < 0 -> "Out $formatted"
