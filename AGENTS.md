@@ -7,7 +7,7 @@ Parent workspace notes: @[Shared Android Dev Workspace](../AGENTS.md)
 
 - **Path:** `C:\Users\kike\dev\MusicPlayer` (local git repo, repo-local identity `kike` / `kikeprojo@gmail.com`, nothing pushed).
 - **Package:** `com.kike.musicplayer`
-- **Current Release:** `1.38.0` (`versionCode = 90`, Room DB `v27`, `minSdk = 30`, `targetSdk = 36`, `compileSdk = 37`). Merged to `master`, tag `v1.38.0`.
+- **Current Release:** `1.39.0` (`versionCode = 91`, Room DB `v27`, `minSdk = 30`, `targetSdk = 36`, `compileSdk = 37`). Merged to `master`, tag `v1.39.0`.
 - **Stack:** Kotlin 2.4.20, Jetpack Compose, Media3 1.11.1 `MediaLibraryService` (Android Auto browse tree), Room 2.8.5 via KSP 2.3.12 + Paging 3 (`paging-compose 3.3.6`, `room-paging`), Retrofit 3 + Moshi (reflection), Coil 3, `play-services-auth` 22 `AuthorizationClient` (`drive.readonly` + `email`), `reorderable` 3.1.0, AGP 9.4.1, Gradle 9.8.
 - **Shared Toolchain & Environment:**
   - `JAVA_HOME`: Android Studio's bundled `jbr`
@@ -259,3 +259,18 @@ Started 2026-10-08 from user-pasted spec. NEW app, explicitly independent of Son
     - Widened the 3 summary metric subcards (Plays, Hours, Artists).
     - Set metric typography to `titleMedium` (16 sp bold) and labels to `labelSmall` with single-line ellipsis, ensuring numbers and labels (e.g. `"1.689 h"`, `"reproducciones"`, `"escuchadas"`) fit cleanly on 360dp width screens without line breaks or clipping.
   - Verified on OnePlus 12, merged to `master`, tagged `v1.38.0`, release APK `MusicMinchas-1.38.0.apk` installed.
+
+- 2026-10-27 Release 1.39.0 (`versionCode = 91`, Room DB `v27`, GitHub issue #20):
+  - Settings Screen Reorganization (`SourcesScreen.kt`, `ServerCard.kt`, `NebulaCard.kt`):
+    - Reorganized settings cards into categorized sections with uppercase headers: APPEARANCE, MUSIC SOURCES, MUSIC ADDONS (Nebula / Torbox), PLAYBACK (Hi-Res Sonos downsampling), DATA & STORAGE (Online metadata lookup, Downloaded songs), and ABOUT & DIAGNOSTICS (Language picker, Last.fm, Send debug logs, app version badge).
+    - Removed redundant status labels across source and add-on cards.
+  - Accent Color Setting (`Theme.kt`, `Settings.kt`, `LibraryViewModel.kt`, `MainActivity.kt`, `SourcesScreen.kt`):
+    - Added user-configurable Accent Color with Red and Blue options, selectable via segmented button in Appearance card regardless of Dark/Light theme mode.
+    - Implemented 4 custom Material 3 color schemes (`BlackRed`, `BlackBlue`, `LightRed`, `LightBlue`) supporting AMOLED pure black and clean light backgrounds.
+  - Radio Button Sizing & Spacing (`SourcesScreen.kt`, `ServerCard.kt`):
+    - Removed excess 48dp Material 3 touch target expansion using `LocalMinimumInteractiveComponentSize provides Dp.Unspecified`.
+    - Scaled radio button canvas to 0.8x (16dp), tightened option vertical padding to 1dp, reduced circle-to-label gap to 2dp, and set typography to `bodySmall` (12sp).
+  - Localization & Review:
+    - Added English and Spanish strings for Accent Color and Settings section headers in `values/strings.xml` and `values-es/strings.xml`.
+    - Updated `translations_review.xml`.
+  - Verified on OnePlus 12, merged to `master`, tagged `v1.39.0`, release APK `MusicMinchas-1.39.0.apk` installed.
