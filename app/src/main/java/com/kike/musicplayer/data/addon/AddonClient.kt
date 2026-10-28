@@ -84,7 +84,9 @@ class AddonClient(
      * 3. Resolves the selected track ID via `/stream/{id}`.
      */
     fun findStream(baseUrl: String, artist: String, album: String?, title: String): Result<AddonStream> {
-        val query = "${artist.trim()} ${title.trim()}"
+        val cleanArtist = sanitizeForSearch(artist)
+        val cleanTitle = sanitizeForSearch(title)
+        val query = "$cleanArtist $cleanTitle".trim()
         val searchResult = search(baseUrl, query)
         val tracks = searchResult.getOrNull()?.tracks
         if (tracks.isNullOrEmpty()) {
@@ -92,9 +94,9 @@ class AddonClient(
         }
 
         val selectedTrack = if (!album.isNullOrBlank()) {
-            val targetAlbum = album.lowercase().trim()
+            val targetAlbum = sanitizeForSearch(album).lowercase()
             tracks.firstOrNull { candidate ->
-                val candAlbum = candidate.album?.lowercase()?.trim() ?: ""
+                val candAlbum = sanitizeForSearch(candidate.album ?: "").lowercase()
                 candAlbum.isNotEmpty() && (candAlbum in targetAlbum || targetAlbum in candAlbum)
             } ?: tracks.first()
         } else {
@@ -106,5 +108,16 @@ class AddonClient(
 
     companion object {
         private const val USER_AGENT = "MusicMinchas/1.40.0 (Android)"
+        private val PUNCTUATION_REGEX = Regex("[()\\[\\]{}\"]")
+        private val WHITESPACE_REGEX = Regex("\\s+")
+
+        /**
+         * Replaces reserved FTS query operators (parentheses, brackets, quotes) with spaces
+         * so search backends (like Nullbeat/Lucene) do not fail on parenthetical expressions.
+         */
+        fun sanitizeForSearch(text: String): String =
+            text.replace(PUNCTUATION_REGEX, " ")
+                .replace(WHITESPACE_REGEX, " ")
+                .trim()
     }
 }

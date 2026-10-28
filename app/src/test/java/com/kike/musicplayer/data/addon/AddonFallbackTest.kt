@@ -128,6 +128,22 @@ class AddonFallbackTest {
         assertTrue(track.uri.startsWith("nebula:stream?"))
     }
 
+    @Test
+    fun testSanitizeForSearch() {
+        assertEquals(
+            "Chad Lawson she still solo piano",
+            AddonClient.sanitizeForSearch("Chad Lawson she (still) (solo piano)")
+        )
+        assertEquals(
+            "Enter Sandman Remastered",
+            AddonClient.sanitizeForSearch("Enter Sandman [Remastered]")
+        )
+        assertEquals(
+            "Theme from Schindler's List",
+            AddonClient.sanitizeForSearch("Theme from \"Schindler's List\"")
+        )
+    }
+
     private fun mockAddonClient(handler: (okhttp3.Request) -> Response): AddonClient {
         val okHttp = OkHttpClient.Builder()
             .addInterceptor { chain -> handler(chain.request()) }

@@ -161,8 +161,5 @@ class AddonManager(
 
     companion object {
         private const val KEY_ADDONS_JSON = "addons_json"
-
-        const val NULLBEAT_PRESET_URL = "https://nullbeat.thevolecitor.qzz.io/ZGJjNzdjN2UtMjM5Yy00NGUzLWIyZTAtYTk3NzcxMzUwNjY5fHx8TUFY/manifest.json"
-        const val NEBULA_PRESET_URL = "https://nebula.eclipsemusic.app/gAAAAABq1oFZLZZCvpQteJ3dHWrf7DnPsrS95P2CldGySUkDenpAgptSwLUe7TvEv7bOql9cSfDINSiDx2ayLb_9EUuhEYfE3PUnF3cYM8chU73adl7LPU75yI9M8UuBfvcnQwdCUHZcFolcoFaWNXVgdCtANYv6z-7Ax9i86W5rckdkThGR9lTpHPCcMMtrtB1Q5keH4tOcVwFQO4oRlFObntGIrZOnzr6K3OiLLCDt-Irt5akn9fWGBrWLUkvhieejgMUjS40905rbI1_ai6TjlyXVlk9BIYoY83fZNOVYgI3vdbdmglCuD8_YD1lED9yc9gFwE0zUTj0CckxW-IU-iR7E7eYNag==/manifest.json"
     }
 }

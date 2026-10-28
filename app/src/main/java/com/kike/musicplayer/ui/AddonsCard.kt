@@ -145,52 +145,34 @@ internal fun AddonsCard(vm: LibraryViewModel) {
             Spacer(Modifier.height(4.dp))
         }
 
-        // Add additional providers / presets
-        val hasNullbeat = addons.any { it.id == "nullbeat" || it.manifestUrl.contains("nullbeat", ignoreCase = true) }
-        val hasNebula = addons.any { it.id == "nebula" || it.manifestUrl.contains("nebula", ignoreCase = true) }
-
-        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                if (!hasNullbeat) {
-                    OutlinedButton(
-                        onClick = { vm.connectAddon(AddonManager.NULLBEAT_PRESET_URL, "nullbeat") },
-                        enabled = !busy,
-                        modifier = Modifier.weight(1f),
-                    ) {
-                        Icon(Icons.Default.Add, null, modifier = Modifier.size(16.dp))
-                        Text(stringResource(R.string.addon_connect_nullbeat), maxLines = 1, overflow = TextOverflow.Ellipsis)
-                    }
-                }
-
-                if (!hasNebula) {
-                    OutlinedButton(
-                        onClick = { vm.connectAddon(AddonManager.NEBULA_PRESET_URL, "nebula") },
-                        enabled = !busy,
-                        modifier = Modifier.weight(1f),
-                    ) {
-                        Icon(Icons.Default.Add, null, modifier = Modifier.size(16.dp))
-                        Text(stringResource(R.string.addon_connect_nebula), maxLines = 1, overflow = TextOverflow.Ellipsis)
-                    }
-                }
-            }
-
+        if (addons.isEmpty()) {
+            AddonConnectForm(
+                busy = busy,
+                onCancel = null,
+                onConnect = { url -> vm.connectAddon(url) },
+            )
+        } else {
             if (!showCustomInput) {
-                TextButton(
+                OutlinedButton(
                     onClick = { showCustomInput = true },
-                    modifier = Modifier.align(Alignment.Start),
+                    enabled = !busy,
+                    modifier = Modifier.padding(top = 4.dp),
                 ) {
                     Icon(Icons.Default.Add, null, modifier = Modifier.size(16.dp))
-                    Text(stringResource(R.string.addon_connect_custom), modifier = Modifier.padding(start = 4.dp))
+                    Text(
+                        stringResource(R.string.addon_connect_addon),
+                        modifier = Modifier.padding(start = 6.dp),
+                    )
                 }
             } else {
-                AddonConnectCustomForm(busy = busy) { url ->
-                    vm.connectAddon(url)
-                    showCustomInput = false
-                }
+                AddonConnectForm(
+                    busy = busy,
+                    onCancel = { showCustomInput = false },
+                    onConnect = { url ->
+                        vm.connectAddon(url)
+                        showCustomInput = false
+                    },
+                )
             }
         }
     }
@@ -319,8 +301,9 @@ private fun AddonItemRow(
 }
 
 @Composable
-private fun AddonConnectCustomForm(
+private fun AddonConnectForm(
     busy: Boolean,
+    onCancel: (() -> Unit)?,
     onConnect: (String) -> Unit,
 ) {
     var manifestUrl by rememberSaveable { mutableStateOf("") }
@@ -330,7 +313,7 @@ private fun AddonConnectCustomForm(
         OutlinedTextField(
             value = manifestUrl,
             onValueChange = { manifestUrl = it },
-            label = { Text(stringResource(R.string.addon_connect_custom)) },
+            label = { Text(stringResource(R.string.addon_manifest_url_label)) },
             placeholder = { Text("https://.../manifest.json") },
             singleLine = false,
             maxLines = 3,
@@ -363,6 +346,15 @@ private fun AddonConnectCustomForm(
                     )
                 }
                 Text(if (busy) stringResource(R.string.addon_connecting) else stringResource(R.string.addon_connect_button))
+            }
+
+            if (onCancel != null) {
+                TextButton(
+                    onClick = onCancel,
+                    enabled = !busy,
+                ) {
+                    Text(stringResource(R.string.action_cancel))
+                }
             }
         }
     }

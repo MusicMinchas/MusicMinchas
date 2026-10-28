@@ -250,8 +250,8 @@
             <es>Complementos de streaming</es>
         </string>
         <string name="addon_card_subtitle_disconnected">
-            <en>Stream lossless FLAC audio via Torbox cache for unowned music using Nullbeat, Nebula, or Stremio add-ons</en>
-            <es>Reproduce audio FLAC sin pérdidas vía Torbox para música no poseída usando Nullbeat, Nebula o complementos Stremio</es>
+            <en>Stream lossless FLAC audio via Torbox cache for unowned music using Stremio / Eclipse music add-ons</en>
+            <es>Reproduce audio FLAC sin pérdidas vía Torbox para música no poseída usando complementos Stremio / Eclipse</es>
         </string>
         <string name="addon_priority_primary">
             <en>#%d · Primary</en>
@@ -265,17 +265,13 @@
             <en>MusicMinchas streams from #1 first and automatically falls back to #2 if unavailable. Drag cards to reorder priority.</en>
             <es>MusicMinchas reproduce primero del nº 1 y recurre automáticamente al nº 2 si no está disponible. Arrastra las tarjetas para ordenar la prioridad.</es>
         </string>
-        <string name="addon_connect_nullbeat">
-            <en>Connect NullBeat</en>
-            <es>Conectar NullBeat</es>
+        <string name="addon_connect_addon">
+            <en>Connect Add-on</en>
+            <es>Conectar complemento</es>
         </string>
-        <string name="addon_connect_nebula">
-            <en>Connect Nebula</en>
-            <es>Conectar Nebula</es>
-        </string>
-        <string name="addon_connect_custom">
-            <en>Custom Manifest URL</en>
-            <es>URL de manifiesto personalizada</es>
+        <string name="addon_manifest_url_label">
+            <en>Manifest URL</en>
+            <es>URL del manifiesto</es>
         </string>
         <string name="addon_connect_button">
             <en>Connect</en>
@@ -292,10 +288,6 @@
         <string name="addon_disconnect_message">
             <en>MusicMinchas will stop streaming unowned tracks from this provider. If you have other add-ons, playback will automatically fall back to them.</en>
             <es>MusicMinchas dejará de reproducir canciones no poseídas desde este proveedor. Si tienes otros complementos, se recurrirá a ellos automáticamente.</es>
-        </string>
-        <string name="addon_add_provider">
-            <en>Add Provider</en>
-            <es>Añadir proveedor</es>
         </string>
         <string name="addon_quality_badge">
             <en>Lossless FLAC (Torbox)</en>
