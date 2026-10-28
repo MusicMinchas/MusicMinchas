@@ -48,6 +48,8 @@ class LibraryIndexer(private val db: AppDatabase, private val scope: CoroutineSc
     /** True while queued songs are being indexed. */
     val busy: StateFlow<Boolean> = _busy.asStateFlow()
 
+    private val paused = MutableStateFlow(false)
+
     @OptIn(FlowPreview::class)
     fun start(indexedVersion: Int, onReindexQueued: (Int) -> Unit) {
         scope.launch {
@@ -58,12 +60,37 @@ class LibraryIndexer(private val db: AppDatabase, private val scope: CoroutineSc
         }
         scope.launch {
             dao.observeDirtyCount().filter { it > 0 }.debounce(DEBOUNCE_MS).collect {
-                runCatching { runQueue() }.onFailure { Log.w(TAG, "Indexing failed", it) }
+                if (!paused.value) {
+                    runCatching { runQueue() }.onFailure { Log.w(TAG, "Indexing failed", it) }
+                }
             }
         }
         scope.launch {
             db.artistInfo().observeAll().map { artistTagMap(it) }.distinctUntilChanged().drop(1).collect {
                 dao.markUntaggedDirty()
+            }
+        }
+    }
+
+    /** Temporarily pauses automatic indexing (e.g. while a large sync is actively inserting tracks). */
+    fun pause() {
+        paused.value = true
+    }
+
+    /** Resumes indexing and immediately indexes any accumulated dirty tracks. */
+    suspend fun resumeAndRunIfDirty() {
+        paused.value = false
+        if (dao.dirtyCount() > 0) {
+            runCatching { runQueue() }.onFailure { Log.w(TAG, "Indexing failed", it) }
+        }
+    }
+
+    /** Resumes automatic indexing asynchronously without blocking. */
+    fun resume() {
+        paused.value = false
+        scope.launch {
+            if (dao.dirtyCount() > 0) {
+                runCatching { runQueue() }.onFailure { Log.w(TAG, "Indexing failed", it) }
             }
         }
     }

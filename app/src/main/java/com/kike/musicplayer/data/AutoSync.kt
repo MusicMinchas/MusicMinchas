@@ -3,6 +3,7 @@ package com.kike.musicplayer.data
 import android.content.Context
 import android.util.Log
 import androidx.core.content.edit
+import com.kike.musicplayer.R
 import com.kike.musicplayer.data.lastfm.LastFm
 import com.kike.musicplayer.data.lastfm.ScrobbleImporter
 import com.kike.musicplayer.data.subsonic.ServerCollections
@@ -32,7 +33,7 @@ data class AutoSyncState(
  * connected are skipped. Checked at start and every hour while the app runs.
  */
 class AutoSync(
-    context: Context,
+    private val context: Context,
     private val lastFm: LastFm,
     private val importer: ScrobbleImporter,
     private val navidrome: SubsonicAccount,
@@ -43,6 +44,7 @@ class AutoSync(
 ) {
     private val prefs = context.getSharedPreferences(prefsName, Context.MODE_PRIVATE)
     private val mutex = Mutex()
+    private var consecutiveFailures = 0
 
     private val _state = MutableStateFlow(
         AutoSyncState(
@@ -56,8 +58,19 @@ class AutoSync(
     fun start() {
         scope.launch {
             while (true) {
-                if (due() && !isCasting()) runAll()
+                if (due() && !isCasting()) {
+                    if (NetworkUtils.isOnline(context) && consecutiveFailures < MAX_RETRIES) {
+                        runAll(interactive = false)
+                    }
+                }
                 delay(CHECK_EVERY_MS)
+            }
+        }
+        scope.launch {
+            NetworkUtils.observeOnline(context).collect { online ->
+                if (online && due() && !isCasting() && consecutiveFailures < MAX_RETRIES) {
+                    runAll(interactive = false)
+                }
             }
         }
     }
@@ -65,22 +78,34 @@ class AutoSync(
     fun setEnabled(on: Boolean) {
         prefs.edit { putBoolean(KEY_ENABLED, on) }
         _state.value = _state.value.copy(enabled = on)
-        if (on && due()) scope.launch { runAll() }
+        if (on && due()) {
+            consecutiveFailures = 0
+            scope.launch { runAll(interactive = false) }
+        }
     }
 
     /** Runs everything now (the card's button). */
     fun syncNow() {
-        scope.launch { runAll() }
+        consecutiveFailures = 0
+        scope.launch { runAll(interactive = true) }
     }
 
     private fun due() = _state.value.enabled && System.currentTimeMillis() - _state.value.lastRun >= INTERVAL_MS
 
-    private suspend fun runAll() {
+    private suspend fun runAll(interactive: Boolean) {
+        if (!NetworkUtils.isOnline(context)) {
+            if (interactive) {
+                _state.value = _state.value.copy(
+                    summary = context.getString(R.string.network_error_offline)
+                )
+            }
+            return
+        }
         if (mutex.isLocked) return
         mutex.withLock {
             _state.value = _state.value.copy(running = true)
             val parts = ArrayList<String>()
-            runCatching {
+            val result = runCatching {
                 if (lastFm.state.value.user != null) {
                     importer.importAndWait(everything = false)
                     importer.status.value.text?.let { parts += "Last.fm history: $it" }
@@ -97,11 +122,22 @@ class AutoSync(
                         else -> "favourites and playlists up to date"
                     }
                 }
-            }.onFailure { Log.w(TAG, "Sync failed", it); parts += "Stopped: ${it.message ?: it.javaClass.simpleName}" }
+            }
+            result.onSuccess {
+                consecutiveFailures = 0
+            }.onFailure {
+                consecutiveFailures++
+                Log.w(TAG, "Sync failed (attempt $consecutiveFailures/$MAX_RETRIES)", it)
+                parts += "Stopped: ${NetworkUtils.describeError(context, it)}"
+            }
             val now = System.currentTimeMillis()
             val summary = parts.joinToString("\n").ifEmpty { "Nothing connected to sync with" }
-            prefs.edit { putLong(KEY_LAST_RUN, now); putString(KEY_SUMMARY, summary) }
-            _state.value = _state.value.copy(running = false, lastRun = now, summary = summary)
+            if (result.isSuccess) {
+                prefs.edit { putLong(KEY_LAST_RUN, now); putString(KEY_SUMMARY, summary) }
+                _state.value = _state.value.copy(running = false, lastRun = now, summary = summary)
+            } else {
+                _state.value = _state.value.copy(running = false, summary = summary)
+            }
         }
     }
 
@@ -112,5 +148,6 @@ class AutoSync(
         const val KEY_SUMMARY = "summary"
         const val INTERVAL_MS = 24 * 60 * 60 * 1000L
         const val CHECK_EVERY_MS = 60 * 60 * 1000L
+        const val MAX_RETRIES = 3
     }
 }

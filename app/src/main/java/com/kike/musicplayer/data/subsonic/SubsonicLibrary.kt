@@ -1,9 +1,13 @@
 package com.kike.musicplayer.data.subsonic
 
+import android.content.Context
 import android.util.Log
 import androidx.room.withTransaction
 import com.kike.musicplayer.Bench
+import com.kike.musicplayer.R
 import com.kike.musicplayer.data.DriveSyncMode
+import com.kike.musicplayer.data.LibraryIndexer
+import com.kike.musicplayer.data.NetworkUtils
 import com.kike.musicplayer.data.Settings
 import com.kike.musicplayer.data.db.AppDatabase
 import com.kike.musicplayer.data.db.Track
@@ -30,6 +34,7 @@ data class ServerSync(
     /** How the last sync went, or why it failed. */
     val message: String? = null,
     val failed: Boolean = false,
+    val isIndexing: Boolean = false,
 )
 
 /**
@@ -40,11 +45,13 @@ data class ServerSync(
  * their tags from Navidrome, so they skip the tag reading and online lookups of the own music.
  */
 class SubsonicLibrary(
+    private val context: Context,
     private val account: SubsonicAccount,
     private val db: AppDatabase,
     private val settings: Settings,
     private val scope: CoroutineScope,
     private val isCasting: () -> Boolean = { false },
+    private val indexer: LibraryIndexer? = null,
 ) {
     private val dao = db.tracks()
     private var job: Job? = null
@@ -59,6 +66,7 @@ class SubsonicLibrary(
     fun syncIfDue() {
         // The first sync (a whole library) only when the user asks for it (Sync now).
         if (settings.lastServerSync.value == 0L || isCasting()) return
+        if (!NetworkUtils.isOnline(context)) return
         val due = when (settings.serverSyncMode.value) {
             DriveSyncMode.OFF -> false
             DriveSyncMode.APP_START -> true
@@ -70,6 +78,15 @@ class SubsonicLibrary(
     /** Lists Navidrome's songs again; without [force], only if the server scanned since the last sync. */
     fun sync(force: Boolean = true) {
         if (job?.isActive == true) return
+        if (!NetworkUtils.isOnline(context)) {
+            if (force) {
+                _status.value = ServerSync(
+                    message = context.getString(R.string.network_error_offline),
+                    failed = true,
+                )
+            }
+            return
+        }
         job = scope.launch(Dispatchers.IO) {
             val login = account.login() ?: return@launch
             _status.value = ServerSync(running = true)
@@ -88,7 +105,7 @@ class SubsonicLibrary(
                 onSynced?.invoke()
             } catch (e: Exception) {
                 Log.w(TAG, "Server sync failed", e)
-                _status.value = ServerSync(message = "Sync failed: ${e.message ?: e.javaClass.simpleName}", failed = true)
+                _status.value = ServerSync(message = "Sync failed: ${NetworkUtils.describeError(context, e)}", failed = true)
             }
         }
     }
@@ -103,63 +120,80 @@ class SubsonicLibrary(
     }
 
     private suspend fun syncAll(login: SubsonicLogin, total: Long?): String = coroutineScope {
-        val known = HashMap<String, String?>()
-        dao.checksums(Track.SOURCE_SUBSONIC).forEach { known[it.id] = it.checksum }
-        val seen = HashSet<String>(maxOf(known.size, total?.toInt() ?: 0) * 2)
-        var added = 0
-        var changed = 0
-        val now = System.currentTimeMillis()
+        indexer?.pause()
+        try {
+            val known = HashMap<String, String?>()
+            dao.checksums(Track.SOURCE_SUBSONIC).forEach { known[it.id] = it.checksum }
+            val seen = HashSet<String>(maxOf(known.size, total?.toInt() ?: 0) * 2)
+            var added = 0
+            var changed = 0
+            val now = System.currentTimeMillis()
 
-        var offset = 0
-        var next = async { account.client.songs(login, offset, PAGE) }
-        while (true) {
-            val page = next.await()
-            if (page.isEmpty()) break
-            offset += page.size
-            // Fetch the next page while this one is written.
-            next = async { account.client.songs(login, offset, PAGE) }
+            var offset = 0
+            var next = async { account.client.songs(login, offset, PAGE) }
+            while (true) {
+                val page = next.await()
+                if (page.isEmpty()) break
+                offset += page.size
+                // Fetch the next page while this one is written.
+                next = async { account.client.songs(login, offset, PAGE) }
 
-            val fresh = ArrayList<Track>()
-            for (song in page) {
-                val track = toTrack(song, now)
-                if (!seen.add(track.id)) continue // listed twice (paging over a changing library)
-                val old = known[track.id]
-                if (old == null && track.id !in known) added++ else if (old != track.checksum) changed++ else continue
-                fresh += track
-            }
-            if (fresh.isNotEmpty()) {
-                // Songs already here keep what the app added (download, first-seen date).
-                val previous = dao.getByIds(fresh.filter { it.id in known }.map { it.id }).associateBy { it.id }
-                db.withTransaction {
-                    dao.upsertAll(fresh.map { t ->
-                        previous[t.id]?.let { p -> t.copy(dateAdded = p.dateAdded, localUri = p.localUri, downloadState = p.downloadState) } ?: t
-                    })
+                val fresh = ArrayList<Track>()
+                for (song in page) {
+                    val track = toTrack(song, now)
+                    if (!seen.add(track.id)) continue // listed twice (paging over a changing library)
+                    val old = known[track.id]
+                    if (old == null && track.id !in known) added++ else if (old != track.checksum) changed++ else continue
+                    fresh += track
                 }
+                if (fresh.isNotEmpty()) {
+                    // Songs already here keep what the app added (download, first-seen date).
+                    val previous = dao.getByIds(fresh.filter { it.id in known }.map { it.id }).associateBy { it.id }
+                    db.withTransaction {
+                        dao.upsertAll(fresh.map { t ->
+                            previous[t.id]?.let { p -> t.copy(dateAdded = p.dateAdded, localUri = p.localUri, downloadState = p.downloadState) } ?: t
+                        })
+                    }
+                }
+                _status.value = ServerSync(running = true, listed = seen.size, total = total)
+                if (page.size < PAGE) break
             }
-            _status.value = ServerSync(running = true, listed = seen.size, total = total)
-            if (page.size < PAGE) break
-        }
-        next.cancel()
+            next.cancel()
 
-        // Songs no longer listed are gone from Navidrome, unless the listing came up short.
-        val gone = known.keys - seen
-        val complete = total == null || seen.size >= total
-        val removed = if (complete && (seen.isNotEmpty() || known.isEmpty())) gone.size.also { dao.delete(gone) } else 0
-        if (!complete) Log.w(TAG, "Listing incomplete: ${seen.size} of $total songs; nothing removed")
-        Bench.log("server sync: ${seen.size} listed, $added added, $changed changed, $removed removed")
-        buildString {
-            val n = java.text.NumberFormat.getIntegerInstance()
-            append("${n.format(seen.size)} songs on Navidrome")
-            val parts = listOfNotNull(
-                "${n.format(added)} new".takeIf { added > 0 }, "${n.format(changed)} updated".takeIf { changed > 0 }, "${n.format(removed)} removed".takeIf { removed > 0 },
-            )
-            append(if (parts.isEmpty()) ", no changes" else ": " + parts.joinToString(", "))
+            // Songs no longer listed are gone from Navidrome, unless the listing came up short.
+            val gone = known.keys - seen
+            val complete = total == null || seen.size >= total
+            val removed = if (complete && (seen.isNotEmpty() || known.isEmpty())) gone.size.also { dao.delete(gone) } else 0
+            if (!complete) Log.w(TAG, "Listing incomplete: ${seen.size} of $total songs; nothing removed")
+            Bench.log("server sync: ${seen.size} listed, $added added, $changed changed, $removed removed")
+
+            if (added > 0 || changed > 0 || removed > 0) {
+                _status.value = ServerSync(
+                    running = true,
+                    listed = seen.size,
+                    total = total,
+                    message = context.getString(R.string.server_sync_indexing),
+                    isIndexing = true,
+                )
+                indexer?.resumeAndRunIfDirty()
+            }
+
+            buildString {
+                val n = java.text.NumberFormat.getIntegerInstance()
+                append("${n.format(seen.size)} songs on Navidrome")
+                val parts = listOfNotNull(
+                    "${n.format(added)} new".takeIf { added > 0 }, "${n.format(changed)} updated".takeIf { changed > 0 }, "${n.format(removed)} removed".takeIf { removed > 0 },
+                )
+                append(if (parts.isEmpty()) ", no changes" else ": " + parts.joinToString(", "))
+            }
+        } finally {
+            indexer?.resume()
         }
     }
 
     companion object {
         private const val TAG = "SubsonicLibrary"
-        private const val PAGE = 500
+        private const val PAGE = 1000
         private const val DAY_MS = 24 * 60 * 60 * 1000L
         const val COVER_PREFIX = "subsonic:cover/"
 

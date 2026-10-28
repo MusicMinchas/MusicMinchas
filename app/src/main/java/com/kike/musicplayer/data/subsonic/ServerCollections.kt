@@ -6,6 +6,8 @@ import androidx.core.content.edit
 import com.kike.musicplayer.data.db.AppDatabase
 import com.kike.musicplayer.data.db.Favourite
 import com.kike.musicplayer.data.db.getByIds
+import com.kike.musicplayer.R
+import com.kike.musicplayer.data.NetworkUtils
 import com.kike.musicplayer.data.lastfm.Scrobbler
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -49,7 +51,7 @@ data class CollectionsSync(
  * Runs at start, after a server sync, and a few seconds after favourites or playlists change here.
  */
 class ServerCollections(
-    context: Context,
+    private val context: Context,
     private val account: SubsonicAccount,
     private val db: AppDatabase,
     private val match: ServerMatch,
@@ -61,6 +63,8 @@ class ServerCollections(
 ) {
     private val prefs = context.getSharedPreferences(prefsName, Context.MODE_PRIVATE)
     private val mutex = Mutex()
+    private var pendingSync = false
+    private var consecutiveFailures = 0
     private val client get() = account.client
     private val playlists = db.playlists()
     private val favourites = db.favourites()
@@ -74,17 +78,35 @@ class ServerCollections(
     fun start() {
         // Changes made here go to Navidrome shortly after (the first emission is the start-up sync).
         scope.launch {
-            db.invalidationTracker.createFlow("favourites", "playlists", "playlist_tracks").debounce(CHANGE_DELAY_MS).collect { sync() }
+            db.invalidationTracker.createFlow("favourites", "playlists", "playlist_tracks").debounce(CHANGE_DELAY_MS).collect {
+                if (NetworkUtils.isOnline(context)) {
+                    sync(interactive = false)
+                } else {
+                    pendingSync = true
+                }
+            }
+        }
+        scope.launch {
+            NetworkUtils.observeOnline(context).collect { online ->
+                if (online && pendingSync) {
+                    pendingSync = false
+                    sync(interactive = false)
+                }
+            }
         }
     }
 
     /** Syncs favourites and playlists now (also after Navidrome's songs were synced). */
     fun syncNow() {
-        scope.launch { sync() }
+        consecutiveFailures = 0
+        scope.launch { sync(interactive = true) }
     }
 
     /** [syncNow], returning when done (the automatic daily sync waits for it). */
-    suspend fun syncAndWait() = sync()
+    suspend fun syncAndWait() {
+        consecutiveFailures = 0
+        sync(interactive = false)
+    }
 
     /** Signed out of the server: forget the sync state, so a later sign-in starts afresh. */
     fun forget() {
@@ -95,9 +117,24 @@ class ServerCollections(
         }
     }
 
-    private suspend fun sync() = mutex.withLock {
+    private suspend fun sync(interactive: Boolean = false) = mutex.withLock {
         val login = account.login() ?: return@withLock
         if (!songsSynced()) return@withLock
+        if (!NetworkUtils.isOnline(context)) {
+            if (interactive) {
+                _status.value = _status.value.copy(
+                    running = false,
+                    message = context.getString(R.string.network_error_offline),
+                    failed = true,
+                )
+            } else {
+                pendingSync = true
+            }
+            return@withLock
+        }
+        if (!interactive && consecutiveFailures >= MAX_RETRIES) {
+            return@withLock
+        }
         _status.value = _status.value.copy(running = true)
         val result = runCatching {
             val stars = syncStars(login)
@@ -109,6 +146,8 @@ class ServerCollections(
         val before = _status.value
         _status.value = result.fold(
             onSuccess = { changes ->
+                consecutiveFailures = 0
+                pendingSync = false
                 if (changes.isEmpty()) before.copy(running = false, message = null, failed = false, at = now)
                 else {
                     prefs.edit { putString(KEY_CHANGES, changes); putLong(KEY_CHANGES_AT, now) }
@@ -116,8 +155,10 @@ class ServerCollections(
                 }
             },
             onFailure = {
-                Log.w(TAG, "Sync of favourites and playlists failed", it)
-                before.copy(running = false, message = "Couldn't sync favourites and playlists: ${it.message ?: it.javaClass.simpleName}", failed = true)
+                consecutiveFailures++
+                Log.w(TAG, "Sync of favourites and playlists failed (attempt $consecutiveFailures/$MAX_RETRIES)", it)
+                val err = NetworkUtils.describeError(context, it)
+                before.copy(running = false, message = "Couldn't sync favourites and playlists: $err", failed = true)
             },
         )
     }
@@ -292,6 +333,7 @@ class ServerCollections(
         const val KEY_CHANGES = "last_changes"
         const val KEY_CHANGES_AT = "last_changes_at"
         const val CHANGE_DELAY_MS = 3_000L
+        const val MAX_RETRIES = 3
     }
 }
 

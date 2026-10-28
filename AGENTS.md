@@ -7,7 +7,7 @@ Parent workspace notes: @[Shared Android Dev Workspace](../AGENTS.md)
 
 - **Path:** `C:\Users\kike\dev\MusicPlayer` (local git repo, repo-local identity `kike` / `kikeprojo@gmail.com`, nothing pushed).
 - **Package:** `com.kike.musicplayer`
-- **Current Release:** `1.39.0` (`versionCode = 91`, Room DB `v27`, `minSdk = 30`, `targetSdk = 36`, `compileSdk = 37`). Merged to `master`, tag `v1.39.0`.
+- **Current Release:** `1.40.0` (`versionCode = 92`, Room DB `v27`, `minSdk = 30`, `targetSdk = 36`, `compileSdk = 37`). Merged to `master`, tag `v1.40.0`.
 - **Stack:** Kotlin 2.4.20, Jetpack Compose, Media3 1.11.1 `MediaLibraryService` (Android Auto browse tree), Room 2.8.5 via KSP 2.3.12 + Paging 3 (`paging-compose 3.3.6`, `room-paging`), Retrofit 3 + Moshi (reflection), Coil 3, `play-services-auth` 22 `AuthorizationClient` (`drive.readonly` + `email`), `reorderable` 3.1.0, AGP 9.4.1, Gradle 9.8.
 - **Shared Toolchain & Environment:**
   - `JAVA_HOME`: Android Studio's bundled `jbr`
@@ -274,3 +274,19 @@ Started 2026-10-08 from user-pasted spec. NEW app, explicitly independent of Son
     - Added English and Spanish strings for Accent Color and Settings section headers in `values/strings.xml` and `values-es/strings.xml`.
     - Updated `translations_review.xml`.
   - Verified on OnePlus 12, merged to `master`, tagged `v1.39.0`, release APK `MusicMinchas-1.39.0.apk` installed.
+- 2026-10-28 Release 1.40.0 (`versionCode = 92`, Room DB `v27`, GitHub issue #21):
+  - Navidrome Sync Performance & Scale Optimizations (`SubsonicLibrary.kt`, `SubsonicAccount.kt`):
+    - Increased Subsonic page size `PAGE` and `SYNC_PAGE` from 200 to 1,000 tracks, cutting network round trips by 80% (from ~1,330 to ~266 HTTP requests for 266k libraries).
+  - Batch Library Indexing & Live UI State Indicator (`LibraryIndexer.kt`, `Daos.kt`, `ServerCard.kt`):
+    - Added `pause()`, `resume()`, and `resumeAndRunIfDirty()` to `LibraryIndexer`.
+    - `SubsonicLibrary.syncAll()` pauses the background indexer during track streaming ingestion to prevent SQLite write lock contention and redundant intermediate index updates.
+    - When sync completes, dirty index triggers are executed in a single consolidated pass while `ServerCard` displays a live `"Updating library index…"` status indicator.
+  - Offline Network Guard & Friendly Errors (`NetworkUtils.kt`, `ServerCollections.kt`, `AutoSync.kt`):
+    - Implemented `NetworkUtils` with `isOnline()`, `observeOnline()`, and `describeError()` for localized, descriptive network states (Offline, DNS/Host not found, Timeout, Server unreachable).
+    - Added offline guard skipping sync when offline and capped retry loops with `MAX_RETRIES = 3`.
+  - Navidrome 0.64.x Canonical ID Migration Analysis:
+    - Investigated 128-bit base62 canonical ID migration in Navidrome 0.64.0/0.64.2. Verified 100% data integrity across Favourites (0 orphaned Subsonic IDs), Playlists (0 orphaned tracks), and Google Drive library isolation.
+  - Localization & Tests:
+    - Added localized English and Spanish strings for indexing and network errors, synchronized `translations_review.xml`.
+    - Added `SubsonicSyncOptimizationTest.kt` verifying page constants, indexer dirty tracking, and error mapping.
+  - Verified on OnePlus 12, merged to `master`, tagged `v1.40.0`, release APK `MusicMinchas-1.40.0.apk` installed.

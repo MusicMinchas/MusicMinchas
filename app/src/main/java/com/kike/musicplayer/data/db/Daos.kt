@@ -546,6 +546,9 @@ interface LibraryIndexDao {
     @Query("SELECT COUNT(*) FROM index_dirty")
     fun observeDirtyCount(): Flow<Int>
 
+    @Query("SELECT COUNT(*) FROM index_dirty")
+    suspend fun dirtyCount(): Int
+
     @Query("SELECT * FROM index_dirty WHERE seq > :afterSeq ORDER BY seq LIMIT :limit")
     suspend fun dirty(afterSeq: Long, limit: Int): List<IndexDirty>
 

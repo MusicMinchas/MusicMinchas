@@ -151,7 +151,7 @@ class AppContainer(app: Application) {
 
     /** Subsonic / Navidrome server sign-in. */
     val subsonic = SubsonicAccount(app, SubsonicClient(baseHttp, moshi), "subsonic$suffix")
-    val serverLibrary = SubsonicLibrary(subsonic, database, settings, appScope, isCasting)
+    val serverLibrary = SubsonicLibrary(app, subsonic, database, settings, appScope, isCasting, indexer)
     /** Signed URLs for server songs and covers, made when they're opened. */
     val subsonicUrls = SubsonicUrls(subsonic)
     /** Plays reported to the server, as the user chose (off by default). */

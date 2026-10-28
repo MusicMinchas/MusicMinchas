@@ -156,14 +156,15 @@ private fun ServerSyncControls(vm: LibraryViewModel) {
     )
     if (sync.running) {
         val total = sync.total
-        if (total != null && total > 0) {
+        if (total != null && total > 0 && !sync.isIndexing) {
             LinearProgressIndicator(progress = { (sync.listed.toFloat() / total).coerceIn(0f, 1f) }, Modifier.fillMaxWidth())
         } else {
             LinearProgressIndicator(Modifier.fillMaxWidth())
         }
         val totalStr = total?.let { stringResource(R.string.server_sync_of_total, number.format(it)) } ?: ""
         Text(
-            stringResource(R.string.server_sync_listing, number.format(sync.listed), totalStr),
+            if (sync.isIndexing) stringResource(R.string.server_sync_indexing)
+            else stringResource(R.string.server_sync_listing, number.format(sync.listed), totalStr),
             style = MaterialTheme.typography.bodySmall,
         )
     } else {

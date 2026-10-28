@@ -225,6 +225,26 @@
             <en>%d min ago</en>
             <es>hace %d min</es>
         </string>
+        <string name="network_error_offline">
+            <en>No internet connection</en>
+            <es>Sin conexión a internet</es>
+        </string>
+        <string name="network_error_server_unreachable">
+            <en>Server unreachable: check the address or your connection</en>
+            <es>Servidor no disponible: comprueba la dirección o tu conexión</es>
+        </string>
+        <string name="network_error_timeout">
+            <en>Server didn't answer in time</en>
+            <es>El servidor no respondió a tiempo</es>
+        </string>
+        <string name="network_error_ssl">
+            <en>Secure connection failed: server certificate not trusted</en>
+            <es>Conexión segura fallida: certificado del servidor no confiable</es>
+        </string>
+        <string name="network_error_generic">
+            <en>Network error: check your connection</en>
+            <es>Error de red: comprueba tu conexión</es>
+        </string>
     </section>
     <section name="Navigation &amp; Tabs">
         <string name="tab_albums">
@@ -1466,6 +1486,22 @@ La copia de Navidrome se busca por artista y título, ignorando notas como "(Rem
         <string name="sources_more_addons_subtitle">
             <en>Additional streaming providers and resolvers will appear here</en>
             <es>Nuevos proveedores de streaming y resolvers aparecerán aquí</es>
+        </string>
+        <string name="server_sync_indexing">
+            <en>Updating library index…</en>
+            <es>Actualizando índice de la biblioteca…</es>
+        </string>
+        <string name="server_error_wrong_credentials">
+            <en>Wrong user name or password</en>
+            <es>Nombre de usuario o contraseña incorrectos</es>
+        </string>
+        <string name="server_error_not_authorized">
+            <en>This user isn't allowed to use the API</en>
+            <es>Este usuario no tiene permiso para usar la API</es>
+        </string>
+        <string name="server_error_generic">
+            <en>Navidrome error %d</en>
+            <es>Error de Navidrome %d</es>
         </string>
     </section>
     <section name="Replay">

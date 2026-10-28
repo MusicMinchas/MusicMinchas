@@ -45,7 +45,7 @@ data class SubsonicState(
  * signed with a fresh salt), so it's kept encrypted with a key in the Android Keystore that never
  * leaves the phone; after a restore from backup the key is gone and the user signs in again.
  */
-class SubsonicAccount(context: Context, val client: SubsonicClient, prefsName: String = "subsonic") {
+class SubsonicAccount(private val context: Context, val client: SubsonicClient, prefsName: String = "subsonic") {
     private val prefs = context.getSharedPreferences(prefsName, Context.MODE_PRIVATE)
     private val mutex = Mutex()
 
@@ -109,7 +109,7 @@ class SubsonicAccount(context: Context, val client: SubsonicClient, prefsName: S
             username.isBlank() || password.isEmpty() -> return fail("Enter your user name and password")
         }
         _state.update { it.copy(busy = true, message = null) }
-        var login = SubsonicLogin(base!!, username.trim(), password)
+        var login = SubsonicLogin(base, username.trim(), password)
         val ping = try {
             try {
                 client.ping(login)
@@ -119,7 +119,7 @@ class SubsonicAccount(context: Context, val client: SubsonicClient, prefsName: S
                 client.ping(login)
             }
         } catch (e: Exception) {
-            return fail(describe(e))
+            return fail(describe(e, context))
         }
         prefs.edit {
             putString(KEY_ADDRESS, login.baseUrl)
@@ -143,11 +143,14 @@ class SubsonicAccount(context: Context, val client: SubsonicClient, prefsName: S
             }
             return@withLock
         }
+        if (!com.kike.musicplayer.data.NetworkUtils.isOnline(context)) {
+            return@withLock
+        }
         _state.update { it.copy(busy = true) }
         try {
             prefs.edit { putString(KEY_SERVER, serverName(client.ping(login))) }
         } catch (e: Exception) {
-            _state.update { it.copy(busy = false, message = describe(e)) }
+            _state.update { it.copy(busy = false, message = describe(e, context)) }
             return@withLock
         }
         refreshInfo(login)
@@ -198,7 +201,7 @@ class SubsonicAccount(context: Context, val client: SubsonicClient, prefsName: S
         checkedAt = prefs.getLong(KEY_CHECKED, 0L),
     )
 
-    private companion object {
+    companion object {
         const val TAG = "Subsonic"
         const val KEY_ADDRESS = "address"
         const val KEY_USER = "user"
@@ -213,26 +216,28 @@ class SubsonicAccount(context: Context, val client: SubsonicClient, prefsName: S
         const val KEY_STAR_OTHER = "star_other_favourites"
         const val KEY_LOVE_STARS = "love_server_stars"
         const val SEP = "\u001F"
-        const val SYNC_PAGE = 500
+        const val SYNC_PAGE = 1000
 
         fun serverName(r: SubsonicResponse): String = when {
             r.type != null -> r.type.replaceFirstChar(Char::titlecase) + (r.serverVersion?.let { " $it" } ?: "")
             else -> "Subsonic API ${r.version ?: ""}".trim()
         }
 
-        fun describe(e: Exception): String = when (e) {
-            is SubsonicException -> when (e.code) {
-                SubsonicException.WRONG_CREDENTIALS -> "Wrong user name or password"
-                SubsonicException.NOT_AUTHORIZED -> "This user isn't allowed to use the API"
-                else -> e.message ?: "Navidrome error ${e.code}"
+        fun describe(e: Exception, context: Context? = null): String =
+            if (context != null) com.kike.musicplayer.data.NetworkUtils.describeError(context, e)
+            else when (e) {
+                is SubsonicException -> when (e.code) {
+                    SubsonicException.WRONG_CREDENTIALS -> "Wrong user name or password"
+                    SubsonicException.NOT_AUTHORIZED -> "This user isn't allowed to use the API"
+                    else -> e.message ?: "Navidrome error ${e.code}"
+                }
+                is UnknownHostException -> "Navidrome not found: check the address and your internet connection"
+                is UnknownServiceException -> "Only https:// addresses are supported"
+                is SSLException -> "Secure connection failed: Navidrome's certificate isn't trusted"
+                is java.net.SocketTimeoutException, is java.net.ConnectException -> "Navidrome didn't answer"
+                is IOException -> e.message ?: "Couldn't reach Navidrome"
+                else -> e.message ?: e.javaClass.simpleName
             }
-            is UnknownHostException -> "Navidrome not found: check the address and your internet connection"
-            is UnknownServiceException -> "Only https:// addresses are supported"
-            is SSLException -> "Secure connection failed: Navidrome's certificate isn't trusted"
-            is java.net.SocketTimeoutException, is java.net.ConnectException -> "Navidrome didn't answer"
-            is IOException -> e.message ?: "Couldn't reach Navidrome"
-            else -> e.message ?: e.javaClass.simpleName
-        }
     }
 }
 

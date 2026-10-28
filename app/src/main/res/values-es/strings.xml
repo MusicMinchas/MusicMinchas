@@ -406,4 +406,13 @@
     <string name="sources_summary_songs">%s canciones</string>
     <string name="sources_more_addons_title">Más complementos</string>
     <string name="sources_more_addons_subtitle">Nuevos proveedores de streaming y resolvers aparecerán aquí</string>
+    <string name="network_error_offline">Sin conexión a internet</string>
+    <string name="network_error_server_unreachable">Servidor no disponible: comprueba la dirección o tu conexión</string>
+    <string name="network_error_timeout">El servidor no respondió a tiempo</string>
+    <string name="network_error_ssl">Conexión segura fallida: certificado del servidor no confiable</string>
+    <string name="network_error_generic">Error de red: comprueba tu conexión</string>
+    <string name="server_sync_indexing">Actualizando índice de la biblioteca&#8230;</string>
+    <string name="server_error_wrong_credentials">Nombre de usuario o contraseña incorrectos</string>
+    <string name="server_error_not_authorized">Este usuario no tiene permiso para usar la API</string>
+    <string name="server_error_generic">Error de Navidrome %d</string>
 </resources>

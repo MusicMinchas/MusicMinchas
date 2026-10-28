@@ -406,4 +406,13 @@
     <string name="sources_summary_songs">%s songs</string>
     <string name="sources_more_addons_title">More Add-ons</string>
     <string name="sources_more_addons_subtitle">Additional streaming providers and resolvers will appear here</string>
+    <string name="network_error_offline">No internet connection</string>
+    <string name="network_error_server_unreachable">Server unreachable: check the address or your connection</string>
+    <string name="network_error_timeout">Server didn\'t answer in time</string>
+    <string name="network_error_ssl">Secure connection failed: server certificate not trusted</string>
+    <string name="network_error_generic">Network error: check your connection</string>
+    <string name="server_sync_indexing">Updating library index&#8230;</string>
+    <string name="server_error_wrong_credentials">Wrong user name or password</string>
+    <string name="server_error_not_authorized">This user isn\'t allowed to use the API</string>
+    <string name="server_error_generic">Navidrome error %d</string>
 </resources>
