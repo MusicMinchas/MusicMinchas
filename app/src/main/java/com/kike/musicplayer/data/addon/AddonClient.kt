@@ -107,7 +107,7 @@ class AddonClient(
     }
 
     companion object {
-        private const val USER_AGENT = "MusicMinchas/1.40.0 (Android)"
+        private const val USER_AGENT = "MusicMinchas/1.41.0 (Android)"
         private val PUNCTUATION_REGEX = Regex("[()\\[\\]{}\"]")
         private val WHITESPACE_REGEX = Regex("\\s+")
 
