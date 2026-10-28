@@ -48,6 +48,7 @@ import com.kike.musicplayer.recommend.heavyRotation
 import com.kike.musicplayer.recommend.heavyRotationCandidateIds
 import com.kike.musicplayer.recommend.replay
 import com.kike.musicplayer.playback.albumTrackOrder
+import com.kike.musicplayer.data.nebula.NebulaState
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -1071,16 +1072,46 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
     ) { counts, followed -> counts.map { it.name }.filter { it !in followed }.take(SUGGESTED_ARTISTS) }
         .stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
 
-    // ---- Nebula add-on ----
+    // ---- Music Add-ons (Nullbeat, Nebula, etc.) ----
 
-    private val nebula = container.nebula
-    val nebulaState = nebula.state
+    val addonManager = container.addonManager
+    val addons = addonManager.addons
+    val addonBusy = addonManager.busy
+    val addonMessage = addonManager.message
+    val addonUrls = container.nebulaUrls
+
+    fun connectAddon(manifestUrl: String, preferredId: String? = null) =
+        viewModelScope.launch { addonManager.connect(manifestUrl, preferredId) }
+
+    fun disconnectAddon(addonId: String) = addonManager.disconnect(addonId)
+
+    fun reorderAddons(fromIndex: Int, toIndex: Int) = addonManager.reorder(fromIndex, toIndex)
+
+    fun setAddonEnabled(addonId: String, enabled: Boolean) = addonManager.setEnabled(addonId, enabled)
+
+    val addonsConnected: StateFlow<Boolean> = addons
+        .map { list -> list.any { it.enabled } }
+        .stateIn(viewModelScope, SharingStarted.Eagerly, false)
+
+    // Backward compatibility for existing Nebula callers
+    val nebulaState: StateFlow<NebulaState> = addons
+        .map { list ->
+            val first = list.firstOrNull { it.enabled }
+            if (first != null) {
+                NebulaState(
+                    manifestUrl = first.manifestUrl,
+                    addonName = first.name,
+                    icon = first.icon,
+                    quality = first.quality,
+                )
+            } else {
+                NebulaState()
+            }
+        }
+        .stateIn(viewModelScope, SharingStarted.Eagerly, NebulaState())
     val nebulaUrls = container.nebulaUrls
-
-    fun connectNebula(manifestUrl: String) =
-        viewModelScope.launch { nebula.connect(manifestUrl) }
-
-    fun disconnectNebula() = nebula.disconnect()
+    fun connectNebula(manifestUrl: String) = connectAddon(manifestUrl, "nebula")
+    fun disconnectNebula() = disconnectAddon("nebula")
 
     // ---- Subsonic / Navidrome server ----
 

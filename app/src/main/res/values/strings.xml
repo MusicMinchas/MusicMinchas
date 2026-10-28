@@ -415,4 +415,19 @@
     <string name="server_error_wrong_credentials">Wrong user name or password</string>
     <string name="server_error_not_authorized">This user isn\'t allowed to use the API</string>
     <string name="server_error_generic">Navidrome error %d</string>
+
+    <string name="addon_card_title">Streaming Add-ons</string>
+    <string name="addon_card_subtitle_disconnected">Stream lossless FLAC audio via Torbox cache for unowned music using Nullbeat, Nebula, or Stremio add-ons</string>
+    <string name="addon_priority_primary">#%d · Primary</string>
+    <string name="addon_priority_fallback">#%d · Fallback</string>
+    <string name="addon_fallback_explanation">MusicMinchas streams from #1 first and automatically falls back to #2 if unavailable. Drag cards to reorder priority.</string>
+    <string name="addon_connect_nullbeat">Connect NullBeat</string>
+    <string name="addon_connect_nebula">Connect Nebula</string>
+    <string name="addon_connect_custom">Custom Manifest URL</string>
+    <string name="addon_connect_button">Connect</string>
+    <string name="addon_connecting">Connecting…</string>
+    <string name="addon_disconnect_confirm">Disconnect %s?</string>
+    <string name="addon_disconnect_message">MusicMinchas will stop streaming unowned tracks from this provider. If you have other add-ons, playback will automatically fall back to them.</string>
+    <string name="addon_add_provider">Add Provider</string>
+    <string name="addon_quality_badge">Lossless FLAC (Torbox)</string>
 </resources>
