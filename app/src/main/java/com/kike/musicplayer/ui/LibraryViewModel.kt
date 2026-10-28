@@ -464,10 +464,22 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     /** Fetches tracks of a public Deezer playlist (cache-first) and matches each song against the user's library. */
+    private val catalogPlaylistCache = java.util.concurrent.ConcurrentHashMap<String, Pair<List<com.kike.musicplayer.data.catalog.CatalogTrack>, Map<String, Track>>>()
+
+    fun cachedCatalogPlaylistTracks(playlistId: String): Pair<List<com.kike.musicplayer.data.catalog.CatalogTrack>, Map<String, Track>>? =
+        catalogPlaylistCache[playlistId]
+
+    fun clearCatalogPlaylistCache() {
+        catalogPlaylistCache.clear()
+    }
+
     suspend fun catalogPlaylistTracks(
         playlist: com.kike.musicplayer.data.catalog.CatalogPlaylist,
         forceRefresh: Boolean = false,
     ): Pair<List<com.kike.musicplayer.data.catalog.CatalogTrack>, Map<String, Track>> = withContext(Dispatchers.IO) {
+        if (!forceRefresh) {
+            catalogPlaylistCache[playlist.id]?.let { return@withContext it }
+        }
         val saved = container.database.savedCatalogPlaylists().getById(playlist.id)
         val trackListType = com.squareup.moshi.Types.newParameterizedType(List::class.java, com.kike.musicplayer.data.catalog.CatalogTrack::class.java)
         val trackAdapter = container.moshi.adapter<List<com.kike.musicplayer.data.catalog.CatalogTrack>>(trackListType)
@@ -488,7 +500,9 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
                     val matched = cachedMatches.mapNotNull { (catId, libId) ->
                         libTracks[libId]?.let { catId to it }
                     }.toMap()
-                    return@withContext cached to matched
+                    val result = cached to matched
+                    catalogPlaylistCache[playlist.id] = result
+                    return@withContext result
                 }
 
                 // If not yet cached (e.g. migration from v24), match once and persist immediately
@@ -496,7 +510,9 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
                 val matchMap = matched.mapValues { it.value.id }
                 val matchesJson = matchAdapter.toJson(matchMap)
                 container.database.savedCatalogPlaylists().updateMatches(saved.id, matched.size, matchesJson)
-                return@withContext cached to matched
+                val result = cached to matched
+                catalogPlaylistCache[playlist.id] = result
+                return@withContext result
             }
         }
 
@@ -528,7 +544,11 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
             )
         }
 
-        freshTracks to matched
+        val result = freshTracks to matched
+        if (freshTracks.isNotEmpty()) {
+            catalogPlaylistCache[playlist.id] = result
+        }
+        result
     }
 
     fun saveCatalogPlaylist(
@@ -536,6 +556,9 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
         tracks: List<com.kike.musicplayer.data.catalog.CatalogTrack>,
         matched: Map<String, Track>,
     ) {
+        if (tracks.isNotEmpty()) {
+            catalogPlaylistCache[playlist.id] = tracks to matched
+        }
         viewModelScope.launch(Dispatchers.IO) {
             val trackListType = com.squareup.moshi.Types.newParameterizedType(List::class.java, com.kike.musicplayer.data.catalog.CatalogTrack::class.java)
             val json = container.moshi.adapter<List<com.kike.musicplayer.data.catalog.CatalogTrack>>(trackListType).toJson(tracks)
@@ -933,7 +956,20 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
 
     private val downloader = container.downloader
     val downloadProgress = downloader.progress
-    fun download(tracks: List<Track>) = downloader.download(tracks)
+    fun download(tracks: List<Track>) = viewModelScope.launch(Dispatchers.IO) {
+        val streamTracks = tracks.filter { it.source == Track.SOURCE_NEBULA || it.scope == Track.SCOPE_STREAM }
+            .map { it.copy(scope = Track.SCOPE_STREAM, metadataState = Track.META_DONE) }
+        if (streamTracks.isNotEmpty()) {
+            if (!addonsConnected.value) {
+                withContext(Dispatchers.Main) {
+                    android.widget.Toast.makeText(getApplication(), com.kike.musicplayer.R.string.no_available_sources_to_play, android.widget.Toast.LENGTH_SHORT).show()
+                }
+                return@launch
+            }
+            database.tracks().upsertAll(streamTracks)
+        }
+        downloader.download(tracks)
+    }
     fun removeDownload(track: Track) = downloader.remove(track)
     val downloadTotals = downloader.totals.stateIn(viewModelScope, SharingStarted.Eagerly, null)
     fun removeAllDownloads() = downloader.removeAll()

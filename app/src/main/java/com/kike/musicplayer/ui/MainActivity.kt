@@ -247,6 +247,12 @@ class MainActivity : ComponentActivity() {
                 libraryVm.clearCatalogAlbumCache()
             }
         }
+        val hasCatalogPlaylistInStack = backStack.any { it is Screen.CatalogPlaylistDetail }
+        LaunchedEffect(hasCatalogPlaylistInStack) {
+            if (!hasCatalogPlaylistInStack) {
+                libraryVm.clearCatalogPlaylistCache()
+            }
+        }
         val scope = rememberCoroutineScope()
         val navigation = Navigation(
             openArtist = { names, track ->

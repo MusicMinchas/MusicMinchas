@@ -480,18 +480,21 @@ fun CatalogPlaylistScreen(
     val player by playerVm.state.collectAsState()
     val savedPlaylists by libraryVm.savedCatalogPlaylists.collectAsState()
     val isSaved = savedPlaylists.any { it.id == playlist.id }
-    var loading by remember(playlist.id) { mutableStateOf(!isSaved) }
-    var tracks by remember(playlist.id) { mutableStateOf<List<CatalogTrack>>(emptyList()) }
-    var matched by remember(playlist.id) { mutableStateOf<Map<String, Track>>(emptyMap()) }
+    val cached = remember(playlist.id) { libraryVm.cachedCatalogPlaylistTracks(playlist.id) }
+    var loading by remember(playlist.id) { mutableStateOf(cached == null && !isSaved) }
+    var tracks by remember(playlist.id) { mutableStateOf<List<CatalogTrack>>(cached?.first ?: emptyList()) }
+    var matched by remember(playlist.id) { mutableStateOf<Map<String, Track>>(cached?.second ?: emptyMap()) }
     var saveDialog by remember { mutableStateOf(false) }
     var savedBanner by remember { mutableStateOf(false) }
 
     LaunchedEffect(playlist.id) {
-        if (!isSaved) loading = true
-        val (list, map) = libraryVm.catalogPlaylistTracks(playlist)
-        tracks = list
-        matched = map
-        loading = false
+        if (cached == null) {
+            if (!isSaved) loading = true
+            val (list, map) = libraryVm.catalogPlaylistTracks(playlist)
+            tracks = list
+            matched = map
+            loading = false
+        }
     }
 
     val ownedTracks = remember(tracks, matched) { tracks.mapNotNull { matched[it.id] }.distinctBy { it.id } }
