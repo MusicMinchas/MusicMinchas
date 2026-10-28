@@ -7,7 +7,7 @@ Parent workspace notes: @[Shared Android Dev Workspace](../AGENTS.md)
 
 - **Path:** `C:\Users\kike\dev\MusicPlayer` (local git repo, repo-local identity `kike` / `kikeprojo@gmail.com`, nothing pushed).
 - **Package:** `com.kike.musicplayer`
-- **Current Release:** `1.40.0` (`versionCode = 92`, Room DB `v27`, `minSdk = 30`, `targetSdk = 36`, `compileSdk = 37`). Merged to `master`, tag `v1.40.0`.
+- **Current Release:** `1.41.0` (`versionCode = 93`, Room DB `v27`, `minSdk = 30`, `targetSdk = 36`, `compileSdk = 37`). Merged to `master`, tag `v1.41.0`.
 - **Stack:** Kotlin 2.4.20, Jetpack Compose, Media3 1.11.1 `MediaLibraryService` (Android Auto browse tree), Room 2.8.5 via KSP 2.3.12 + Paging 3 (`paging-compose 3.3.6`, `room-paging`), Retrofit 3 + Moshi (reflection), Coil 3, `play-services-auth` 22 `AuthorizationClient` (`drive.readonly` + `email`), `reorderable` 3.1.0, AGP 9.4.1, Gradle 9.8.
 - **Shared Toolchain & Environment:**
   - `JAVA_HOME`: Android Studio's bundled `jbr`
@@ -290,3 +290,23 @@ Started 2026-10-08 from user-pasted spec. NEW app, explicitly independent of Son
     - Added localized English and Spanish strings for indexing and network errors, synchronized `translations_review.xml`.
     - Added `SubsonicSyncOptimizationTest.kt` verifying page constants, indexer dirty tracking, and error mapping.
   - Verified on OnePlus 12, merged to `master`, tagged `v1.40.0`, release APK `MusicMinchas-1.40.0.apk` installed.
+- 2026-10-28 Release 1.41.0 (`versionCode = 93`, Room DB `v27`, GitHub issue #22):
+  - Multi-Provider Streaming Add-on Architecture (`data/addon/`):
+    - Added `AddonModels.kt`, `AddonClient.kt`, and `AddonManager.kt` supporting Stremio and Eclipse music add-on protocols (manifest, `/search?q=...`, and `/stream/{id}`).
+    - Replaced single Nebula provider preference with multi-addon priority management in `AddonManager`, persisted to `SharedPreferences("addons")` with seamless migration from legacy `"nebula"` preferences.
+    - Preserves strict **Own copy wins** policy across all sources (`LOCAL = 0`, `SERVER = 1`, `DRIVE = 2`).
+  - Sequential Playback Fallback (`NebulaUrls.kt`):
+    - Streams resolve from Provider #1 (Primary) first. If #1 returns no stream, is uncached, or fails, playback automatically falls back to Provider #2, #3, etc.
+    - If direct ID resolution fails across differing provider ID formats, falls back to catalog search (`artist` + `album` + `title`) on subsequent providers.
+  - Search Query Operator Normalization (`AddonClient.kt`):
+    - Added `sanitizeForSearch()` to strip reserved FTS boolean grouping operators (`( )`, `[ ]`, `{ }`, `"`) while preserving natural word apostrophes.
+    - Resolves an issue where Nullbeat's full-text search backend returned 0 tracks for parenthetical titles (e.g. `Chad Lawson - she (still) (solo piano)`).
+  - Drag-and-Drop Reorderable UI (`AddonsCard.kt`):
+    - Replaced legacy `NebulaCard` with reorderable `AddonsCard` using `sh.calvin.reorderable`.
+    - Features `#1 · Primary` and `#2 · Fallback` badges, drag handles (`≡`), and disconnect confirmation dialog.
+    - Clean generic "Connect Add-on" dialog where users paste any compatible manifest URL without provider-specific hardcoded presets.
+    - Fully localized in English and Spanish; updated `translations_review.xml`.
+  - Tests & Verification:
+    - Added `AddonFallbackTest.kt` covering baseUrl parsing, multi-provider fallback, priority reordering, catalog track conversion, and query sanitization (124/124 tests pass).
+    - Verified on OnePlus 12: playback of *Temporary Coexistence* (Nullbeat), automatic fallback of *she (still)* (Nebula), and parenthetical search normalization directly on Nullbeat.
+    - Merged to `master`, tagged `v1.41.0`, release APK `MusicMinchas-1.41.0.apk` installed.
