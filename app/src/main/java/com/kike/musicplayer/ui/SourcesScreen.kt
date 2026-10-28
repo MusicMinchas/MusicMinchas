@@ -308,7 +308,7 @@ private fun MusicSourcesEntry(vm: LibraryViewModel, onOpen: () -> Unit) {
     val account by vm.driveAccount.collectAsState()
     val server by vm.subsonicState.collectAsState()
     val catalog by vm.catalogEnabled.collectAsState()
-    val nebula by vm.nebulaState.collectAsState()
+    val addons by vm.addons.collectAsState()
     val needsReconnect by vm.driveNeedsReconnect.collectAsState()
     val number = java.text.NumberFormat.getIntegerInstance()
     val songParts = buildList {
@@ -325,9 +325,10 @@ private fun MusicSourcesEntry(vm: LibraryViewModel, onOpen: () -> Unit) {
             append(" · ")
             append(stringResource(R.string.sources_summary_songs, number.format(totalSongs)))
         }
-        if (nebula.manifestUrl != null) {
+        val activeAddons = addons.filter { it.enabled }
+        if (activeAddons.isNotEmpty()) {
             if (isNotEmpty()) append(" · ")
-            append("Nebula")
+            append(activeAddons.joinToString(" + ") { it.name.substringBefore('·').trim() })
         }
         if (catalog) {
             if (isNotEmpty()) append(" · ")
@@ -499,45 +500,13 @@ fun MusicSourcesScreen(
 
             ServerCard(vm)
 
-            // 2. Music Add-ons
+            // 2. Music Add-ons (Nullbeat, Nebula, etc.)
             SettingsSectionHeader(
                 title = stringResource(R.string.settings_section_addons),
                 subtitle = stringResource(R.string.settings_section_addons_desc),
             )
 
-            NebulaCard(vm)
-
-            Card(
-                modifier = Modifier.fillMaxWidth(),
-                colors = CardDefaults.cardColors(
-                    containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f),
-                ),
-            ) {
-                Row(
-                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(10.dp),
-                ) {
-                    Icon(
-                        Icons.Outlined.AddCircleOutline,
-                        contentDescription = null,
-                        tint = MaterialTheme.colorScheme.primary,
-                        modifier = Modifier.size(20.dp),
-                    )
-                    Column {
-                        Text(
-                            stringResource(R.string.sources_more_addons_title),
-                            style = MaterialTheme.typography.labelMedium,
-                            fontWeight = FontWeight.SemiBold,
-                        )
-                        Text(
-                            stringResource(R.string.sources_more_addons_subtitle),
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    }
-                }
-            }
+            AddonsCard(vm)
 
             // 3. Public Catalog & Discovery
             SettingsSectionHeader(stringResource(R.string.settings_section_catalog))

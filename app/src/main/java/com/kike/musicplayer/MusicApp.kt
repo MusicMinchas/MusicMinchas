@@ -26,6 +26,8 @@ import com.kike.musicplayer.data.subsonic.SubsonicClient
 import com.kike.musicplayer.data.subsonic.SubsonicCoverMapper
 import com.kike.musicplayer.data.subsonic.SubsonicLibrary
 import com.kike.musicplayer.data.subsonic.SubsonicUrls
+import com.kike.musicplayer.data.addon.AddonClient
+import com.kike.musicplayer.data.addon.AddonManager
 import com.kike.musicplayer.data.nebula.NebulaAccount
 import com.kike.musicplayer.data.nebula.NebulaClient
 import com.kike.musicplayer.data.nebula.NebulaUrls
@@ -158,9 +160,11 @@ class AppContainer(app: Application) {
     private val serverMatch = ServerMatch(database)
     val serverPlays = ServerPlays(subsonic, database, serverMatch, appScope).also { it.flush() }
 
-    /** Lets Sonos fetch tracks from the phone while casting. */
+    /** Music add-ons (Nullbeat, Nebula, etc.) for lossless streaming. */
+    val addonClient = AddonClient(baseHttp, moshi)
+    val addonManager = AddonManager(app, addonClient, moshi, "addons$suffix")
     val nebula = NebulaAccount(app, NebulaClient(baseHttp, moshi), "nebula$suffix")
-    val nebulaUrls = NebulaUrls(nebula)
+    val nebulaUrls = NebulaUrls(addonManager, addonClient)
 
     val trackServer = TrackServer(
         app, database.tracks(),

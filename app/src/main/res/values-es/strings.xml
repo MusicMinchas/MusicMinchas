@@ -415,4 +415,17 @@
     <string name="server_error_wrong_credentials">Nombre de usuario o contraseña incorrectos</string>
     <string name="server_error_not_authorized">Este usuario no tiene permiso para usar la API</string>
     <string name="server_error_generic">Error de Navidrome %d</string>
+
+    <string name="addon_card_title">Complementos de streaming</string>
+    <string name="addon_card_subtitle_disconnected">Reproduce audio FLAC sin pérdidas vía Torbox para música no poseída usando complementos Stremio / Eclipse</string>
+    <string name="addon_priority_primary">#%d · Principal</string>
+    <string name="addon_priority_fallback">#%d · Alternativo</string>
+    <string name="addon_fallback_explanation">MusicMinchas reproduce primero del nº 1 y recurre automáticamente al nº 2 si no está disponible. Arrastra las tarjetas para ordenar la prioridad.</string>
+    <string name="addon_connect_addon">Conectar complemento</string>
+    <string name="addon_manifest_url_label">URL del manifiesto</string>
+    <string name="addon_connect_button">Conectar</string>
+    <string name="addon_connecting">Conectando…</string>
+    <string name="addon_disconnect_confirm">¿Desconectar %s?</string>
+    <string name="addon_disconnect_message">MusicMinchas dejará de reproducir canciones no poseídas desde este proveedor. Si tienes otros complementos, se recurrirá a ellos automáticamente.</string>
+    <string name="addon_quality_badge">FLAC sin pérdidas (Torbox)</string>
 </resources>
