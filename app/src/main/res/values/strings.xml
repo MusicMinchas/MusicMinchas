@@ -129,6 +129,7 @@
     <string name="nebula_disconnect_message">MusicMinchas will stop streaming unowned tracks from Torbox. Your owned library songs are unaffected.</string>
     <string name="nebula_manifest_url_label">Add-on manifest URL</string>
     <string name="nebula_quality_badge">Quality: Lossless FLAC (Torbox cache)</string>
+    <string name="no_available_sources_to_play">No available sources to play this song</string>
     <string name="notif_download_complete">Download complete</string>
     <string name="notif_downloading">Downloading %s</string>
     <string name="notif_syncing">Scanning music library…</string>

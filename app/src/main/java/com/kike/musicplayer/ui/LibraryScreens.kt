@@ -590,6 +590,8 @@ private fun SearchResultsList(
 ) {
     val photos by libraryVm.artistImageUrls.collectAsState()
     val extraCovers by libraryVm.albumCoverUrls.collectAsState()
+    val addonsConnected by libraryVm.addonsConnected.collectAsState()
+    val context = androidx.compose.ui.platform.LocalContext.current
     var collapsedSections by rememberSaveable { mutableStateOf(setOf<String>()) }
     fun toggleSection(key: String) {
         collapsedSections = if (key in collapsedSections) collapsedSections - key else collapsedSections + key
@@ -630,6 +632,9 @@ private fun SearchResultsList(
         else catalogResults.songs.filter {
             (com.kike.musicplayer.data.discover.Names.comparable(it.artist) + "\u0001" + com.kike.musicplayer.data.discover.Names.comparable(it.title)) !in libSongKeys
         }
+    }
+    val catStreamTracks = remember(catSongs) {
+        catSongs.map { com.kike.musicplayer.data.nebula.NebulaUrls.trackFor(it) }
     }
     val catPlaylists = remember(catalogResults.playlists, filters) {
         if (!show(SearchFilter.PLAYLISTS)) emptyList()
@@ -789,25 +794,31 @@ private fun SearchResultsList(
                 ResultsHeader(stringResource(R.string.search_cat_songs), catSongs.size, collapsed) { toggleSection("cat_songs") }
             }
             if (!collapsed) {
-                items(catSongs, key = { "cat-so:" + it.id }) { track ->
-                    UnownedCatalogTrackRow(
+                itemsIndexed(catStreamTracks, key = { idx, track -> "cat-so:${track.id}:$idx" }) { index, track ->
+                    TrackRow(
                         track = track,
-                        onClick = if (track.albumId != null) {
-                            {
-                                onOpenCatalogAlbum(
-                                    com.kike.musicplayer.data.catalog.CatalogAlbum(
-                                        id = track.albumId,
-                                        title = track.album.ifBlank { track.title },
-                                        artist = track.albumArtist ?: track.artist,
-                                        year = track.year,
-                                        coverUrl = track.coverUrl,
-                                        genre = track.genre,
-                                        trackCount = null,
-                                        source = track.source,
-                                    )
-                                )
+                        isCurrent = track.id == currentId,
+                        onClick = {
+                            if (addonsConnected) {
+                                playerVm.playTracks(catStreamTracks, index)
+                            } else {
+                                android.widget.Toast.makeText(context, R.string.no_available_sources_to_play, android.widget.Toast.LENGTH_SHORT).show()
                             }
-                        } else null,
+                        },
+                        onPlayNext = {
+                            if (addonsConnected) {
+                                playerVm.playNext(track)
+                            } else {
+                                android.widget.Toast.makeText(context, R.string.no_available_sources_to_play, android.widget.Toast.LENGTH_SHORT).show()
+                            }
+                        },
+                        onAddToQueue = {
+                            if (addonsConnected) {
+                                playerVm.addToQueue(track)
+                            } else {
+                                android.widget.Toast.makeText(context, R.string.no_available_sources_to_play, android.widget.Toast.LENGTH_SHORT).show()
+                            }
+                        },
                     )
                 }
             }

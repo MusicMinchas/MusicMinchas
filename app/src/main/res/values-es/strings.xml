@@ -129,6 +129,7 @@
     <string name="nebula_disconnect_message">MusicMinchas dejará de transmitir pistas no propias desde Torbox. Las canciones de tu biblioteca propia no se verán afectadas.</string>
     <string name="nebula_manifest_url_label">URL del manifiesto del complemento</string>
     <string name="nebula_quality_badge">Calidad: FLAC sin pérdidas (caché Torbox)</string>
+    <string name="no_available_sources_to_play">No hay fuentes disponibles para reproducir esta canción</string>
     <string name="notif_download_complete">Descarga completada</string>
     <string name="notif_downloading">Descargando %s</string>
     <string name="notif_syncing">Escaneando la biblioteca de música…</string>

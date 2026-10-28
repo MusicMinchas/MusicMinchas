@@ -209,6 +209,10 @@
             <en>Quality: Lossless FLAC (Torbox cache)</en>
             <es>Calidad: FLAC sin pérdidas (caché Torbox)</es>
         </string>
+        <string name="no_available_sources_to_play">
+            <en>No available sources to play this song</en>
+            <es>No hay fuentes disponibles para reproducir esta canción</es>
+        </string>
         <string name="relative_time_days_ago">
             <en>%d days ago</en>
             <es>hace %d días</es>

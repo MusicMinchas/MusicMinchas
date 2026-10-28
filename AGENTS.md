@@ -7,7 +7,7 @@ Parent workspace notes: @[Shared Android Dev Workspace](../AGENTS.md)
 
 - **Path:** `C:\Users\kike\dev\MusicPlayer` (local git repo, repo-local identity `kike` / `kikeprojo@gmail.com`, nothing pushed).
 - **Package:** `com.kike.musicplayer`
-- **Current Release:** `1.41.0` (`versionCode = 93`, Room DB `v27`, `minSdk = 30`, `targetSdk = 36`, `compileSdk = 37`). Merged to `master`, tag `v1.41.0`.
+- **Current Release:** `1.42.0` (`versionCode = 94`, Room DB `v27`, `minSdk = 30`, `targetSdk = 36`, `compileSdk = 37`). Merged to `master`, tag `v1.42.0`.
 - **Stack:** Kotlin 2.4.20, Jetpack Compose, Media3 1.11.1 `MediaLibraryService` (Android Auto browse tree), Room 2.8.5 via KSP 2.3.12 + Paging 3 (`paging-compose 3.3.6`, `room-paging`), Retrofit 3 + Moshi (reflection), Coil 3, `play-services-auth` 22 `AuthorizationClient` (`drive.readonly` + `email`), `reorderable` 3.1.0, AGP 9.4.1, Gradle 9.8.
 - **Shared Toolchain & Environment:**
   - `JAVA_HOME`: Android Studio's bundled `jbr`
@@ -310,3 +310,25 @@ Started 2026-10-08 from user-pasted spec. NEW app, explicitly independent of Son
     - Added `AddonFallbackTest.kt` covering baseUrl parsing, multi-provider fallback, priority reordering, catalog track conversion, and query sanitization (124/124 tests pass).
     - Verified on OnePlus 12: playback of *Temporary Coexistence* (Nullbeat), automatic fallback of *she (still)* (Nebula), and parenthetical search normalization directly on Nullbeat.
     - Merged to `master`, tagged `v1.41.0`, release APK `MusicMinchas-1.41.0.apk` installed.
+- 2026-10-28 Release 1.42.0 (`versionCode = 94`, Room DB `v27`, GitHub issue #23):
+  - Catalog Playlist In-Memory Fast Cache (`CatalogScreens.kt`, `LibraryViewModel.kt`, `MainActivity.kt`):
+    - Added `catalogPlaylistCache` to `LibraryViewModel` retaining fetched tracklists and catalog-to-library track matches across navigation.
+    - Returning to a catalog playlist (e.g. Deezer *Metal Radar*) from Now Playing or Queue is instantaneous with zero reload flicker or network re-fetch.
+    - In `MainActivity.kt`, cache is retained as long as any `CatalogPlaylistDetail` screen remains in the back stack, and cleared when popped.
+  - Search Catalog Songs Streaming & Action Menu (`LibraryScreens.kt`, `LibraryViewModel.kt`, `strings.xml`, `values-es/strings.xml`):
+    - Deezer and Apple Music songs in Search results are no longer greyed out with "Not in Library" badges; now render with full opacity and the lightning bolt stream badge (`Icons.Default.Bolt`, `Track.SOURCE_NEBULA`).
+    - Tapping a catalog song immediately starts playback via configured streaming add-ons.
+    - Full 3-dots action menu enabled for catalog search songs: Play next, Add to queue, Add to favourites, Add to playlist, Go to Artist, Go to Album, Download.
+    - When no add-ons are installed or enabled, attempting to play or download toasts: *"No available sources to play this song"* (localized in EN/ES).
+    - Downloads for stream-scoped catalog songs automatically upsert stub track records into Room DB prior to queueing in `Downloader`.
+  - Tido Add-on Compatibility Investigation & Memory (`data/addon/`):
+    - Tested user-added Tido add-on (`com.yourname.tidal.hifi`, manifest: `https://tido.tido.tido.rickyaddons.dpdns.org/68eedfc0c1004466afc79e859c124514/manifest.json`).
+    - Direct calls to `/search?q=...` and `/stream/...` return HTTP 403 `{"error": "Unavailable"}` on direct HTTP client requests.
+    - Automatic sequential fallback engaged and resolved tracks through Nullbeat/Torbox cache.
+    - Known issue to investigate further in a future session: Tido works in Stremio/Eclipse with the exact same manifest. Areas for deep-dive investigation:
+      1. Missing or expected client headers (e.g., `User-Agent: Stremio/...` or Eclipse UA, `Accept`, `Referer`, or Cloudflare / dpdns.org proxy bypass requirements).
+      2. Protocol routing differences (e.g., `/catalog/track/...`, `/resolve`, or tidal ISRC / track ID prefixes).
+  - Localization & Tests:
+    - Updated `translations_review.xml` and Spanish translations for new strings.
+    - All unit tests pass.
+  - Verified on OnePlus 12, merged to `master`, tagged `v1.42.0`, release APK `MusicMinchas-1.42.0.apk` installed.
