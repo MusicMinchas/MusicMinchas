@@ -279,7 +279,7 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
             recentAlbums = albumsWithTracks(albumKeys),
             heavyRotation = heavyRotation(byId, history, now),
             mostPlayed = mostPlayed(byId, stats),
-            favourites = favourites.mapNotNull { byId[it.trackId] },
+            favourites = preferOwnCopies(favourites.mapNotNull { byId[it.trackId] }),
         )
     }
 

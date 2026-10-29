@@ -187,8 +187,20 @@ class ServerCollections(
         val (toFavourite, toUnfavourite, toStar, toUnstar) = planStars(onServer, here, lastThere, lastHere)
         val now = System.currentTimeMillis()
         val love = account.loveServerStars.value
-        if (toFavourite.isNotEmpty()) favourites.insertAll(toFavourite.map { Favourite(SubsonicUrls.PREFIX + it, now) })
-        if (love) toFavourite.forEach { scrobbler.love(SubsonicUrls.PREFIX + it, true) }
+        val toInsert = ArrayList<String>()
+        val existingFavs = favourites.allTrackIds().toSet()
+        for (serverId in toFavourite) {
+            val serverUri = SubsonicUrls.PREFIX + serverId
+            if (serverUri in existingFavs) continue
+            val serverTrack = db.tracks().get(serverUri)
+            val own = serverTrack?.let { match.ownCopy(it) }
+            val chosenId = own?.id ?: serverUri
+            if (chosenId !in existingFavs && chosenId !in toInsert) {
+                toInsert += chosenId
+            }
+        }
+        if (toInsert.isNotEmpty()) favourites.insertAll(toInsert.map { Favourite(it, now) })
+        if (love) toInsert.forEach { scrobbler.love(it, true) }
         val unfavourited = toUnfavourite.flatMap { behind[it].orEmpty() }
         for (trackId in unfavourited) {
             favourites.delete(trackId)
@@ -205,7 +217,7 @@ class ServerCollections(
         }
 
         val parts = listOfNotNull(
-            plural(toFavourite.size, "favourite", "from Navidrome"), plural(unfavourited.size, "favourite", "removed (unstarred on Navidrome)"),
+            plural(toInsert.size, "favourite", "from Navidrome"), plural(unfavourited.size, "favourite", "removed (unstarred on Navidrome)"),
             plural(toStar.size, "song", "starred on Navidrome"), plural(toUnstar.size, "song", "unstarred on Navidrome"),
         )
         return parts.joinToString(", ").ifEmpty { null }

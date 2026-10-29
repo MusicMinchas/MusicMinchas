@@ -28,4 +28,16 @@ class PreferOwnCopiesTest {
         val server = listOf(track("s1", "Amaranth", Track.SOURCE_SUBSONIC), track("s2", "Amaranth", Track.SOURCE_SUBSONIC))
         assertEquals(server, preferOwnCopies(server))
     }
+
+    @Test
+    fun favouritesDeduplicationPreservesDriveCopyOverServerCopy() {
+        val favs = listOf(
+            track("drive:1", "Ghost River", Track.SOURCE_DRIVE),
+            track("subsonic:1", "Ghost River", Track.SOURCE_SUBSONIC),
+            track("subsonic:2", "Ghost River (Live)", Track.SOURCE_SUBSONIC),
+            track("subsonic:3", "Unique Song", Track.SOURCE_SUBSONIC),
+        )
+        val deduplicated = preferOwnCopies(favs)
+        assertEquals(listOf("drive:1", "subsonic:2", "subsonic:3"), deduplicated.map { it.id })
+    }
 }

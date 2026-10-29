@@ -46,6 +46,29 @@ class ServerMatch(private val db: AppDatabase) {
         ).firstOrNull()
     }
 
+    /**
+     * The user's own copy (device or Drive) of a server song: the same song by the Last.fm matching
+     * rules, preferring local files over Drive, identical title first, then the same album.
+     */
+    suspend fun ownCopy(track: Track): Track? {
+        if (track.source != Track.SOURCE_SUBSONIC) return track
+        val artist = track.artist ?: track.albumArtist ?: return null
+        val match = SearchText.match("$artist ${TrackMatcher.looseTitle(track.title)}") ?: return null
+        val wantedArtists = listOfNotNull(track.artist, track.albumArtist).mapTo(HashSet(), TrackMatcher::looseArtist)
+        val wantedTitle = TrackMatcher.looseTitle(track.title)
+        val candidates = db.browse().searchSongs(match, CANDIDATES, Track.OWN_SCOPES).filter { c ->
+            TrackMatcher.looseTitle(c.title) == wantedTitle &&
+                listOfNotNull(c.artist, c.albumArtist).any { TrackMatcher.looseArtist(it) in wantedArtists }
+        }
+        val exactTitle = TrackMatcher.basic(track.title)
+        val album = track.album?.let(TrackMatcher::basic)
+        return candidates.sortedWith(
+            compareByDescending<Track> { it.scope == Track.SCOPE_LOCAL }
+                .thenByDescending { TrackMatcher.basic(it.title) == exactTitle }
+                .thenByDescending { album != null && it.album?.let(TrackMatcher::basic) == album }
+        ).firstOrNull()
+    }
+
     private companion object {
         const val CANDIDATES = 100
     }
