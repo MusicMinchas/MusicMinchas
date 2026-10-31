@@ -266,6 +266,43 @@ class Settings(private val context: Context, name: String = "settings") {
         _sonosDownsample.value = enabled
     }
 
+    private val _infiniteQueue = MutableStateFlow(prefs.getBoolean(KEY_INFINITE_QUEUE, false))
+    /** Autoplay / Infinite Queue: automatically appends similar tracks when reaching queue end. */
+    val infiniteQueue: StateFlow<Boolean> = _infiniteQueue.asStateFlow()
+
+    fun setInfiniteQueue(enabled: Boolean) {
+        prefs.edit { putBoolean(KEY_INFINITE_QUEUE, enabled) }
+        _infiniteQueue.value = enabled
+    }
+
+    private val _loudnessNormalization = MutableStateFlow(prefs.getBoolean(KEY_LOUDNESS_NORMALIZATION, false))
+    /** Loudness Normalization (DSP). Off by default to preserve bit-perfect audio. */
+    val loudnessNormalization: StateFlow<Boolean> = _loudnessNormalization.asStateFlow()
+
+    fun setLoudnessNormalization(enabled: Boolean) {
+        prefs.edit { putBoolean(KEY_LOUDNESS_NORMALIZATION, enabled) }
+        _loudnessNormalization.value = enabled
+    }
+
+    private val _crossfade = MutableStateFlow(prefs.getBoolean(KEY_CROSSFADE, false))
+    /** Track boundary crossfade / smooth transition. Off by default to preserve bit-perfect audio. */
+    val crossfade: StateFlow<Boolean> = _crossfade.asStateFlow()
+
+    fun setCrossfade(enabled: Boolean) {
+        prefs.edit { putBoolean(KEY_CROSSFADE, enabled) }
+        _crossfade.value = enabled
+    }
+
+    private val _crossfadeSeconds = MutableStateFlow(prefs.getInt(KEY_CROSSFADE_SECONDS, 4).coerceIn(1, 10))
+    /** Crossfade duration in seconds (1..10). */
+    val crossfadeSeconds: StateFlow<Int> = _crossfadeSeconds.asStateFlow()
+
+    fun setCrossfadeSeconds(seconds: Int) {
+        val clamped = seconds.coerceIn(1, 10)
+        prefs.edit { putInt(KEY_CROSSFADE_SECONDS, clamped) }
+        _crossfadeSeconds.value = clamped
+    }
+
     private val _language = MutableStateFlow(getAppLanguage())
     /** App display language: "system", "en", or "es". */
     val language: StateFlow<String> = _language.asStateFlow()
@@ -339,6 +376,10 @@ class Settings(private val context: Context, name: String = "settings") {
         const val KEY_MB_TITLES_REREAD = "mb_titles_reread"
         const val KEY_FULL_COVER = "full_screen_cover"
         const val KEY_SONOS_DOWNSAMPLE = "sonos_downsample"
+        const val KEY_INFINITE_QUEUE = "infinite_queue"
+        const val KEY_LOUDNESS_NORMALIZATION = "loudness_normalization"
+        const val KEY_CROSSFADE = "track_crossfade"
+        const val KEY_CROSSFADE_SECONDS = "crossfade_seconds"
         const val KEY_SYNC_MODE = "drive_sync_mode"
         const val KEY_LAST_SYNC = "drive_last_sync"
         const val KEY_DRIVE = "drive_connected"

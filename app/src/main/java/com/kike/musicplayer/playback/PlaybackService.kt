@@ -30,6 +30,8 @@ import androidx.media3.session.MediaSession.MediaItemsWithStartPosition
 import com.google.common.collect.ImmutableList
 import com.google.common.util.concurrent.ListenableFuture
 import com.kike.musicplayer.container
+import com.kike.musicplayer.recommend.AutoplaySuggester
+import kotlinx.coroutines.withContext
 import com.kike.musicplayer.data.SongSearch
 import com.kike.musicplayer.data.db.PlayHistory
 import com.kike.musicplayer.data.db.SessionState
@@ -73,6 +75,7 @@ class PlaybackService : MediaLibraryService(), CastHost {
     private var sonosPlayer: SonosPlayer? = null
     private var castWakeLock: PowerManager.WakeLock? = null
     private var castWifiLock: WifiManager.WifiLock? = null
+    private var dspManager: PlaybackDspManager? = null
 
     private val dao by lazy { container.database.tracks() }
     private val browse by lazy { container.database.browse() }
@@ -148,6 +151,7 @@ class PlaybackService : MediaLibraryService(), CastHost {
             reportedToServer = false
             startedAt = System.currentTimeMillis()
             val entry = PlayHistory(trackId = trackIdOf(id), playedAt = startedAt)
+            container.historicalDates.recordInAppPlay(trackIdOf(id), startedAt)
             val currentItem = player.currentMediaItem
             val trackId = trackIdOf(id)
             scope.launch(Dispatchers.IO) {
@@ -270,12 +274,21 @@ class PlaybackService : MediaLibraryService(), CastHost {
 
         scope.launch { restoreQueue() }
         scope.launch {
+            container.settings.infiniteQueue.collect { enabled ->
+                if (enabled && ::session.isInitialized) {
+                    checkAutoplay(session.player)
+                }
+            }
+        }
+        scope.launch {
             while (true) {
                 delay(TRACKER_TICK_MS)
                 playTracker.tick()
             }
         }
         container.castManager.host = this
+        container.sleepTimer.attachPlayer { if (::session.isInitialized) session.player else null }
+        dspManager = PlaybackDspManager(player, container.settings, scope)
     }
 
     override fun onGetSession(controllerInfo: MediaSession.ControllerInfo): MediaLibrarySession = session
@@ -292,6 +305,9 @@ class PlaybackService : MediaLibraryService(), CastHost {
     override fun onDestroy() {
         playTracker.finish()
         stopCast()
+        container.sleepTimer.detachPlayer()
+        dspManager?.release()
+        dspManager = null
         if (container.castManager.host === this) container.castManager.host = null
         saveNow()
         scope.cancel()
@@ -466,6 +482,51 @@ class PlaybackService : MediaLibraryService(), CastHost {
     }
 
     private class SavedQueue(val trackIds: List<String>, val playOrder: List<Int>?, val state: SessionState)
+
+    private var autoplayJob: Job? = null
+
+    private fun checkAutoplay(p: Player) {
+        if (!container.settings.infiniteQueue.value) return
+        if (p.mediaItemCount == 0 || p.currentMediaItemIndex == C.INDEX_UNSET) return
+        val remaining = p.mediaItemCount - (p.currentMediaItemIndex + 1)
+        if (remaining > 1) return
+        if (autoplayJob?.isActive == true) return
+
+        autoplayJob = scope.launch(Dispatchers.IO) {
+            try {
+                val currentMediaItem = withContext(Dispatchers.Main) { p.currentMediaItem } ?: return@launch
+                val currentTrackId = trackIdOf(currentMediaItem.mediaId)
+                val currentTrack = dao.get(currentTrackId) ?: currentMediaItem.toTransientTrack()
+
+                val count = withContext(Dispatchers.Main) { p.mediaItemCount }
+                val queueIds = withContext(Dispatchers.Main) {
+                    (0 until count).map { trackIdOf(p.getMediaItemAt(it).mediaId) }.toSet()
+                }
+
+                val scopes = listOf(Track.SCOPE_LOCAL, Track.SCOPE_DRIVE, Track.SCOPE_SERVER)
+
+                val suggested = AutoplaySuggester.suggestTracks(
+                    currentTrack = currentTrack,
+                    recentTracks = emptyList(),
+                    existingQueueIds = queueIds,
+                    db = container.database,
+                    scopes = scopes,
+                    count = 8,
+                )
+
+                if (suggested.isNotEmpty()) {
+                    val mediaItems = suggested.map { it.toMediaItem() }
+                    withContext(Dispatchers.Main) {
+                        if (::session.isInitialized && p === session.player) {
+                            p.addMediaItems(mediaItems)
+                        }
+                    }
+                }
+            } catch (e: Exception) {
+                Log.w(TAG, "Autoplay suggestion failed", e)
+            }
+        }
+    }
 
     private fun snapshot(): SavedQueue {
         val queue = phoneQueue(player)

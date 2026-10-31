@@ -1,8 +1,29 @@
 package com.kike.musicplayer.ui
 
 import com.kike.musicplayer.playback.toTransientTrack
+import androidx.compose.foundation.layout.ColumnScope
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.material3.OutlinedButton
+import androidx.compose.material.icons.filled.GraphicEq
+import androidx.compose.material.icons.filled.MusicNote
+import androidx.compose.material.icons.filled.Route
+import androidx.compose.material.icons.filled.Usb
+import androidx.compose.material.icons.filled.Headphones
+import androidx.compose.material.icons.filled.Bluetooth
+import androidx.compose.material.icons.filled.AllInclusive
+import androidx.compose.material.icons.filled.Bedtime
+import com.kike.musicplayer.playback.SleepTimerStatus
+import com.kike.musicplayer.playback.SleepTimerMode
+import com.kike.musicplayer.playback.AudioQualityDetails
+import com.kike.musicplayer.playback.AudioTier
+import com.kike.musicplayer.playback.OutputRouteType
+import com.kike.musicplayer.playback.formatSampleRate
+
 
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.background
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.SliderDefaults
@@ -24,6 +45,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
@@ -69,7 +91,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.foundation.layout.BoxWithConstraints
-import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.material.icons.filled.Cast
 import androidx.compose.material.icons.filled.CastConnected
@@ -80,7 +101,6 @@ import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material.icons.automirrored.filled.VolumeDown
 import androidx.compose.material.icons.automirrored.filled.VolumeUp
 import androidx.compose.material3.ModalBottomSheet
-import androidx.compose.ui.graphics.vector.ImageVector
 import kotlin.math.roundToInt
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.ui.draw.blur
@@ -170,6 +190,7 @@ fun NowPlayingScreen(
     val s by playerVm.state.collectAsState()
     var showCast by remember { mutableStateOf(false) }
     var showLyrics by rememberSaveable { mutableStateOf(false) }
+    var showSleepTimer by rememberSaveable { mutableStateOf(false) }
     val lyrics by playerVm.lyrics.collectAsState()
     val meta = s.current?.mediaMetadata
     // While the lyrics side is up, keep it in step with the song.
@@ -177,6 +198,16 @@ fun NowPlayingScreen(
         if (showLyrics) s.current?.mediaId?.let(playerVm::loadLyrics)
     }
     if (showCast) CastSheet(playerVm) { showCast = false }
+    if (showSleepTimer) {
+        val sleepStatus by playerVm.sleepTimerStatus.collectAsState()
+        SleepTimerSheet(
+            status = sleepStatus,
+            onSetMinutes = playerVm::startSleepTimerMinutes,
+            onSetEndOfTrack = playerVm::startSleepTimerEndOfTrack,
+            onCancel = playerVm::cancelSleepTimer,
+            onDismiss = { showSleepTimer = false },
+        )
+    }
     val onFlip = { if (s.current != null) showLyrics = !showLyrics }
     BoxWithConstraints(Modifier.fillMaxSize()) {
         // Sideways: cover on the left, everything else on the right (the full cover is for upright only).
@@ -207,7 +238,7 @@ fun NowPlayingScreen(
                     Modifier.weight(1f).fillMaxHeight().padding(start = 24.dp),
                     horizontalAlignment = Alignment.CenterHorizontally,
                 ) {
-                    NowPlayingDetails(s, playerVm, showLyrics, { showLyrics = !showLyrics }, { showCast = true }, onOpenQueue, heartOffset = 12.dp, compact = true)
+                    NowPlayingDetails(s, playerVm, showLyrics, { showLyrics = !showLyrics }, { showCast = true }, onOpenQueue, onOpenSleepTimer = { showSleepTimer = true }, heartOffset = 12.dp, compact = true)
                 }
             }
         } else if (full) {
@@ -218,8 +249,11 @@ fun NowPlayingScreen(
                 // picture goes sharp -> blurred -> plain colour without an edge.
                 BlurredCoverTail(meta?.artworkUri, Modifier.fillMaxWidth().height(maxWidth * FULL_COVER_HEIGHT * 1.25f))
                 val top = contentPadding.calculateTopPadding()
+                val bottom = contentPadding.calculateBottomPadding()
                 // Where the title is in the normal layout: close bar, cover (page width plus the bleed), gap.
-                val titleTop = top + CLOSE_BAR + maxWidth - 48.dp + COVER_BLEED * 2 + TITLE_GAP
+                val naturalTitleTop = top + CLOSE_BAR + maxWidth - 48.dp + COVER_BLEED * 2 + TITLE_GAP
+                // Bound titleTop so controls zone is guaranteed to fit without cutting off Up Next
+                val titleTop = naturalTitleTop.coerceAtMost((maxHeight - bottom - 325.dp).coerceAtLeast(top + 180.dp))
                 // A little taller than wide (the sides crop off), so it reaches further down.
                 Box(Modifier.fillMaxWidth().aspectRatio(1f / FULL_COVER_HEIGHT)) {
                     FlipCard(
@@ -233,9 +267,10 @@ fun NowPlayingScreen(
                     Box(
                         Modifier.fillMaxWidth().height(top + 56.dp)
                             .background(Brush.verticalGradient(0f to Color.Black.copy(alpha = 0.45f), 1f to Color.Transparent)),
-                    )
-                    IconButton(onClick = onBack, modifier = Modifier.padding(top = top, start = 4.dp)) {
-                        Icon(Icons.Default.KeyboardArrowDown, "Close", tint = Color.White)
+                    ) {
+                        IconButton(onClick = onBack, modifier = Modifier.padding(top = top, start = 4.dp).align(Alignment.TopStart)) {
+                            Icon(Icons.Default.KeyboardArrowDown, "Close", tint = Color.White)
+                        }
                     }
                 }
                 Column(
@@ -244,14 +279,16 @@ fun NowPlayingScreen(
                 ) {
                     // The title at the same height as without the full cover.
                     Spacer(Modifier.height(titleTop))
-                    NowPlayingDetails(s, playerVm, showLyrics, { showLyrics = !showLyrics }, { showCast = true }, onOpenQueue, heartOffset = 12.dp)
+                    NowPlayingDetails(s, playerVm, showLyrics, { showLyrics = !showLyrics }, { showCast = true }, onOpenQueue, onOpenSleepTimer = { showSleepTimer = true }, heartOffset = 12.dp)
                 }
             }
         } else {
             Column(Modifier.fillMaxSize().padding(contentPadding)) {
                 // Just the close arrow: a slim bar leaves the cover more room.
-                Box(Modifier.fillMaxWidth().height(CLOSE_BAR).padding(start = 4.dp), contentAlignment = Alignment.CenterStart) {
-                    IconButton(onClick = onBack) { Icon(Icons.Default.KeyboardArrowDown, "Close") }
+                Box(Modifier.fillMaxWidth().height(CLOSE_BAR).padding(horizontal = 4.dp)) {
+                    IconButton(onClick = onBack, modifier = Modifier.align(Alignment.CenterStart)) {
+                        Icon(Icons.Default.KeyboardArrowDown, "Close")
+                    }
                 }
                 Column(
                     Modifier.fillMaxSize().padding(horizontal = 24.dp),
@@ -263,10 +300,10 @@ fun NowPlayingScreen(
                         front = { Artwork(meta?.artworkUri, Modifier.fillMaxSize(), shape = RoundedCornerShape(12.dp)) },
                         back = { LiveLyrics(lyrics, playerVm) },
                         // A little wider than the rest of the page.
-                        modifier = Modifier.bleed(COVER_BLEED).fillMaxWidth().aspectRatio(1f),
+                        modifier = Modifier.bleed(COVER_BLEED).weight(1.5f, fill = false).aspectRatio(1f),
                     )
                     Spacer(Modifier.height(TITLE_GAP))
-                    NowPlayingDetails(s, playerVm, showLyrics, { showLyrics = !showLyrics }, { showCast = true }, onOpenQueue, heartOffset = 12.dp + COVER_BLEED)
+                    NowPlayingDetails(s, playerVm, showLyrics, { showLyrics = !showLyrics }, { showCast = true }, onOpenQueue, onOpenSleepTimer = { showSleepTimer = true }, heartOffset = 12.dp + COVER_BLEED)
                 }
             }
         }
@@ -386,12 +423,14 @@ private fun ColumnScope.NowPlayingDetails(
     onToggleLyrics: () -> Unit,
     onShowCast: () -> Unit,
     onOpenQueue: () -> Unit,
+    onOpenSleepTimer: () -> Unit,
     heartOffset: Dp,
     /** Sideways, where height is short: no extra space around the lyrics / cast / queue row. */
     compact: Boolean = false,
 ) {
     val castTo by playerVm.castActive.collectAsState()
     val favourites by playerVm.favourites.collectAsState()
+    val infiniteQueue by playerVm.infiniteQueue.collectAsState()
     val meta = s.current?.mediaMetadata
     val trackId = s.current?.mediaId?.let(PlaybackService::trackIdOf)
     // Title centred; the heart sits at the cover's right edge.
@@ -424,16 +463,21 @@ private fun ColumnScope.NowPlayingDetails(
         track = track,
         style = MaterialTheme.typography.bodyLarge, textAlign = TextAlign.Center,
     )
+    var showAudioDetails by remember { mutableStateOf(false) }
     val group = castTo
-    if (group != null) {
-        TextButton(onClick = onShowCast) {
-            Icon(Icons.Default.Speaker, null, Modifier.size(18.dp))
-            Spacer(Modifier.width(6.dp))
-            Text("Playing on ${group.name}", style = MaterialTheme.typography.labelLarge)
-        }
-    } else s.formatInfo?.let {
-        Text(it, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary,
-            modifier = Modifier.padding(top = 4.dp))
+    AudioQualityBadge(
+        quality = s.audioQuality,
+        formatInfo = s.formatInfo,
+        isCasting = group != null,
+        castGroupName = group?.name,
+        onClick = { showAudioDetails = true },
+    )
+    if (showAudioDetails) {
+        AudioDetailsSheet(
+            quality = s.audioQuality,
+            onOpenCast = onShowCast,
+            onDismiss = { showAudioDetails = false },
+        )
     }
     // Spare height goes here, so the controls below keep the same spacing whether the
     // title takes one line or two.
@@ -469,26 +513,45 @@ private fun ColumnScope.NowPlayingDetails(
         Text("Playback error: $it", color = MaterialTheme.colorScheme.error,
             style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(top = 8.dp))
     }
-    // Lyrics · Cast · Queue, within thumb reach under the playback controls.
+    // Lyrics / Sleep / Cast / Infinite / Queue within thumb reach under playback controls.
     Row(
         // Tighter while casting: the speaker volume row needs the room.
         Modifier.fillMaxWidth().padding(
-            top = if (s.remoteVolume != null || compact) 0.dp else 16.dp,
-            bottom = if (s.remoteVolume != null || compact) 0.dp else 8.dp,
+            top = if (s.remoteVolume != null || compact) 0.dp else 8.dp,
+            bottom = if (s.remoteVolume != null || compact) 0.dp else 4.dp,
         ),
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically,
     ) {
+        // 1. Lyrics
         IconButton(onClick = onToggleLyrics, enabled = s.current != null) {
             Icon(
                 Icons.Default.Lyrics, if (showLyrics) "Hide lyrics" else "Lyrics",
                 tint = if (showLyrics) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
+        // 2. Sleep
+        val sleepStatus by playerVm.sleepTimerStatus.collectAsState()
+        IconButton(onClick = onOpenSleepTimer) {
+            Icon(
+                Icons.Default.Bedtime,
+                contentDescription = if (sleepStatus.isActive) "Sleep timer: ${sleepStatus.formattedRemaining}" else "Sleep timer",
+                tint = if (sleepStatus.isActive) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        // 3. Cast
         IconButton(onClick = onShowCast) {
             if (castTo != null) Icon(Icons.Default.CastConnected, "Playing on ${castTo!!.name}", tint = MaterialTheme.colorScheme.primary)
             else Icon(Icons.Default.Cast, "Play on a speaker", tint = MaterialTheme.colorScheme.onSurfaceVariant)
         }
+        // 4. Infinite
+        IconButton(onClick = { playerVm.toggleInfiniteQueue() }) {
+            Icon(
+                Icons.Default.AllInclusive, if (infiniteQueue) "Autoplay on" else "Autoplay off",
+                tint = if (infiniteQueue) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        // 5. Queue
         IconButton(onClick = onOpenQueue) {
             Icon(Icons.AutoMirrored.Filled.QueueMusic, stringResource(R.string.player_queue), tint = MaterialTheme.colorScheme.onSurfaceVariant)
         }
@@ -499,17 +562,17 @@ private fun ColumnScope.NowPlayingDetails(
             stringResource(R.string.player_up_next, next.item.mediaMetadata.title ?: ""), maxLines = 1, overflow = TextOverflow.Ellipsis,
             color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.labelLarge,
             modifier = Modifier.clip(RoundedCornerShape(8.dp)).clickable(onClick = onOpenQueue)
-                .padding(horizontal = 12.dp, vertical = 6.dp),
+                .padding(horizontal = 10.dp, vertical = 4.dp),
         )
     }
 }
 
 /** The full-width cover's height, relative to the screen width. */
-private const val FULL_COVER_HEIGHT = 1.05f
+private const val FULL_COVER_HEIGHT = 1.0f
 
 /** Now Playing's close-arrow bar and the gap between cover and title (both layouts). */
-private val CLOSE_BAR = 40.dp
-private val TITLE_GAP = 22.dp
+private val CLOSE_BAR = 34.dp
+private val TITLE_GAP = 10.dp
 
 /** How far the Now Playing cover reaches past the page margin on each side. */
 private val COVER_BLEED = 10.dp
@@ -520,6 +583,354 @@ private fun Modifier.bleed(horizontal: Dp) = layout { measurable, constraints ->
     val width = constraints.maxWidth + extra
     val placeable = measurable.measure(constraints.copy(minWidth = width, maxWidth = width))
     layout(constraints.maxWidth, placeable.height) { placeable.place(-extra / 2, 0) }
+}
+
+
+@Composable
+private fun AudioQualityBadge(
+    quality: AudioQualityDetails?,
+    formatInfo: String?,
+    isCasting: Boolean,
+    castGroupName: String?,
+    onClick: () -> Unit,
+) {
+    val tier = quality?.tier
+    val containerColor = when (tier) {
+        AudioTier.HI_RES_LOSSLESS -> MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.6f)
+        AudioTier.LOSSLESS -> MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.7f)
+        else -> MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+    }
+    val contentColor = when (tier) {
+        AudioTier.HI_RES_LOSSLESS -> MaterialTheme.colorScheme.onPrimaryContainer
+        else -> MaterialTheme.colorScheme.onSurfaceVariant
+    }
+
+    Surface(
+        onClick = onClick,
+        shape = RoundedCornerShape(6.dp),
+        color = containerColor,
+        contentColor = contentColor,
+        modifier = Modifier.padding(top = 4.dp, bottom = 2.dp),
+    ) {
+        Row(
+            Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(4.dp),
+        ) {
+            if (isCasting) {
+                Icon(Icons.Default.Speaker, null, Modifier.size(13.dp))
+                val speakerLabel = castGroupName ?: "Sonos"
+                val qualityLabel = quality?.badgeLabel ?: "Lossless"
+                Text(
+                    "$speakerLabel · $qualityLabel",
+                    style = MaterialTheme.typography.labelSmall,
+                    fontWeight = FontWeight.Medium,
+                )
+            } else if (quality != null) {
+                when (quality.tier) {
+                    AudioTier.HI_RES_LOSSLESS -> {
+                        Icon(Icons.Default.GraphicEq, null, Modifier.size(13.dp))
+                        Text(
+                            "Hi-Res · ${quality.resolutionLabel}",
+                            style = MaterialTheme.typography.labelSmall,
+                            fontWeight = FontWeight.SemiBold,
+                        )
+                    }
+                    AudioTier.LOSSLESS -> {
+                        Text(
+                            "Lossless · ${quality.resolutionLabel}",
+                            style = MaterialTheme.typography.labelSmall,
+                            fontWeight = FontWeight.Medium,
+                        )
+                    }
+                    else -> {
+                        Text(
+                            quality.resolutionLabel,
+                            style = MaterialTheme.typography.labelSmall,
+                        )
+                    }
+                }
+            } else if (formatInfo != null) {
+                Text(formatInfo, style = MaterialTheme.typography.labelSmall)
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun AudioDetailsSheet(
+    quality: AudioQualityDetails?,
+    onOpenCast: () -> Unit,
+    onDismiss: () -> Unit,
+) {
+    if (quality == null) return
+    ModalBottomSheet(onDismissRequest = onDismiss) {
+        Column(
+            Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 24.dp)
+                .padding(bottom = 32.dp)
+                .verticalScroll(rememberScrollState()),
+        ) {
+            Row(
+                Modifier.fillMaxWidth().padding(bottom = 16.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    "Audio Quality & Signal Path",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold,
+                    modifier = Modifier.weight(1f),
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                Spacer(Modifier.width(12.dp))
+                Surface(
+                    shape = RoundedCornerShape(8.dp),
+                    color = when (quality.tier) {
+                        AudioTier.HI_RES_LOSSLESS -> MaterialTheme.colorScheme.primaryContainer
+                        AudioTier.LOSSLESS -> MaterialTheme.colorScheme.surfaceVariant
+                        else -> MaterialTheme.colorScheme.surfaceVariant
+                    },
+                ) {
+                    Text(
+                        quality.badgeLabel,
+                        style = MaterialTheme.typography.labelMedium,
+                        maxLines = 1,
+                        softWrap = false,
+                        color = when (quality.tier) {
+                            AudioTier.HI_RES_LOSSLESS -> MaterialTheme.colorScheme.onPrimaryContainer
+                            else -> MaterialTheme.colorScheme.onSurfaceVariant
+                        },
+                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
+                    )
+                }
+            }
+
+            AudioInfoCard(title = "Source Audio", icon = Icons.Default.MusicNote) {
+                AudioDetailRow("Format / Codec", quality.codec)
+                quality.bitDepth?.let { AudioDetailRow("Bit Depth", "$it-bit") }
+                quality.sampleRateHz?.let { AudioDetailRow("Sample Rate", formatSampleRate(it)) }
+                quality.bitrateKbps?.let { AudioDetailRow("Bitrate", "$it kbps") }
+                AudioDetailRow("Channels", if (quality.channelCount == 2) "Stereo (2 ch)" else "${quality.channelCount} ch")
+                AudioDetailRow("Source", quality.sourceDescription)
+            }
+
+            Spacer(Modifier.height(12.dp))
+
+            AudioInfoCard(title = "Signal Path", icon = Icons.Default.Route) {
+                AudioDetailRow("Decoder", quality.decoderDescription)
+                AudioDetailRow("Processing", quality.signalPathDescription)
+                if (quality.isDownsampledForSonos) {
+                    AudioDetailRow("Sonos Compatibility", "Downsampled 48 kHz FLAC")
+                } else if (quality.integrityDescription != null) {
+                    AudioDetailRow("Integrity", quality.integrityDescription)
+                }
+            }
+
+            Spacer(Modifier.height(12.dp))
+
+            AudioInfoCard(
+                title = "Output Device",
+                icon = when (quality.outputInfo.routeType) {
+                    OutputRouteType.SONOS_CAST -> Icons.Default.Speaker
+                    OutputRouteType.USB_DAC -> Icons.Default.Usb
+                    OutputRouteType.WIRED_HEADPHONES -> Icons.Default.Headphones
+                    OutputRouteType.BLUETOOTH -> Icons.Default.Bluetooth
+                    OutputRouteType.PHONE_SPEAKER -> Icons.Default.PhoneAndroid
+                },
+            ) {
+                AudioDetailRow("Destination", quality.outputInfo.displayName)
+                AudioDetailRow("Route Type", quality.outputInfo.description)
+                quality.outputInfo.maxHardwareRateHz?.let {
+                    AudioDetailRow("DAC Max Rate", formatSampleRate(it))
+                }
+            }
+
+            if (quality.outputInfo.routeType == OutputRouteType.SONOS_CAST) {
+                Spacer(Modifier.height(16.dp))
+                OutlinedButton(
+                    onClick = {
+                        onDismiss()
+                        onOpenCast()
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Icon(Icons.Default.Speaker, null, Modifier.size(18.dp))
+                    Spacer(Modifier.width(8.dp))
+                    Text("Switch Sonos Speaker")
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun AudioInfoCard(
+    title: String,
+    icon: ImageVector,
+    content: @Composable ColumnScope.() -> Unit,
+) {
+    Surface(
+        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+        shape = RoundedCornerShape(12.dp),
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        Column(Modifier.padding(14.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(bottom = 8.dp)) {
+                Icon(icon, null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(18.dp))
+                Spacer(Modifier.width(8.dp))
+                Text(title, style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.primary)
+            }
+            content()
+        }
+    }
+}
+
+@Composable
+private fun AudioDetailRow(label: String, value: String) {
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .padding(vertical = 4.dp),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.Top,
+    ) {
+        Text(
+            label,
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.widthIn(min = 90.dp, max = 130.dp),
+        )
+        Spacer(Modifier.width(12.dp))
+        Text(
+            value,
+            style = MaterialTheme.typography.bodySmall,
+            fontWeight = FontWeight.Medium,
+            textAlign = TextAlign.End,
+            modifier = Modifier.weight(1f),
+        )
+    }
+}
+
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun SleepTimerSheet(
+    status: SleepTimerStatus,
+    onSetMinutes: (Int) -> Unit,
+    onSetEndOfTrack: () -> Unit,
+    onCancel: () -> Unit,
+    onDismiss: () -> Unit,
+) {
+    ModalBottomSheet(onDismissRequest = onDismiss) {
+        Column(
+            Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 24.dp)
+                .padding(bottom = 32.dp),
+        ) {
+            Row(
+                Modifier.fillMaxWidth().padding(bottom = 16.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween,
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(Icons.Default.Bedtime, null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(24.dp))
+                    Spacer(Modifier.width(10.dp))
+                    Text("Sleep Timer", style = MaterialTheme.typography.titleLarge)
+                }
+                if (status.isActive) {
+                    Text(
+                        status.formattedRemaining,
+                        style = MaterialTheme.typography.labelLarge,
+                        color = MaterialTheme.colorScheme.primary,
+                        fontWeight = FontWeight.Bold,
+                    )
+                }
+            }
+
+            if (status.isActive) {
+                Surface(
+                    color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f),
+                    shape = RoundedCornerShape(12.dp),
+                    modifier = Modifier.fillMaxWidth().padding(bottom = 16.dp),
+                ) {
+                    Row(
+                        Modifier.padding(14.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                    ) {
+                        Column(Modifier.weight(1f)) {
+                            Text(
+                                "Timer Active: ${status.formattedRemaining} left",
+                                style = MaterialTheme.typography.titleSmall,
+                                color = MaterialTheme.colorScheme.onPrimaryContainer,
+                            )
+                            Text(
+                                "Playback will smoothly fade out over 30s before stopping.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                        TextButton(onClick = {
+                            onCancel()
+                            onDismiss()
+                        }) {
+                            Text("Turn Off")
+                        }
+                    }
+                }
+            }
+
+            Text("Set Timer", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(bottom = 8.dp))
+
+            val options = listOf(
+                15 to "15 minutes",
+                30 to "30 minutes",
+                45 to "45 minutes",
+                60 to "1 hour",
+            )
+            options.forEach { (mins, label) ->
+                SleepTimerOptionRow(label = label, selected = status.mode == SleepTimerMode.MINUTES && status.totalSeconds == mins * 60L) {
+                    onSetMinutes(mins)
+                    onDismiss()
+                }
+            }
+
+            SleepTimerOptionRow(label = "End of current track", selected = status.mode == SleepTimerMode.END_OF_TRACK) {
+                onSetEndOfTrack()
+                onDismiss()
+            }
+        }
+    }
+}
+
+@Composable
+private fun SleepTimerOptionRow(label: String, selected: Boolean, onClick: () -> Unit) {
+    Surface(
+        onClick = onClick,
+        shape = RoundedCornerShape(10.dp),
+        color = if (selected) MaterialTheme.colorScheme.primaryContainer else Color.Transparent,
+        modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp),
+    ) {
+        Row(
+            Modifier.padding(horizontal = 14.dp, vertical = 12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween,
+        ) {
+            Text(
+                label,
+                style = MaterialTheme.typography.bodyLarge,
+                color = if (selected) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurface,
+                fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
+            )
+            if (selected) {
+                Icon(Icons.Default.Check, null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(18.dp))
+            }
+        }
+    }
 }
 
 /** Speaker volume while casting; sent when the finger lifts so Sonos isn't flooded with commands. */
@@ -758,6 +1169,17 @@ private fun SeekBar(s: PlayerUiState, playerVm: PlayerViewModel) {
 @Composable
 fun QueueScreen(playerVm: PlayerViewModel, onBack: () -> Unit, contentPadding: PaddingValues) {
     val s by playerVm.state.collectAsState()
+    var showSleepTimer by rememberSaveable { mutableStateOf(false) }
+    if (showSleepTimer) {
+        val sleepStatus by playerVm.sleepTimerStatus.collectAsState()
+        SleepTimerSheet(
+            status = sleepStatus,
+            onSetMinutes = playerVm::startSleepTimerMinutes,
+            onSetEndOfTrack = playerVm::startSleepTimerEndOfTrack,
+            onCancel = playerVm::cancelSleepTimer,
+            onDismiss = { showSleepTimer = false },
+        )
+    }
     // Local copy so rows move under the finger; committed to the player when the drag ends.
     var items by remember { mutableStateOf(s.upNext) }
     var draggedIndex by remember { mutableStateOf<Int?>(null) }
@@ -775,7 +1197,25 @@ fun QueueScreen(playerVm: PlayerViewModel, onBack: () -> Unit, contentPadding: P
             windowInsets = NoTopInsets,
             title = { Text(stringResource(R.string.queue_title)) },
             navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.Default.KeyboardArrowDown, "Close") } },
-            actions = { if (s.upNext.isNotEmpty()) TextButton(onClick = { playerVm.clearUpNext() }) { Text("Clear") } },
+            actions = {
+                val infiniteQueue by playerVm.infiniteQueue.collectAsState()
+                val sleepStatus by playerVm.sleepTimerStatus.collectAsState()
+                IconButton(onClick = { showSleepTimer = true }) {
+                    Icon(
+                        Icons.Default.Bedtime,
+                        contentDescription = if (sleepStatus.isActive) "Sleep timer: ${sleepStatus.formattedRemaining}" else "Sleep timer",
+                        tint = if (sleepStatus.isActive) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                IconButton(onClick = { playerVm.toggleInfiniteQueue() }) {
+                    Icon(
+                        Icons.Default.AllInclusive,
+                        contentDescription = if (infiniteQueue) "Autoplay on" else "Autoplay off",
+                        tint = if (infiniteQueue) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                if (s.upNext.isNotEmpty()) TextButton(onClick = { playerVm.clearUpNext() }) { Text("Clear") }
+            },
         )
         LazyColumn(state = listState, modifier = Modifier.fillMaxSize()) {
             s.current?.let { current ->

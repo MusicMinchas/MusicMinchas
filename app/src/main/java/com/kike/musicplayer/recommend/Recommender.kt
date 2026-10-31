@@ -44,7 +44,7 @@ data class Mix(val id: String, val title: String, val subtitle: String, val trac
  */
 class Recommender(
     private val tracks: List<Track>,
-    history: List<PlayHistory>,
+    private val history: List<PlayHistory>,
     /** Lower-cased artist name -> tags, most voted first. */
     private val artistTags: Map<String, List<String>>,
     private val now: Long = System.currentTimeMillis(),
@@ -52,8 +52,10 @@ class Recommender(
     private val favourites: Set<String> = emptySet(),
     /** Songs mixes may include (the sources switched on); the rest of [tracks] only shows the taste. */
     private val pickable: (Track) -> Boolean = { true },
+    private val historicalDates: Map<String, Long> = emptyMap(),
+    private val inAppPlayDates: Map<String, Long> = emptyMap(),
 ) {
-    private val stats = ListeningStats(history, now)
+    private val stats = ListeningStats(history, now, historicalDates, inAppPlayDates)
     private val day = now / ListeningStats.DAY_MS
 
     /** Something to go on: plays or favourites. */
@@ -95,6 +97,7 @@ class Recommender(
         addAll(becauseYouListened())
         addAll(genreMixes())
         addAll(decadeMixes())
+        timeMachine()?.let { add(it) }
         rediscover()?.let { add(it) }
         forgottenFavourites()?.let { add(it) }
         freshPicks()?.let { add(it) }
@@ -169,6 +172,56 @@ class Recommender(
                 }
                 Mix("decade:$decade", "${decade}s Mix", artistSummary(picked), interleave(picked, random))
             }
+    }
+
+    /**
+     * "Time Machine": What you listened to in this calendar month in years past.
+     * Looks at historical plays in the same month from previous years, picking top tracks.
+     */
+    private fun timeMachine(): Mix? {
+        val calendar = java.util.Calendar.getInstance()
+        calendar.timeInMillis = now
+        val currentMonth = calendar.get(java.util.Calendar.MONTH)
+        val currentYear = calendar.get(java.util.Calendar.YEAR)
+
+        val monthCounts = HashMap<String, Int>()
+
+        // 1. Authoritative CSV historical dates (2005-2025)
+        historicalDates.forEach { (trackId, ts) ->
+            calendar.timeInMillis = ts
+            if (calendar.get(java.util.Calendar.YEAR) < currentYear &&
+                calendar.get(java.util.Calendar.MONTH) == currentMonth
+            ) {
+                monthCounts.merge(trackId, 1, Int::plus)
+            }
+        }
+
+        // 2. Play history entries from past years
+        history.filter { it.counted }.forEach { h ->
+            calendar.timeInMillis = h.playedAt
+            if (calendar.get(java.util.Calendar.YEAR) < currentYear &&
+                calendar.get(java.util.Calendar.MONTH) == currentMonth
+            ) {
+                monthCounts.merge(h.trackId, 1, Int::plus)
+            }
+        }
+
+        if (monthCounts.isEmpty()) return null
+
+        val candidates = usable.filter { it.id in monthCounts }
+            .sortedByDescending { (stats.plays[it.id] ?: 0) + (monthCounts[it.id] ?: 0) }
+
+        if (candidates.size < MIN_MIX_SIZE) return null
+
+        val monthName = java.text.DateFormatSymbols.getInstance().months[currentMonth]
+        val random = random("timemachine")
+        val picked = pick(candidates, MIX_SIZE, perArtist = 3, random, favouriteCap = false) { 0.0 }
+        return Mix(
+            id = "timemachine",
+            title = "Time Machine",
+            subtitle = "What you listened to in $monthName in past years",
+            tracks = interleave(picked, random),
+        )
     }
 
     /** Albums played a lot that haven't been played for two months. */

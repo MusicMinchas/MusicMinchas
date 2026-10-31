@@ -44,6 +44,7 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.TextButton
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.painter.ColorPainter
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.LinkAnnotation
 import androidx.compose.ui.text.TextStyle
@@ -67,7 +68,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
-import coil3.compose.SubcomposeAsyncImage
+import coil3.compose.AsyncImage
 import com.kike.musicplayer.data.db.Track
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.graphics.vector.path
@@ -84,13 +85,19 @@ import androidx.compose.foundation.layout.Arrangement
 fun Artwork(uri: Any?, modifier: Modifier = Modifier, size: Dp? = null, shape: Shape = RoundedCornerShape(6.dp)) {
     val normalized = remember(uri) { com.kike.musicplayer.data.catalog.normalizeArtworkUrl(uri) }
     val m = (if (size != null) modifier.size(size) else modifier).clip(shape)
-    SubcomposeAsyncImage(
+    if (normalized == null) {
+        Box(m) { ArtworkPlaceholder() }
+        return
+    }
+    val placeholderColor = MaterialTheme.colorScheme.surfaceVariant
+    val placeholder = remember(placeholderColor) { ColorPainter(placeholderColor) }
+    AsyncImage(
         model = normalized,
         contentDescription = null,
         contentScale = ContentScale.Crop,
+        placeholder = placeholder,
+        error = placeholder,
         modifier = m,
-        loading = { ArtworkPlaceholder() },
-        error = { ArtworkPlaceholder() },
     )
 }
 
@@ -111,7 +118,7 @@ fun PlaylistCover(
     if (!coverUrl.isNullOrBlank() && !com.kike.musicplayer.data.catalog.isDefaultCatalogCover(coverUrl)) {
         Artwork(coverUrl, modifier = modifier, size = size, shape = shape)
     } else {
-        val nonNullCovers = mosaicCovers.filter { it.isNotBlank() }.distinct()
+        val nonNullCovers = remember(mosaicCovers) { mosaicCovers.filter { it.isNotBlank() }.distinct() }
         val m = (if (size != null) modifier.size(size) else modifier).clip(shape)
         if (nonNullCovers.size >= 4) {
             Box(m) {

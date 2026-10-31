@@ -7,7 +7,7 @@ Parent workspace notes: @[Shared Android Dev Workspace](../AGENTS.md)
 
 - **Path:** `C:\Users\kike\dev\MusicPlayer` (local git repo, repo-local identity `kike` / `kikeprojo@gmail.com`, nothing pushed).
 - **Package:** `com.kike.musicplayer`
-- **Current Release:** `1.42.0` (`versionCode = 94`, Room DB `v27`, `minSdk = 30`, `targetSdk = 36`, `compileSdk = 37`). Merged to `master`, tag `v1.42.0`.
+- **Current Release:** `1.43.0` (`versionCode = 95`, Room DB `v27`, `minSdk = 30`, `targetSdk = 36`, `compileSdk = 37`). Merged to `master`, tag `v1.43.0`.
 - **Stack:** Kotlin 2.4.20, Jetpack Compose, Media3 1.11.1 `MediaLibraryService` (Android Auto browse tree), Room 2.8.5 via KSP 2.3.12 + Paging 3 (`paging-compose 3.3.6`, `room-paging`), Retrofit 3 + Moshi (reflection), Coil 3, `play-services-auth` 22 `AuthorizationClient` (`drive.readonly` + `email`), `reorderable` 3.1.0, AGP 9.4.1, Gradle 9.8.
 - **Shared Toolchain & Environment:**
   - `JAVA_HOME`: Android Studio's bundled `jbr`
@@ -332,3 +332,23 @@ Started 2026-10-08 from user-pasted spec. NEW app, explicitly independent of Son
     - Updated `translations_review.xml` and Spanish translations for new strings.
     - All unit tests pass.
   - Verified on OnePlus 12, merged to `master`, tagged `v1.42.0`, release APK `MusicMinchas-1.42.0.apk` installed.
+
+- 2026-10-31 Release 1.43.0 (`versionCode = 95`, Room DB `v27`, GitHub issue #24):
+  - Audio Quality Badge & Signal Path Inspector (`AudioQuality.kt`, `PlayerScreens.kt`, `PlayerViewModel.kt`):
+    - Added interactive Lossless / Hi-Res Lossless / Bitrate badge on Now Playing opening the Audio Quality & Signal Path bottom sheet.
+    - Displays Source Audio (`Codec`, `Bit Depth`, `Sample Rate`, `Bitrate`, `Channels`, `Source`), Signal Path (`Decoder`, `Processing`, and `Integrity` reflecting Bit-Perfect vs. Audio DSP, Bluetooth re-encoding, or Sonos 48 kHz downsampling), and Output Device (`Phone Speaker`, `Wired Headphones`, `Bluetooth`, `USB DAC`, `Sonos`).
+  - Sleep Timer with Smooth 30s Fade-Out (`SleepTimerManager.kt`, `PlayerScreens.kt`):
+    - Added Sleep Timer (`15m`, `30m`, `45m`, `1h`, and `End of current track`) with 30-second smooth volume fade-out and live countdown badge in the Now Playing bottom row (`Lyrics / Sleep / Cast / Infinite / Queue`).
+  - Infinite Queue / Autoplay & Single-Song Search Queueing (`AutoplaySuggester.kt`, `PlaybackService.kt`, `LibraryScreens.kt`):
+    - Added on-device Infinite Queue toggle on Now Playing that automatically appends recommended tracks when the queue reaches the end.
+    - Updated Library and Catalog song search results so tapping a song queues only the tapped song (`listOf(track)`).
+  - Audio DSP Engine & Settings Reorganization (`PlaybackDspManager.kt`, `SourcesScreen.kt`):
+    - Added optional Loudness Normalization (`LoudnessEnhancer`) and Track Crossfade (`1–10s`) grouped under Audio Settings, preserving 100% bit-perfect playback when disabled.
+  - Historical Play Archive Importer, Time Machine Mix & Thematic Home Mix Rows (`HistoricalPlayImporter.kt`, `HistoricalDatesStore.kt`, `Recommender.kt`, `HomeScreens.kt`):
+    - Added CSV importer for iTunes Library and Apple Music Track Play History exports, aligning `play_history` and `lastfm_scrobbles` timestamps to exact historical dates while strictly preserving play counts (`addPlayCounts = false`).
+    - Added Time Machine mix and split Home mixes into two thematic rows: Made for You (personal discovery & nostalgia) and Genres & Decades Mixes (beneath Recently Played Albums).
+  - Library Health & Management (`LibraryHealthInspector.kt`, `LibraryHealthScreen.kt`):
+    - Added Library Health & Management screen under Data & Storage detecting Missing Artwork, Incomplete Tags, Duplicate Songs, Unplayable / DRM files, and hosting the Play History Archive CSV importer.
+  - Cold-Start & Home Scrolling Performance Optimizations (`LibraryViewModel.kt`, `HomeScreens.kt`, `Components.kt`, `CatalogClient.kt`, `Listening.kt`):
+    - Removed 500 ms initial debounce on `tracksChanged`, skipped cold-start re-matching of cached Deezer playlists, checked `deezer_home_v3.json` disk cache before SQL joins, scoped initial Replay track loading to the current year, and replaced `SubcomposeAsyncImage` with flat `AsyncImage` + `ColorPainter` and `LazyColumn` `contentType` slot reuse.
+  - Verified on OnePlus 12, merged to `master`, tagged `v1.43.0`, release APK `MusicMinchas-1.43.0.apk` installed.

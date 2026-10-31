@@ -95,6 +95,7 @@
     <string name="home_favourites">Favourite Songs</string>
     <string name="home_heavy_rotation">Heavy Rotation</string>
     <string name="home_made_for_you">Made for You</string>
+    <string name="home_genre_decade_mixes">Genres &amp; Decades Mixes</string>
     <string name="home_mixes_empty_hint">Mixes appear once genres have been fetched for your artists (Sources › online lookup) and grow better as you listen.</string>
     <string name="home_most_played">Most Played</string>
     <string name="home_recently_added">Recently Added</string>

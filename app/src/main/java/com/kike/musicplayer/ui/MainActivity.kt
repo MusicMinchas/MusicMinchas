@@ -70,7 +70,7 @@ private sealed interface Screen {
     data object RecentTracks : Screen
     data object RecentAlbums : Screen
     data object AddedAlbums : Screen
-    data object Mixes : Screen
+    data class Mixes(val genreDecadeOnly: Boolean = false) : Screen
     data object Replay : Screen
     data object HeavyRotation : Screen
     data object MostPlayed : Screen
@@ -86,6 +86,7 @@ private sealed interface Screen {
     data class CatalogPlaylistDetail(val playlist: com.kike.musicplayer.data.catalog.CatalogPlaylist) : Screen
     data class CatalogSectionDetail(val section: com.kike.musicplayer.data.catalog.DeezerHomeSection) : Screen
     data class PlaylistCategory(val type: PlaylistCategoryType) : Screen
+    data object LibraryHealth : Screen
 }
 
 class MainActivity : ComponentActivity() {
@@ -341,7 +342,8 @@ class MainActivity : ComponentActivity() {
                             onOpenRecentTracks = { push(Screen.RecentTracks) },
                             onOpenRecentAlbums = { push(Screen.RecentAlbums) },
                             onOpenAddedAlbums = { push(Screen.AddedAlbums) },
-                            onOpenMixes = { push(Screen.Mixes) },
+                            onOpenMixes = { push(Screen.Mixes(genreDecadeOnly = false)) },
+                            onOpenGenreDecadeMixes = { push(Screen.Mixes(genreDecadeOnly = true)) },
                             onOpenReplay = { push(Screen.Replay) },
                             onOpenHeavyRotation = { push(Screen.HeavyRotation) },
                             onOpenMostPlayed = { push(Screen.MostPlayed) },
@@ -455,12 +457,27 @@ class MainActivity : ComponentActivity() {
                             stringResource(R.string.home_recently_added_albums), playlists.addedAlbums, playerVm, downloadable = true,
                             onOpenAlbum = { push(Screen.AlbumDetail(it)) }, onBack = ::pop, contentPadding = padding,
                         )
-                        Screen.Mixes -> MixListScreen(mixes, playerVm, onOpenMix = { push(Screen.MixDetail(it)) }, onBack = ::pop, contentPadding = padding)
+                        is Screen.Mixes -> {
+                            val filtered = if (screen.genreDecadeOnly) {
+                                mixes.filter { it.id.startsWith("genre:") || it.id.startsWith("decade:") }
+                            } else {
+                                mixes.filter { !it.id.startsWith("genre:") && !it.id.startsWith("decade:") }
+                            }
+                            val title = stringResource(if (screen.genreDecadeOnly) R.string.home_genre_decade_mixes else R.string.home_made_for_you)
+                            MixListScreen(filtered, playerVm, onOpenMix = { push(Screen.MixDetail(it)) }, onBack = ::pop, contentPadding = padding, title = title)
+                        }
                         Screen.Following -> FollowingScreen(libraryVm, onOpenArtist = { push(Screen.ArtistDetail(it)) }, onBack = ::pop, contentPadding = padding)
                         Screen.Sources -> SourcesScreen(
                             libraryVm,
                             onBack = ::pop,
                             onOpenMusicSources = { push(Screen.MusicSources) },
+                            onOpenLibraryHealth = { push(Screen.LibraryHealth) },
+                            contentPadding = padding,
+                        )
+                        Screen.LibraryHealth -> LibraryHealthScreen(
+                            vm = libraryVm,
+                            onBack = ::pop,
+                            onPlayTrack = { playerVm.playTracks(listOf(it), 0) },
                             contentPadding = padding,
                         )
                         Screen.MusicSources -> MusicSourcesScreen(

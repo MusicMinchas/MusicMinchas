@@ -18,6 +18,16 @@ import com.kike.musicplayer.container
 import com.kike.musicplayer.data.db.Favourite
 import com.kike.musicplayer.data.db.Track
 import com.kike.musicplayer.sonos.SonosGroup
+import android.content.Context
+import android.media.AudioDeviceCallback
+import android.media.AudioDeviceInfo
+import android.media.AudioManager
+import android.os.Handler
+import android.os.Looper
+import com.kike.musicplayer.playback.AudioOutputInfo
+import com.kike.musicplayer.playback.AudioQualityDetails
+import com.kike.musicplayer.playback.detectAudioOutput
+import com.kike.musicplayer.playback.resolveAudioQuality
 import com.kike.musicplayer.playback.PlaybackService
 import com.kike.musicplayer.playback.toMediaItem
 import com.kike.musicplayer.playback.toTransientTrack
@@ -57,6 +67,7 @@ data class PlayerUiState(
     /** e.g. "FLAC · 44.1 kHz · 2 ch" */
     val formatInfo: String? = null,
     val sampleRate: Int? = null,
+    val audioQuality: AudioQualityDetails? = null,
     val error: String? = null,
     /** Speaker volume (0-100) while playing on a remote device such as Sonos, else null. */
     val remoteVolume: Int? = null,
@@ -78,6 +89,26 @@ class PlayerViewModel(private val app: Application) : AndroidViewModel(app) {
     val castActive = cast.active
     val castMessage = cast.message
     val sonosDownsample: StateFlow<Boolean> = app.container.settings.sonosDownsample
+    val infiniteQueue: StateFlow<Boolean> = app.container.settings.infiniteQueue
+    val sleepTimerStatus = app.container.sleepTimer.status
+
+    private val audioManager = app.getSystemService(Context.AUDIO_SERVICE) as? AudioManager
+    private val _audioOutput = MutableStateFlow(detectAudioOutput(app, cast.active.value, sonosDownsample.value))
+    val audioOutput: StateFlow<AudioOutputInfo> = _audioOutput.asStateFlow()
+
+    private val audioDeviceCallback = object : AudioDeviceCallback() {
+        override fun onAudioDevicesAdded(addedDevices: Array<out AudioDeviceInfo>?) {
+            refreshAudioOutput()
+        }
+        override fun onAudioDevicesRemoved(removedDevices: Array<out AudioDeviceInfo>?) {
+            refreshAudioOutput()
+        }
+    }
+
+    private fun refreshAudioOutput() {
+        _audioOutput.value = detectAudioOutput(app, cast.active.value, sonosDownsample.value)
+        controller?.let(::refresh)
+    }
 
     private val _state = MutableStateFlow(PlayerUiState())
     val state: StateFlow<PlayerUiState> = _state.asStateFlow()
@@ -92,6 +123,19 @@ class PlayerViewModel(private val app: Application) : AndroidViewModel(app) {
     }
 
     init {
+        audioManager?.registerAudioDeviceCallback(audioDeviceCallback, Handler(Looper.getMainLooper()))
+        viewModelScope.launch {
+            cast.active.collect { refreshAudioOutput() }
+        }
+        viewModelScope.launch {
+            sonosDownsample.collect { refreshAudioOutput() }
+        }
+        viewModelScope.launch {
+            app.container.settings.loudnessNormalization.collect { controller?.let(::refresh) }
+        }
+        viewModelScope.launch {
+            app.container.settings.crossfade.collect { controller?.let(::refresh) }
+        }
         controllerFuture.addListener({
             val c = runCatching { controllerFuture.get() }.getOrNull() ?: return@addListener
             controller = c
@@ -102,6 +146,12 @@ class PlayerViewModel(private val app: Application) : AndroidViewModel(app) {
 
     private fun refresh(p: Player) {
         val format = selectedAudioFormat(p)
+        val transientTrack = p.currentMediaItem?.toTransientTrack()
+        val isDsp = app.container.settings.loudnessNormalization.value || app.container.settings.crossfade.value
+        val initialQuality = if (p.currentMediaItem != null) {
+            resolveAudioQuality(format, transientTrack, _audioOutput.value, sonosDownsample.value, isDsp)
+        } else null
+
         _state.value = PlayerUiState(
             connected = true,
             current = p.currentMediaItem,
@@ -115,12 +165,28 @@ class PlayerViewModel(private val app: Application) : AndroidViewModel(app) {
             upNext = upNext(p),
             queueSize = p.mediaItemCount,
             formatInfo = formatInfo(format),
-            sampleRate = format?.sampleRate?.takeIf { it > 0 },
+            sampleRate = format?.sampleRate?.takeIf { it > 0 } ?: initialQuality?.sampleRateHz,
+            audioQuality = initialQuality,
             error = p.playerError?.let(::playbackErrorText),
             remoteVolume = p.deviceVolume.takeIf { p.deviceInfo.playbackType == DeviceInfo.PLAYBACK_TYPE_REMOTE },
         )
         _progress.value = PlayerProgress(p.currentPosition, p.bufferedPosition)
         if (p.isPlaying) startTicker() else ticker?.cancel()
+
+        val trackId = p.currentMediaItem?.mediaId?.let(PlaybackService::trackIdOf)
+        if (trackId != null) {
+            viewModelScope.launch(Dispatchers.IO) {
+                val dbTrack = app.container.database.tracks().get(trackId)
+                if (dbTrack != null) {
+                    val refinedQuality = resolveAudioQuality(format, dbTrack, _audioOutput.value, sonosDownsample.value, isDsp)
+                    _state.update { curr ->
+                        if (curr.current?.mediaId?.let(PlaybackService::trackIdOf) == trackId) {
+                            curr.copy(audioQuality = refinedQuality)
+                        } else curr
+                    }
+                }
+            }
+        }
     }
 
     private fun upNext(p: Player): List<QueueEntry> {
@@ -282,6 +348,14 @@ class PlayerViewModel(private val app: Application) : AndroidViewModel(app) {
         _progress.update { it.copy(positionMs = positionMs) }
     }
 
+    fun toggleInfiniteQueue() {
+        app.container.settings.setInfiniteQueue(!infiniteQueue.value)
+    }
+
+    fun startSleepTimerMinutes(minutes: Int) = app.container.sleepTimer.startTimerMinutes(minutes)
+    fun startSleepTimerEndOfTrack() = app.container.sleepTimer.startTimerEndOfTrack()
+    fun cancelSleepTimer() = app.container.sleepTimer.cancelTimer()
+
     fun toggleShuffle() = controller?.let { it.shuffleModeEnabled = !it.shuffleModeEnabled }
 
     fun cycleRepeat() = controller?.let {
@@ -308,6 +382,7 @@ class PlayerViewModel(private val app: Application) : AndroidViewModel(app) {
     }
 
     override fun onCleared() {
+        audioManager?.unregisterAudioDeviceCallback(audioDeviceCallback)
         controller?.removeListener(listener)
         MediaController.releaseFuture(controllerFuture)
     }

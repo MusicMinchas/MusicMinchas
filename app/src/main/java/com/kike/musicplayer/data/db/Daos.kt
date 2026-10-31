@@ -22,6 +22,10 @@ interface TrackDao {
     suspend fun getAll(scopes: List<Int>): List<Track>
 
     @Transaction
+    @Query("SELECT * FROM tracks WHERE scope IN (:scopes) ORDER BY title COLLATE NOCASE")
+    suspend fun getAllForInspection(scopes: List<Int>): List<Track>
+
+    @Transaction
     @Query("SELECT * FROM tracks WHERE source = :source")
     suspend fun getBySource(source: String): List<Track>
 
@@ -223,9 +227,23 @@ interface HistoryDao {
     suspend fun updateListening(id: Long, listenedMs: Long, counted: Boolean)
 
     /** The whole history, newest first (kept forever: Replay looks back years). */
+    data class TrackTimestamp(val trackId: String, val timestamp: Long)
+
+    @Query("SELECT trackId, MAX(playedAt) AS timestamp FROM play_history WHERE playedAt NOT IN (SELECT uts * 1000 FROM lastfm_scrobbles WHERE trackId IS NOT NULL) GROUP BY trackId")
+    suspend fun inAppLastPlayed(): List<TrackTimestamp>
+
     @Transaction
     @Query("SELECT * FROM play_history ORDER BY playedAt DESC")
     fun observeAll(): Flow<List<PlayHistory>>
+
+    @Update
+    suspend fun updateAll(entries: List<PlayHistory>)
+
+    @Query("SELECT * FROM play_history ORDER BY playedAt ASC")
+    suspend fun allAscending(): List<PlayHistory>
+
+    @Query("SELECT uts * 1000 FROM lastfm_scrobbles WHERE trackId IS NOT NULL")
+    suspend fun scrobbleUtsMillis(): List<Long>
 }
 
 @Dao
@@ -452,6 +470,9 @@ interface FavouriteDao {
 interface LyricsDao {
     @Query("SELECT * FROM lyrics WHERE trackId = :trackId")
     suspend fun get(trackId: String): StoredLyrics?
+
+    @Query("SELECT trackId FROM lyrics")
+    suspend fun allTrackIds(): List<String>
 
     @Upsert
     suspend fun upsert(lyrics: StoredLyrics)

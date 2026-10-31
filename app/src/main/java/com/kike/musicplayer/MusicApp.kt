@@ -5,6 +5,7 @@ import coil3.ImageLoader
 import coil3.PlatformContext
 import coil3.SingletonImageLoader
 import coil3.network.okhttp.OkHttpNetworkFetcherFactory
+import com.kike.musicplayer.playback.SleepTimerManager
 import com.kike.musicplayer.data.AutoSync
 import com.kike.musicplayer.data.LibraryIndexer
 import com.kike.musicplayer.data.LibraryRepository
@@ -83,6 +84,7 @@ class AppContainer(app: Application) {
     private val suffix = if (benchSize != null) "-bench" else ""
 
     val settings = Settings(app, "settings$suffix")
+    val sleepTimer = SleepTimerManager(appScope)
     val database = AppDatabase.create(app, if (benchSize != null) "bench.db" else "music.db").also { db ->
         benchSize?.let { n -> appScope.launch { Bench.seed(db, n) } }
     }
@@ -176,6 +178,7 @@ class AppContainer(app: Application) {
     )
 
     val downloader = Downloader(app, database.tracks(), driveHttp, subsonicUrls, nebulaUrls, appScope).also { it.verify() }
+    val historicalDates = com.kike.musicplayer.data.history.HistoricalDatesStore(app)
 
     val lastFm = LastFm(app, LastFmClient(baseHttp, moshi, BuildConfig.LASTFM_API_KEY, BuildConfig.LASTFM_SECRET), "lastfm$suffix")
 
@@ -192,7 +195,7 @@ class AppContainer(app: Application) {
         collections.start()
     }
     val scrobbleImporter = ScrobbleImporter(
-        lastFm, database.lastFmScrobbles(), database.history(), database.tracks(), database.favourites(), scrobbler, appScope,
+        lastFm, database.lastFmScrobbles(), database.history(), database.tracks(), database.favourites(), scrobbler, appScope, historicalDates,
     )
 
     /** Listening history, favourites, playlists and loved tracks synced in one go, daily when switched on. */

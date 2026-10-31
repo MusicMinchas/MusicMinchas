@@ -39,6 +39,7 @@ class ScrobbleImporter(
     private val favourites: FavouriteDao,
     private val scrobbler: Scrobbler,
     private val scope: CoroutineScope,
+    private val historicalDates: com.kike.musicplayer.data.history.HistoricalDatesRegistry? = null,
 ) {
     private val mutex = Mutex()
 
@@ -247,6 +248,22 @@ class ScrobbleImporter(
             PlayHistory(trackId = id, playedAt = s.uts * 1000, listenedMs = durations[id]?.coerceAtLeast(0) ?: 0, counted = true)
         }
         history.insertAll(plays)
+        val dates = historicalDates?.csvDates?.value.orEmpty()
+        if (dates.isNotEmpty()) {
+            val newlyAddedTrackIds = plays.mapTo(HashSet()) { it.trackId }.filter { it in dates }
+            if (newlyAddedTrackIds.isNotEmpty()) {
+                val targets = HashMap<String, Long>()
+                val targetPlays = HashMap<String, List<Long>>()
+                for (tid in newlyAddedTrackIds) {
+                    val ts = dates[tid] ?: continue
+                    targets[tid] = ts
+                    targetPlays[tid] = listOf(ts)
+                }
+                if (targets.isNotEmpty()) {
+                    com.kike.musicplayer.data.history.HistoricalPlayImporter.alignPlayHistoryTimestamps(history, targetPlays, targets)
+                }
+            }
+        }
         plays.mapTo(HashSet()) { it.playedAt / 1000 }
     }
 

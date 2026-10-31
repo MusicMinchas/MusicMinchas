@@ -11,6 +11,9 @@ import com.kike.musicplayer.container
 import com.kike.musicplayer.data.DriveSyncMode
 import com.kike.musicplayer.Bench
 import com.kike.musicplayer.data.db.getByIds
+import com.kike.musicplayer.data.history.HistoricalPlayImporter
+import com.kike.musicplayer.data.history.ImportStats
+import kotlinx.coroutines.flow.update
 import com.kike.musicplayer.data.db.Favourite
 import com.kike.musicplayer.data.db.PlayHistory
 import com.kike.musicplayer.recommend.MixCandidates
@@ -231,6 +234,8 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
      * Once at start and again whenever songs or their summaries change (debounced, so a sync
      * doesn't rebuild everything per song): the lists below are rebuilt from the database then.
      */
+    private var initialTracksEmission = true
+
     @OptIn(kotlinx.coroutines.FlowPreview::class)
     private val tracksChanged: Flow<Unit> = combine(
         database.invalidationTracker.createFlow("tracks", "album_index"),
@@ -238,7 +243,14 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
         container.serverLibrary.status.map { it.running }.distinctUntilChanged(),
     ) { _, syncing -> syncing }
         .filter { syncing -> !syncing }
-        .debounce(TRACKS_CHANGED_DEBOUNCE_MS)
+        .debounce {
+            if (initialTracksEmission) {
+                initialTracksEmission = false
+                0L
+            } else {
+                TRACKS_CHANGED_DEBOUNCE_MS
+            }
+        }
         .map { }
 
     /** Recently added albums: read again when songs change or a source is switched, not after each play. */
@@ -264,7 +276,7 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
     /** Recently played, recent albums, most played and favourites: only their songs are read. */
     private suspend fun buildPlaylists(history: List<PlayHistory>, favourites: List<Favourite>): Playlists {
         val now = System.currentTimeMillis()
-        val stats = ListeningStats(history, now)
+        val stats = ListeningStats(history, now, container.historicalDates.csvDates.value, container.historicalDates.inAppDates.value)
         // Like everywhere else, a play counts once half the song was listened to (the playing one joins then).
         val recentIds = history.asSequence().filter { it.counted }.map { it.trackId }.distinct().take(RECENT_LOOKUP).toList()
         val topIds = stats.plays.entries.sortedByDescending { it.value }.take(MOST_PLAYED_LOOKUP).map { it.key }
@@ -344,7 +356,15 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
         val favouriteIds = favouriteRows.first().mapTo(HashSet()) { it.trackId }
         val candidates = MixCandidates.load(database, history, favouriteIds, scopes)
         return Bench.time("mixes from ${candidates.size} songs") {
-            Recommender(candidates, history, artistTags.first(), favourites = favouriteIds, pickable = { it.scope in scopes }).mixes()
+            Recommender(
+                tracks = candidates,
+                history = history,
+                artistTags = artistTags.first(),
+                favourites = favouriteIds,
+                pickable = { it.scope in scopes },
+                historicalDates = container.historicalDates.csvDates.value,
+                inAppPlayDates = container.historicalDates.inAppDates.value,
+            ).mixes()
         }
     }
 
@@ -357,12 +377,28 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
 
     private val replayPeriod = MutableStateFlow<ReplayPeriod?>(null)
 
-    /** Replay reads only the songs in the play history. */
+    /** Replay reads the songs needed for the selected period (and caches them across period switches). */
+    private val replayTracksCache = java.util.concurrent.ConcurrentHashMap<String, Track>()
+
     @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
     val replay: StateFlow<Replay?> = combine(history, replayPeriod, tracksChanged) { h, p, _ -> h to p }
         .mapLatest { (history, period) ->
-            val byId = database.tracks().getByIds(history.mapTo(HashSet()) { it.trackId }).associateBy { it.id }
-            Bench.time("replay") { replay(history, byId, period) }
+            val zone = java.time.ZoneId.systemDefault()
+            val targetYear = period?.year ?: java.time.Instant.now().atZone(zone).year
+            val yearStartMs = java.time.LocalDate.of(targetYear, 1, 1).atStartOfDay(zone).toInstant().toEpochMilli()
+            val yearEndMs = java.time.LocalDate.of(targetYear + 1, 1, 1).atStartOfDay(zone).toInstant().toEpochMilli()
+            // On initial load (period == null), only fetch tracks played in the current year for fast Home startup;
+            // when a user selects a specific period on ReplayScreen, fetch any remaining history tracks for newArtists stats.
+            val neededIds = if (period == null) {
+                history.asSequence().filter { it.playedAt in yearStartMs until yearEndMs }.mapTo(HashSet()) { it.trackId }
+            } else {
+                history.mapTo(HashSet()) { it.trackId }
+            }
+            val missingIds = neededIds.filter { !replayTracksCache.containsKey(it) }
+            if (missingIds.isNotEmpty()) {
+                database.tracks().getByIds(missingIds).forEach { replayTracksCache[it.id] = it }
+            }
+            Bench.time("replay") { replay(history, replayTracksCache, period, zone) }
         }
         .flowOn(Dispatchers.IO).stateIn(viewModelScope, SharingStarted.Eagerly, null)
 
@@ -692,7 +728,14 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
     val deezerHomeContent: StateFlow<com.kike.musicplayer.data.catalog.DeezerHomeContent?> = _deezerHomeContent.asStateFlow()
 
     fun loadDeezerHome(forceRefresh: Boolean = false) {
-        viewModelScope.launch {
+        viewModelScope.launch(Dispatchers.IO) {
+            if (!forceRefresh) {
+                val cached = container.catalog.cachedDeezerHomeContent()
+                if (cached != null) {
+                    _deezerHomeContent.value = cached
+                    return@launch
+                }
+            }
             val playCounts = runCatching { database.browse().topGenresByPlayHistory() }.getOrDefault(emptyList())
             val genreCounts: Map<String, Int> = if (playCounts.isNotEmpty()) {
                 playCounts.associate { it.name to it.count }
@@ -734,6 +777,53 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
     fun setFullScreenCover(enabled: Boolean) = settings.setFullScreenCover(enabled)
     val sonosDownsample = settings.sonosDownsample
     fun setSonosDownsample(enabled: Boolean) = settings.setSonosDownsample(enabled)
+    val loudnessNormalization = settings.loudnessNormalization
+    fun setLoudnessNormalization(enabled: Boolean) = settings.setLoudnessNormalization(enabled)
+    val crossfade = settings.crossfade
+    fun setCrossfade(enabled: Boolean) = settings.setCrossfade(enabled)
+    val crossfadeSeconds = settings.crossfadeSeconds
+    fun setCrossfadeSeconds(seconds: Int) = settings.setCrossfadeSeconds(seconds)
+
+    data class HistoryImportUiState(
+        val inProgress: Boolean = false,
+        val progress: Float = 0f,
+        val result: ImportStats? = null,
+        val error: String? = null,
+    )
+    private val _historyImportState = MutableStateFlow<HistoryImportUiState?>(null)
+    val historyImportState: StateFlow<HistoryImportUiState?> = _historyImportState.asStateFlow()
+
+    fun importPlayHistory(uri: Uri) {
+        viewModelScope.launch(Dispatchers.IO) {
+            _historyImportState.value = HistoryImportUiState(inProgress = true, progress = 0.05f)
+            try {
+                val contentResolver = getApplication<Application>().contentResolver
+                val inputStream = contentResolver.openInputStream(uri)
+                    ?: throw java.lang.IllegalStateException("Could not open file")
+                val stats = inputStream.use { stream ->
+                    HistoricalPlayImporter.importCsvFromDao(
+                        inputStream = stream,
+                        trackDao = container.database.tracks(),
+                        historicalStore = container.historicalDates,
+                        historyDao = container.database.history(),
+                        addPlayCounts = false,
+                        onProgress = { p ->
+                            _historyImportState.update { curr -> curr?.copy(progress = p) }
+                        }
+                    )
+                }
+                _historyImportState.value = HistoryImportUiState(inProgress = false, progress = 1f, result = stats)
+                refreshMixes()
+            } catch (e: Exception) {
+                Log.e("LibraryViewModel", "Failed to import play history", e)
+                _historyImportState.value = HistoryImportUiState(inProgress = false, error = e.localizedMessage ?: "Import failed")
+            }
+        }
+    }
+
+    fun dismissHistoryImport() {
+        _historyImportState.value = null
+    }
     val language = settings.language
     fun setLanguage(tag: String) = settings.setLanguage(tag)
     val driveAccount = driveAuth.account
@@ -753,6 +843,12 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
     fun start() {
         if (started) return
         started = true
+        viewModelScope.launch(Dispatchers.IO) {
+            val inApp = container.database.history().inAppLastPlayed()
+            if (inApp.isNotEmpty()) {
+                container.historicalDates.initializeInAppPlays(inApp.associate { it.trackId to it.timestamp })
+            }
+        }
         repo.refreshAll()
         container.serverLibrary.syncIfDue()
     }
@@ -1103,10 +1199,19 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     /** The most played artists not followed yet, offered on an empty Discover tab. */
-    val suggestedArtists: StateFlow<List<String>> = combine(
-        browse.observeArtistPlayCounts(SUGGESTED_ARTISTS + 50), followedArtists,
-    ) { counts, followed -> counts.map { it.name }.filter { it !in followed }.take(SUGGESTED_ARTISTS) }
-        .stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
+    @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
+    val suggestedArtists: StateFlow<List<String>> = followedArtists
+        .flatMapLatest { followed ->
+            if (followed.isNotEmpty()) {
+                flowOf(emptyList())
+            } else {
+                browse.observeArtistPlayCounts(SUGGESTED_ARTISTS + 50).map { counts ->
+                    counts.map { it.name }.take(SUGGESTED_ARTISTS)
+                }
+            }
+        }
+        .flowOn(Dispatchers.IO)
+        .stateIn(viewModelScope, SharingStarted.Lazily, emptyList())
 
     // ---- Music Add-ons (Nullbeat, Nebula, etc.) ----
 
@@ -1244,16 +1349,25 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
             songCount.drop(1).distinctUntilChanged().debounce(30_000).collect { importer.rematch() }
         }
 
-        // Whenever songs change in Local, Drive or Navidrome, update matches for saved Deezer playlists:
+        // Whenever songs change in Local, Drive or Navidrome, update matches for saved Deezer playlists
+        // (on initial startup, only match playlists that don't have cachedMatchesJson yet).
         viewModelScope.launch(Dispatchers.IO) {
+            var isFirstEmission = true
             tracksChanged.collect {
+                val first = isFirstEmission
+                isFirstEmission = false
+                if (!first) {
+                    replayTracksCache.clear()
+                }
                 val savedList = container.database.savedCatalogPlaylists().observeAll().first()
                 if (savedList.isEmpty()) return@collect
+                val toUpdate = if (first) savedList.filter { it.cachedMatchesJson == null } else savedList
+                if (toUpdate.isEmpty()) return@collect
                 val type = com.squareup.moshi.Types.newParameterizedType(List::class.java, com.kike.musicplayer.data.catalog.CatalogTrack::class.java)
                 val adapter = container.moshi.adapter<List<com.kike.musicplayer.data.catalog.CatalogTrack>>(type)
                 val matchMapType = com.squareup.moshi.Types.newParameterizedType(Map::class.java, String::class.java, String::class.java)
                 val matchAdapter = container.moshi.adapter<Map<String, String>>(matchMapType)
-                for (saved in savedList) {
+                for (saved in toUpdate) {
                     val json = saved.cachedTracksJson ?: continue
                     val tracks = runCatching { adapter.fromJson(json) }.getOrNull().orEmpty()
                     if (tracks.isEmpty()) continue

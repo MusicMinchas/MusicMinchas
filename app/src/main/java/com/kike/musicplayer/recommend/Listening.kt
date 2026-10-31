@@ -8,7 +8,12 @@ import java.time.LocalDate
 import java.time.ZoneId
 
 /** Per-track statistics from the play history. */
-class ListeningStats(history: List<PlayHistory>, private val now: Long) {
+class ListeningStats(
+    history: List<PlayHistory>,
+    private val now: Long,
+    historicalDates: Map<String, Long> = emptyMap(),
+    inAppPlayDates: Map<String, Long> = emptyMap(),
+) {
     /** Counted plays (half the track listened), all time. */
     val plays: Map<String, Int>
 
@@ -36,6 +41,17 @@ class ListeningStats(history: List<PlayHistory>, private val now: Long) {
                 skips.merge(h.trackId, 1, Int::plus)
             }
         }
+        // Apply authoritative historical last-played dates from CSV
+        // Precedence: In-App Play (if after CSV date) > CSV Date > Fallback (Last.fm scrobble)
+        for ((trackId, csvDate) in historicalDates) {
+            val inApp = inAppPlayDates[trackId]
+            if (inApp != null && inApp > csvDate) {
+                last[trackId] = inApp
+            } else {
+                last[trackId] = csvDate
+            }
+        }
+
         this.plays = plays
         recentWeight = weight
         lastPlayed = last
@@ -237,7 +253,9 @@ fun replay(history: List<PlayHistory>, tracks: Map<String, Track>, period: Repla
     val years = (counted.map { dateOf(it).year } + currentYear).distinct().sortedDescending()
     val selected = period ?: ReplayPeriod(currentYear)
 
-    val inYear = history.filter { dateOf(it).year == selected.year }
+    val yearStartMs = LocalDate.of(selected.year, 1, 1).atStartOfDay(zone).toInstant().toEpochMilli()
+    val yearEndMs = LocalDate.of(selected.year + 1, 1, 1).atStartOfDay(zone).toInstant().toEpochMilli()
+    val inYear = history.filter { it.playedAt in yearStartMs until yearEndMs }
     val months = inYear.filter { it.counted }.map { dateOf(it).monthValue }.distinct().sorted()
     val inPeriod = if (selected.month == null) inYear else inYear.filter { dateOf(it).monthValue == selected.month }
     val playsByTrack = inPeriod.filter { it.counted }.groupingBy { it.trackId }.eachCount()

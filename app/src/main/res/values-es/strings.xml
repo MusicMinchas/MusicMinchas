@@ -95,6 +95,7 @@
     <string name="home_favourites">Canciones favoritas</string>
     <string name="home_heavy_rotation">En bucle</string>
     <string name="home_made_for_you">Para ti</string>
+    <string name="home_genre_decade_mixes">Mezclas por género y década</string>
     <string name="home_mixes_empty_hint">Las mezclas aparecerán una vez que se hayan obtenido los géneros de tus artistas (Fuentes › búsqueda online) y mejorarán a medida que escuches música.</string>
     <string name="home_most_played">Más reproducidas</string>
     <string name="home_recently_added">Añadidos recientemente</string>

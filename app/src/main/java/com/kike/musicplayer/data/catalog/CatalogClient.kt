@@ -393,6 +393,19 @@ class CatalogClient(
      * Caches result to disk for [HOME_CACHE_TTL_MS] (24 hours) for instant zero-latency startup.
      * Falls back to expired cache on network errors.
      */
+    suspend fun cachedDeezerHomeContent(): DeezerHomeContent? = withContext(Dispatchers.IO) {
+        val cacheFile = cacheDir?.resolve("deezer_home_v3.json") ?: return@withContext null
+        if (!cacheFile.exists()) return@withContext null
+        val now = System.currentTimeMillis()
+        runCatching {
+            val json = cacheFile.readText()
+            val cached = moshi.adapter(DeezerHomeContent::class.java).fromJson(json)
+            if (cached != null && (now - cached.fetchedAt) < HOME_CACHE_TTL_MS && cached.sections.isNotEmpty()) {
+                cached
+            } else null
+        }.getOrNull()
+    }
+
     suspend fun fetchDeezerHomeContent(
         forceRefresh: Boolean = false,
         libraryGenres: List<String> = emptyList(),

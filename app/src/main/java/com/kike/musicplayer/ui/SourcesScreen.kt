@@ -14,12 +14,25 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Checkbox
 import android.net.Uri
 import androidx.activity.compose.BackHandler
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.FileOpen
+import androidx.compose.material.icons.filled.Tune
+import androidx.compose.material3.LinearProgressIndicator
+import androidx.compose.material3.Slider
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
@@ -34,6 +47,8 @@ import androidx.compose.material.icons.filled.Cloud
 import androidx.compose.material.icons.filled.LibraryMusic
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.FactCheck
+import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.FolderShared
 import androidx.compose.material.icons.outlined.AddCircleOutline
@@ -115,6 +130,7 @@ fun SourcesScreen(
     vm: LibraryViewModel,
     onBack: () -> Unit,
     onOpenMusicSources: () -> Unit,
+    onOpenLibraryHealth: () -> Unit,
     contentPadding: PaddingValues,
 ) {
     val online by vm.onlineMetadata.collectAsState()
@@ -147,6 +163,7 @@ fun SourcesScreen(
             // 1. Library & Content
             SettingsSectionHeader(stringResource(R.string.settings_section_library))
             MusicSourcesEntry(vm, onOpenMusicSources)
+            LibraryHealthEntry(onOpenLibraryHealth)
 
             // 2. Services & Playback
             SettingsSectionHeader(stringResource(R.string.settings_section_services))
@@ -173,7 +190,6 @@ fun SourcesScreen(
                     else -> Button(onClick = { vm.connectLastFm { uriHandler.openUri(it.toString()) } }) { Text(stringResource(R.string.sources_lastfm_connect)) }
                 }
             }
-            SonosPlaybackCard(vm)
 
             // 3. Data & Storage
             SettingsSectionHeader(stringResource(R.string.settings_section_data))
@@ -206,7 +222,12 @@ fun SourcesScreen(
             }
             SyncCard(vm)
 
-            // 4. General Preferences
+            // 4. Audio Settings
+            SettingsSectionHeader("Audio Settings")
+            SonosPlaybackCard(vm)
+            AudioDspCard(vm)
+
+            // 5. General Preferences
             SettingsSectionHeader(stringResource(R.string.settings_section_general))
             LanguageCard(vm)
             AppearanceCard(vm)
@@ -297,6 +318,25 @@ private fun SyncCard(vm: LibraryViewModel) {
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
             OutlinedButton(onClick = vm::syncEverything, enabled = !sync.running) { Text(stringResource(R.string.sources_sync_everything)) }
             if (sync.running) CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp)
+        }
+    }
+}
+
+@Composable
+private fun LibraryHealthEntry(onOpen: () -> Unit) {
+    Card(Modifier.fillMaxWidth().clickable(onClick = onOpen)) {
+        Row(Modifier.padding(horizontal = 12.dp, vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
+            Icon(Icons.Default.FactCheck, null, tint = MaterialTheme.colorScheme.primary)
+            Spacer(Modifier.width(12.dp))
+            Column(Modifier.weight(1f)) {
+                Text("Library Health & Management", style = MaterialTheme.typography.titleMedium)
+                Text(
+                    "Check missing tags, covers, lyrics, audio quality, and import play history",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            Icon(Icons.Default.ChevronRight, null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
         }
     }
 }
@@ -891,6 +931,202 @@ fun DriveFolderPickerScreen(vm: LibraryViewModel, onClose: () -> Unit, contentPa
                 modifier = Modifier.fillMaxWidth().padding(16.dp),
             ) {
                 Text(if (canSelect) stringResource(R.string.sources_drive_use_folder, current.name) else stringResource(R.string.sources_drive_open_folder_to_select), maxLines = 1, overflow = TextOverflow.Ellipsis)
+            }
+        }
+    }
+}
+
+
+@Composable
+internal fun PlayHistoryArchiveCard(vm: LibraryViewModel) {
+    val importState by vm.historyImportState.collectAsState()
+    val filePicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        if (uri != null) vm.importPlayHistory(uri)
+    }
+
+    SourceCard(
+        title = "Play History Archive",
+        subtitle = "Import iTunes & Apple Music plays (2005–2026)",
+    ) {
+        Text(
+            text = "Enrich your listening history with past plays from an exported iTunes or Apple Music CSV. Powers Forgotten Favourites, Rediscover, and Time Machine mixes.",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+
+        Spacer(Modifier.height(8.dp))
+
+        if (importState?.inProgress == true) {
+            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text("Importing plays...", style = MaterialTheme.typography.bodyMedium)
+                    val pct = ((importState?.progress ?: 0f) * 100).toInt()
+                    Text("$pct%", style = MaterialTheme.typography.labelSmall)
+                }
+                LinearProgressIndicator(
+                    progress = { importState?.progress ?: 0f },
+                    modifier = Modifier.fillMaxWidth(),
+                )
+            }
+        } else {
+            OutlinedButton(
+                onClick = { filePicker.launch(arrayOf("text/*", "*/*")) },
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Icon(Icons.Default.FileOpen, contentDescription = null, modifier = Modifier.size(18.dp))
+                Spacer(Modifier.width(8.dp))
+                Text("Import History CSV")
+            }
+        }
+
+        importState?.result?.let { stats ->
+            val dateFormat = remember { SimpleDateFormat("MMM yyyy", Locale.getDefault()) }
+            val timeSpan = if (stats.earliestDate != null && stats.latestDate != null) {
+                "${dateFormat.format(Date(stats.earliestDate))} – ${dateFormat.format(Date(stats.latestDate))}"
+            } else "N/A"
+
+            AlertDialog(
+                onDismissRequest = vm::dismissHistoryImport,
+                title = { Text("History Import Complete") },
+                text = {
+                    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        Text("• Matched ${stats.matchedPlays} plays (${stats.matchedTracks} tracks with original dates)", fontWeight = FontWeight.SemiBold)
+                        Text("• 0 plays added to playcount", color = MaterialTheme.colorScheme.primary)
+                        Text("• Skipped ${stats.skippedDuplicates} duplicates")
+                        if (stats.unmatchedRows > 0) {
+                            Text("• ${stats.unmatchedRows} rows not in library", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                        Text("• Time span: $timeSpan", style = MaterialTheme.typography.bodySmall)
+                        if (stats.topArtists.isNotEmpty()) {
+                            Spacer(Modifier.height(4.dp))
+                            Text("Top artists imported:", fontWeight = FontWeight.Medium)
+                            stats.topArtists.forEach { (artist, count) ->
+                                Text("  $artist ($count plays)", style = MaterialTheme.typography.bodySmall)
+                            }
+                        }
+                    }
+                },
+                confirmButton = {
+                    TextButton(onClick = vm::dismissHistoryImport) {
+                        Text("Done")
+                    }
+                },
+            )
+        }
+
+        importState?.error?.let { err ->
+            AlertDialog(
+                onDismissRequest = vm::dismissHistoryImport,
+                title = { Text("Import Failed") },
+                text = { Text(err) },
+                confirmButton = {
+                    TextButton(onClick = vm::dismissHistoryImport) {
+                        Text("OK")
+                    }
+                },
+            )
+        }
+    }
+}
+
+@Composable
+private fun AudioDspCard(vm: LibraryViewModel) {
+    val loudness by vm.loudnessNormalization.collectAsState()
+    val crossfade by vm.crossfade.collectAsState()
+    val crossfadeSec by vm.crossfadeSeconds.collectAsState()
+    val isDspActive = loudness || crossfade
+
+    SourceCard(
+        title = "Audio Engine & Bit-Perfect Playback",
+        subtitle = "DSP effects and output configuration",
+    ) {
+        Surface(
+            color = if (isDspActive) MaterialTheme.colorScheme.tertiaryContainer.copy(alpha = 0.35f)
+                    else MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.35f),
+            shape = RoundedCornerShape(8.dp),
+            modifier = Modifier.fillMaxWidth().padding(bottom = 10.dp),
+        ) {
+            Row(
+                modifier = Modifier.padding(10.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Icon(
+                    imageVector = if (isDspActive) Icons.Default.Tune else Icons.Default.CheckCircle,
+                    contentDescription = null,
+                    tint = if (isDspActive) MaterialTheme.colorScheme.tertiary else MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.size(20.dp),
+                )
+                Spacer(Modifier.width(10.dp))
+                Column {
+                    Text(
+                        text = if (isDspActive) "Audio DSP Active" else "Bit-Perfect Direct Output Active",
+                        style = MaterialTheme.typography.labelLarge,
+                        fontWeight = FontWeight.SemiBold,
+                    )
+                    Text(
+                        text = if (isDspActive)
+                            "Digital audio samples are modified by active DSP effects below."
+                        else
+                            "No DSP active. Audio samples stream directly to DACs and speakers unaltered.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
+        }
+
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Column(Modifier.weight(1f).padding(end = 12.dp)) {
+                Text("Loudness Normalization", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Medium)
+                Text(
+                    "Equalizes perceived loudness across albums. Modifies digital levels.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            Switch(checked = loudness, onCheckedChange = vm::setLoudnessNormalization)
+        }
+
+        HorizontalDivider(Modifier.padding(vertical = 6.dp), color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Column(Modifier.weight(1f).padding(end = 12.dp)) {
+                Text("Track Crossfade", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Medium)
+                Text(
+                    "Smooth volume transition at track boundaries.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            Switch(checked = crossfade, onCheckedChange = vm::setCrossfade)
+        }
+
+        if (crossfade) {
+            Column(modifier = Modifier.fillMaxWidth().padding(top = 4.dp)) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                ) {
+                    Text("Duration", style = MaterialTheme.typography.bodySmall)
+                    Text("${crossfadeSec}s", style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.Bold)
+                }
+                Slider(
+                    value = crossfadeSec.toFloat(),
+                    onValueChange = { vm.setCrossfadeSeconds(it.toInt()) },
+                    valueRange = 1f..10f,
+                    steps = 8,
+                    modifier = Modifier.fillMaxWidth(),
+                )
             }
         }
     }

@@ -142,6 +142,7 @@ fun LibraryScreen(
     onOpenRecentAlbums: () -> Unit,
     onOpenAddedAlbums: () -> Unit,
     onOpenMixes: () -> Unit,
+    onOpenGenreDecadeMixes: () -> Unit = {},
     onOpenReplay: () -> Unit,
     onOpenHeavyRotation: () -> Unit = {},
     onOpenMostPlayed: () -> Unit,
@@ -339,7 +340,7 @@ fun LibraryScreen(
             when (currentTab) {
                 LibraryTab.HOME -> HomeTab(
                     libraryVm, playerVm, onOpenReplay, onOpenHeavyRotation, onOpenMostPlayed, onOpenFavourites, onOpenRecentTracks,
-                    onOpenMix, onOpenMixes, onOpenRecentAlbums, onOpenAddedAlbums, onOpenAlbum,
+                    onOpenMix, onOpenMixes, onOpenGenreDecadeMixes, onOpenRecentAlbums, onOpenAddedAlbums, onOpenAlbum,
                     onOpenCatalogPlaylist = onOpenCatalogPlaylist,
                     onOpenCatalogSection = onOpenCatalogSection,
                 )
@@ -710,7 +711,7 @@ private fun SearchResultsList(
                     TrackRow(
                         track = track,
                         isCurrent = track.id == currentId,
-                        onClick = { playerVm.playTracks(songs, index) },
+                        onClick = { playerVm.playTracks(listOf(track), 0) },
                         onPlayNext = { playerVm.playNext(track) },
                         onAddToQueue = { playerVm.addToQueue(track) },
                     )
@@ -800,7 +801,7 @@ private fun SearchResultsList(
                         isCurrent = track.id == currentId,
                         onClick = {
                             if (addonsConnected) {
-                                playerVm.playTracks(catStreamTracks, index)
+                                playerVm.playTracks(listOf(track), 0)
                             } else {
                                 android.widget.Toast.makeText(context, R.string.no_available_sources_to_play, android.widget.Toast.LENGTH_SHORT).show()
                             }
