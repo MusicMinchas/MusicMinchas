@@ -73,6 +73,7 @@ fun ArtistScreen(
     onOpenCatalogAlbum: (com.kike.musicplayer.data.catalog.CatalogAlbum) -> Unit,
     onBack: () -> Unit,
     contentPadding: PaddingValues,
+    onOpenCatalogPlaylist: (com.kike.musicplayer.data.catalog.CatalogPlaylist) -> Unit = {},
 ) {
     val player by playerVm.state.collectAsState()
     val artistOrNull by remember(name) { libraryVm.artist(name) }.collectAsState(libraryVm.cachedArtistIndex(name))
@@ -98,6 +99,9 @@ fun ArtistScreen(
         }
     }
     val missingAlbums = missingAlbumsState ?: emptyList()
+    val officialPlaylist by produceState<com.kike.musicplayer.data.catalog.CatalogPlaylist?>(null, name, catalogEnabled) {
+        value = if (catalogEnabled) libraryVm.officialArtistPlaylist(name) else null
+    }
     // Edge to edge: the photo goes under the status bar.
     Box(Modifier.fillMaxSize().padding(bottom = contentPadding.calculateBottomPadding())) {
         val artist = artistOrNull ?: return@Box
@@ -200,6 +204,14 @@ fun ArtistScreen(
                             }
                         }
                     }
+                }
+            }
+            if (officialPlaylist != null) {
+                item(key = "official_playlist_banner") {
+                    OfficialArtistPlaylistBanner(
+                        playlist = officialPlaylist!!,
+                        onClick = { onOpenCatalogPlaylist(officialPlaylist!!) },
+                    )
                 }
             }
             if (top.isNotEmpty()) {

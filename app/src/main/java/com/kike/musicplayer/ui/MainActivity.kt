@@ -366,6 +366,7 @@ class MainActivity : ComponentActivity() {
                             onOpenAlbum = { push(Screen.AlbumDetail(it)) },
                             onOpenArtistDiscography = { artistName, tab, source -> push(Screen.ArtistDiscography(artistName, tab, source)) },
                             onOpenCatalogAlbum = { push(Screen.CatalogAlbumDetail(it)) },
+                            onOpenCatalogPlaylist = { push(Screen.CatalogPlaylistDetail(it)) },
                             onBack = ::pop,
                             contentPadding = padding,
                         )
@@ -391,15 +392,21 @@ class MainActivity : ComponentActivity() {
                             screen.artist, libraryVm, playerVm,
                             onOpenAlbum = { push(Screen.AlbumDetail(it)) },
                             onOpenCatalogAlbum = { push(Screen.CatalogAlbumDetail(it)) },
-                            onBack = ::pop,
-                            contentPadding = padding,
-                        )
-                        is Screen.CatalogSectionDetail -> CatalogSectionScreen(
-                            section = screen.section,
                             onOpenCatalogPlaylist = { push(Screen.CatalogPlaylistDetail(it)) },
                             onBack = ::pop,
                             contentPadding = padding,
                         )
+                        is Screen.CatalogSectionDetail -> {
+                            val deezerContent by libraryVm.deezerHomeContent.collectAsState()
+                            val currentSection = deezerContent?.sections?.find { it.id == screen.section.id } ?: screen.section
+                            CatalogSectionScreen(
+                                section = currentSection,
+                                onOpenCatalogPlaylist = { push(Screen.CatalogPlaylistDetail(it)) },
+                                onBack = ::pop,
+                                contentPadding = padding,
+                                onRefresh = { libraryVm.loadDeezerHome(forceRefresh = true) },
+                            )
+                        }
                         is Screen.CatalogPlaylistDetail -> CatalogPlaylistScreen(
                             screen.playlist, libraryVm, playerVm,
                             onBack = ::pop,

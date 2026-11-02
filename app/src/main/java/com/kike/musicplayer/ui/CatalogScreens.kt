@@ -25,6 +25,10 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import com.kike.musicplayer.data.nebula.NebulaUrls
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.ArrowForward
+import androidx.compose.material3.Surface
+import androidx.compose.ui.res.stringResource
+import com.kike.musicplayer.R
 import androidx.compose.material.icons.automirrored.filled.PlaylistAdd
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Check
@@ -278,9 +282,13 @@ fun CatalogArtistScreen(
     onOpenCatalogAlbum: (CatalogAlbum) -> Unit,
     onBack: () -> Unit,
     contentPadding: PaddingValues,
+    onOpenCatalogPlaylist: (CatalogPlaylist) -> Unit = {},
 ) {
     val player by playerVm.state.collectAsState()
     val followed by libraryVm.followedArtists.collectAsState()
+    val officialPlaylist by produceState<CatalogPlaylist?>(null, artist.name) {
+        value = libraryVm.officialArtistPlaylist(artist.name)
+    }
     val scope = rememberCoroutineScope()
     val image by produceState(artist.pictureUrl, artist.name) {
         if (value == null) value = libraryVm.artistImage(artist.name)
@@ -366,6 +374,14 @@ fun CatalogArtistScreen(
                     Box(Modifier.fillMaxWidth().padding(32.dp), contentAlignment = Alignment.Center) {
                         CircularProgressIndicator()
                     }
+                }
+            }
+            if (officialPlaylist != null) {
+                item(key = "official_playlist_banner") {
+                    OfficialArtistPlaylistBanner(
+                        playlist = officialPlaylist!!,
+                        onClick = { onOpenCatalogPlaylist(officialPlaylist!!) },
+                    )
                 }
             }
             if (albums.isNotEmpty()) {
@@ -822,7 +838,11 @@ fun CatalogSectionScreen(
     onOpenCatalogPlaylist: (CatalogPlaylist) -> Unit,
     onBack: () -> Unit,
     contentPadding: PaddingValues,
+    onRefresh: (() -> Unit)? = null,
 ) {
+    var refreshing by remember { mutableStateOf(false) }
+    LaunchedEffect(section) { refreshing = false }
+
     Column(Modifier.fillMaxSize().padding(contentPadding)) {
         TopAppBar(
             windowInsets = NoTopInsets,
@@ -845,6 +865,25 @@ fun CatalogSectionScreen(
                     Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back")
                 }
             },
+            actions = {
+                if (onRefresh != null) {
+                    IconButton(
+                        onClick = {
+                            if (!refreshing) {
+                                refreshing = true
+                                onRefresh()
+                            }
+                        },
+                        enabled = !refreshing,
+                    ) {
+                        if (refreshing) {
+                            CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
+                        } else {
+                            Icon(Icons.Default.Refresh, stringResource(R.string.refresh_section))
+                        }
+                    }
+                }
+            },
         )
         LazyVerticalGrid(
             columns = GridCells.Adaptive(150.dp),
@@ -859,6 +898,61 @@ fun CatalogSectionScreen(
                     onOpen = { onOpenCatalogPlaylist(playlist) },
                 )
             }
+        }
+    }
+}
+
+@Composable
+fun OfficialArtistPlaylistBanner(
+    playlist: CatalogPlaylist,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Surface(
+        modifier = modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 6.dp)
+            .clickable(onClick = onClick),
+        shape = RoundedCornerShape(12.dp),
+        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+    ) {
+        Row(
+            modifier = Modifier.padding(12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Artwork(
+                uri = playlist.coverUrl,
+                modifier = Modifier.size(56.dp),
+                shape = RoundedCornerShape(8.dp),
+            )
+            Spacer(Modifier.width(12.dp))
+            Column(Modifier.weight(1f)) {
+                Text(
+                    text = playlist.title,
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                val subText = if (playlist.trackCount > 0) {
+                    stringResource(R.string.artist_essential_playlist_sub, playlist.trackCount)
+                } else {
+                    stringResource(R.string.catalog_section_artist_essentials_sub)
+                }
+                Text(
+                    text = subText,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+            Icon(
+                imageVector = Icons.AutoMirrored.Filled.ArrowForward,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.size(20.dp),
+            )
         }
     }
 }
