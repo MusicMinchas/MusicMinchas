@@ -175,7 +175,7 @@ class DeezerHomeEnrichmentTest {
         assertEquals(2, moodSection.playlists.size)
 
         // Verify cache file was written
-        val cacheFile = cacheDir.resolve("deezer_home_v3.json")
+        val cacheFile = cacheDir.resolve("deezer_home_v4.json")
         assertTrue(cacheFile.exists())
         assertTrue(cacheFile.length() > 0)
 
@@ -395,5 +395,117 @@ class DeezerHomeEnrichmentTest {
         assertEquals(1, deserialized.sections[0].playlists.size)
         assertEquals("dz:12345", deserialized.sections[0].playlists[0].id)
         assertEquals("Top Rock", deserialized.sections[0].playlists[0].title)
+    }
+
+    @Test
+    fun isArtist100PercentMatchAccuratelyMatchesAndRejectsFalsePositives() {
+        // Exact matches
+        assertTrue(isArtist100PercentMatch("100% Ghost", "Ghost"))
+        assertTrue(isArtist100PercentMatch("100% Nightwish", "Nightwish"))
+        assertTrue(isArtist100PercentMatch("100% queen", "Queen"))
+        assertTrue(isArtist100PercentMatch("100% Sofiane Pamart", "Sofiane Pamart"))
+
+        // Delimiter suffixes
+        assertTrue(isArtist100PercentMatch("100% Ghost (Explicit)", "Ghost"))
+        assertTrue(isArtist100PercentMatch("100% Ghost - Best Of", "Ghost"))
+        assertTrue(isArtist100PercentMatch("100% Ghost: Essentials", "Ghost"))
+        assertTrue(isArtist100PercentMatch("100% Ghost [Remastered]", "Ghost"))
+
+        // False positives: similar prefixes but different artists
+        assertFalse(isArtist100PercentMatch("100% Ghostemane", "Ghost"))
+        assertFalse(isArtist100PercentMatch("100% The Ghost Inside", "Ghost"))
+        assertFalse(isArtist100PercentMatch("100% Queens of the Stone Age", "Queen"))
+        assertFalse(isArtist100PercentMatch("100% Christine and the Queens", "Queen"))
+        assertFalse(isArtist100PercentMatch("100% In Flames Fans", "In Flames"))
+        assertFalse(isArtist100PercentMatch("Top 100 Rock", "Rock"))
+    }
+
+    @Test
+    fun fetchOfficialArtistPlaylistResolvesDeezerEditorPlaylistAndCaches() = runBlocking {
+        val cacheDir = tempFolder.newFolder("cache_artist_pl")
+        var networkCalls = 0
+
+        val client = mockCatalogClient(cacheDir) { req ->
+            networkCalls++
+            val url = req.url.toString()
+            if (url.contains("q=100%25+Ghost") || url.contains("q=100%25%20Ghost")) {
+                val json = """
+                    {
+                      "data": [
+                        {"id": 9991, "title": "100% Ghostemane", "nb_tracks": 50, "user": {"name": "Deezer Artist Editor"}},
+                        {"id": 1001, "title": "100% Ghost", "nb_tracks": 40, "picture_xl": "https://img/ghost.jpg", "user": {"name": "Deezer Artist Editor"}},
+                        {"id": 9992, "title": "100% The Ghost Inside", "nb_tracks": 50, "user": {"name": "Deezer Artist Editor"}}
+                      ]
+                    }
+                """.trimIndent()
+                jsonResponse(req, json)
+            } else {
+                jsonResponse(req, """{"data": []}""")
+            }
+        }
+
+        // 1. Initial resolution picks "100% Ghost", not "Ghostemane"
+        val pl = client.fetchOfficialArtistPlaylist("Ghost")
+        assertNotNull(pl)
+        assertEquals("dz:1001", pl!!.id)
+        assertEquals("100% Ghost", pl.title)
+        assertEquals("Deezer Artist Editor", pl.creator)
+        assertEquals(40, pl.trackCount)
+        assertEquals(1, networkCalls)
+
+        // 2. Subsequent call should hit memory cache without network call
+        val cached = client.fetchOfficialArtistPlaylist("Ghost")
+        assertNotNull(cached)
+        assertEquals("dz:1001", cached!!.id)
+        assertEquals(1, networkCalls)
+    }
+
+    @Test
+    fun fetchDeezerHomeContentIncludesArtistEssentialsSection() = runBlocking {
+        val cacheDir = tempFolder.newFolder("cache_essentials")
+        val client = mockCatalogClient(cacheDir) { req ->
+            val url = req.url.toString()
+            if (url.contains("q=100%25+Nightwish") || url.contains("q=100%25%20Nightwish")) {
+                val json = """
+                    {
+                      "data": [
+                        {"id": 2001, "title": "100% Nightwish", "nb_tracks": 30, "picture_xl": "https://img/nw.jpg", "user": {"name": "Deezer Artist Editor"}}
+                      ]
+                    }
+                """.trimIndent()
+                jsonResponse(req, json)
+            } else if (url.contains("q=100%25+Metallica") || url.contains("q=100%25%20Metallica")) {
+                val json = """
+                    {
+                      "data": [
+                        {"id": 2002, "title": "100% Metallica", "nb_tracks": 45, "picture_xl": "https://img/met.jpg", "user": {"name": "Deezer Artist Editor"}}
+                      ]
+                    }
+                """.trimIndent()
+                jsonResponse(req, json)
+            } else {
+                jsonResponse(req, sampleResponseFor(req))
+            }
+        }
+
+        val content = client.fetchDeezerHomeContent(
+            forceRefresh = true,
+            targetArtists = listOf("Nightwish", "Metallica")
+        )
+
+        assertNotNull(content)
+        assertEquals(7, content!!.sections.size)
+
+        // Verify ordering: trending (0), top_charts (1), artist_essentials (2)
+        assertEquals("trending", content.sections[0].id)
+        assertEquals("top_charts", content.sections[1].id)
+        val essentials = content.sections[2]
+        assertEquals("artist_essentials", essentials.id)
+        assertEquals("100% Artist Essentials", essentials.title)
+        assertEquals(2, essentials.playlists.size)
+        assertEquals("dz:2001", essentials.playlists[0].id)
+        assertEquals("100% Nightwish", essentials.playlists[0].title)
+        assertEquals("dz:2002", essentials.playlists[1].id)
+        assertEquals("100% Metallica", essentials.playlists[1].title)
     }
 }

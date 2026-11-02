@@ -14,6 +14,7 @@ import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import java.util.Locale
+import java.util.concurrent.ConcurrentHashMap
 
 data class CatalogArtist(
     val id: String,
@@ -93,6 +94,25 @@ fun normalizeArtworkUrl(uri: Any?): Any? {
         return if (uri is android.net.Uri) android.net.Uri.parse(result) else result
     }
     return if (uri is android.net.Uri) android.net.Uri.parse(unescaped) else unescaped
+}
+
+/**
+ * Checks if a playlist title matches Deezer's "100% {Artist}" format for [artistName],
+ * guarding against partial prefix false positives (e.g., "Ghost" vs "Ghostemane" or "Queen" vs "Queens of the Stone Age").
+ */
+fun isArtist100PercentMatch(playlistTitle: String, artistName: String): Boolean {
+    val pt = playlistTitle.trim().lowercase()
+    val an = artistName.trim().lowercase()
+    if (an.isEmpty()) return false
+    val exact = "100% $an"
+    if (pt == exact) return true
+    if (pt.startsWith(exact)) {
+        val remainder = pt.substring(exact.length).trim()
+        if (remainder.isEmpty()) return true
+        return remainder.startsWith("(") || remainder.startsWith("[") ||
+            remainder.startsWith("-") || remainder.startsWith(":")
+    }
+    return false
 }
 
 data class ResolvedPlaylist(
@@ -393,8 +413,51 @@ class CatalogClient(
      * Caches result to disk for [HOME_CACHE_TTL_MS] (24 hours) for instant zero-latency startup.
      * Falls back to expired cache on network errors.
      */
+    /** In-memory cache for resolved official artist playlists ("100% Artist"). */
+    private val officialArtistPlaylistCache = ConcurrentHashMap<String, CatalogPlaylist>()
+
+    /**
+     * Resolves the official Deezer curated artist playlist ("100% [artistName]") if available.
+     * Deezer's official playlists are curated by "Deezer Artist Editor" and titled "100% {Artist}".
+     */
+    suspend fun fetchOfficialArtistPlaylist(artistName: String): CatalogPlaylist? = withContext(Dispatchers.IO) {
+        val trimmed = artistName.trim()
+        if (trimmed.length < 2) return@withContext null
+        val cacheKey = Names.comparable(trimmed)
+        if (cacheKey.isEmpty()) return@withContext null
+        officialArtistPlaylistCache[cacheKey]?.let { return@withContext it }
+
+        runCatching {
+            val url = "https://api.deezer.com/search/playlist".toHttpUrl().newBuilder()
+                .addQueryParameter("q", "100% $trimmed")
+                .addQueryParameter("limit", "10")
+                .build()
+            val data = (deezerJson(url.toString())["data"] as? List<*>)?.mapNotNull { it as? Map<*, *> }.orEmpty()
+            val playlists = data.mapNotNull { parseDeezerCatalogPlaylist(it) }
+
+            val normTarget = "100% ${trimmed.lowercase()}"
+            val match = playlists.firstOrNull { pl ->
+                val isDeezer = pl.creator?.contains("Deezer", ignoreCase = true) == true
+                isDeezer && pl.title.trim().lowercase() == normTarget
+            } ?: playlists.firstOrNull { pl ->
+                val isDeezer = pl.creator?.contains("Deezer", ignoreCase = true) == true
+                isDeezer && isArtist100PercentMatch(pl.title, trimmed)
+            } ?: playlists.firstOrNull { pl ->
+                pl.title.trim().lowercase() == normTarget
+            } ?: playlists.firstOrNull { pl ->
+                isArtist100PercentMatch(pl.title, trimmed)
+            }
+
+            if (match != null) {
+                officialArtistPlaylistCache[cacheKey] = match
+            }
+            match
+        }.onFailure { Log.w(TAG, "fetchOfficialArtistPlaylist failed for $artistName: $it") }
+            .getOrNull()
+    }
+
     suspend fun cachedDeezerHomeContent(): DeezerHomeContent? = withContext(Dispatchers.IO) {
-        val cacheFile = cacheDir?.resolve("deezer_home_v3.json") ?: return@withContext null
+        val cacheFile = cacheDir?.resolve("deezer_home_v4.json") ?: return@withContext null
         if (!cacheFile.exists()) return@withContext null
         val now = System.currentTimeMillis()
         runCatching {
@@ -410,8 +473,9 @@ class CatalogClient(
         forceRefresh: Boolean = false,
         libraryGenres: List<String> = emptyList(),
         genreCounts: Map<String, Int> = emptyMap(),
+        targetArtists: List<String> = emptyList(),
     ): DeezerHomeContent? = withContext(Dispatchers.IO) {
-        val cacheFile = cacheDir?.resolve("deezer_home_v3.json")
+        val cacheFile = cacheDir?.resolve("deezer_home_v4.json")
         val now = System.currentTimeMillis()
 
         if (!forceRefresh && cacheFile != null && cacheFile.exists()) {
@@ -569,9 +633,27 @@ class CatalogClient(
             } else null
 
             // Order: Trending, Top Charts, Library Genre 1, Library Genre 2, Mood, Discovery Genre
+            // 7. Official 100% Artist playlists for discovery and favorite artists
+            val artistEssentialsSection = if (targetArtists.isNotEmpty()) {
+                runCatching {
+                    val found = targetArtists.mapNotNull { artist ->
+                        fetchOfficialArtistPlaylist(artist)
+                    }.distinctBy { it.id }
+                    if (found.isNotEmpty()) {
+                        DeezerHomeSection(
+                            id = "artist_essentials",
+                            title = "100% Artist Essentials",
+                            subtitle = "Curated career retrospectives from Deezer",
+                            playlists = found,
+                        )
+                    } else null
+                }.onFailure { Log.w(TAG, "Failed fetching artist essentials", it) }.getOrNull()
+            } else null
+
             val rawSections = buildList {
                 trendingSection?.let { add(it) }
                 topChartsSection?.let { add(it) }
+                artistEssentialsSection?.let { add(it) }
                 genreSections.getOrNull(0)?.let { add(it) }
                 genreSections.getOrNull(1)?.let { add(it) }
                 moodSection?.let { add(it) }

@@ -202,6 +202,15 @@ fun HomeTab(
                         DeezerPlaylistRow(sCharts.playlists.take(10), onOpenCatalogPlaylist)
                     }
                 }
+                val sEssentials = deezerContent?.sections?.find { it.id == "artist_essentials" }
+                if (sEssentials != null && sEssentials.playlists.isNotEmpty()) {
+                    item(key = "title_dz_essentials", contentType = "section_title") {
+                        SectionTitle(sectionDisplayTitle(sEssentials), sectionDisplaySubtitle(sEssentials), onClick = { onOpenCatalogSection(sEssentials) })
+                    }
+                    item(key = "row_dz_essentials", contentType = "deezer_row") {
+                        DeezerPlaylistRow(sEssentials.playlists.take(12), onOpenCatalogPlaylist)
+                    }
+                }
             }
             if (playlists.recentAlbums.isNotEmpty()) {
                 item(key = "title_recent_albums", contentType = "section_title") {
@@ -229,7 +238,7 @@ fun HomeTab(
             }
             if (deezerEnrichment && deezerContent != null) {
                 val otherSections = deezerContent?.sections.orEmpty()
-                    .filter { it.id != "trending" && it.id != "top_charts" }
+                    .filter { it.id != "trending" && it.id != "top_charts" && it.id != "artist_essentials" }
                 val s1 = otherSections.getOrNull(0)
                 if (s1 != null && s1.playlists.isNotEmpty()) {
                     item(key = "title_dz_${s1.id}", contentType = "section_title") {
@@ -250,7 +259,7 @@ fun HomeTab(
             }
             if (deezerEnrichment && deezerContent != null) {
                 val remaining = deezerContent?.sections.orEmpty()
-                    .filter { it.id != "trending" && it.id != "top_charts" }
+                    .filter { it.id != "trending" && it.id != "top_charts" && it.id != "artist_essentials" }
                     .drop(1)
                 for (section in remaining) {
                     if (section.playlists.isNotEmpty()) {
@@ -432,6 +441,7 @@ fun sectionDisplayTitle(section: com.kike.musicplayer.data.catalog.DeezerHomeSec
     return when (section.id) {
         "trending" -> stringResource(R.string.home_trending_deezer)
         "top_charts" -> stringResource(R.string.home_top_charts_deezer)
+        "artist_essentials" -> stringResource(R.string.catalog_section_artist_essentials)
         "rock" -> stringResource(R.string.catalog_genre_rock)
         "metal" -> stringResource(R.string.catalog_genre_metal)
         "alternative" -> stringResource(R.string.catalog_genre_alternative)
@@ -459,6 +469,7 @@ fun sectionDisplaySubtitle(section: com.kike.musicplayer.data.catalog.DeezerHome
     return when (section.id) {
         "trending" -> stringResource(R.string.home_trending_deezer_subtitle)
         "top_charts" -> stringResource(R.string.home_top_charts_deezer_subtitle)
+        "artist_essentials" -> stringResource(R.string.catalog_section_artist_essentials_sub)
         "rock" -> stringResource(R.string.catalog_genre_rock_sub)
         "metal" -> stringResource(R.string.catalog_genre_metal_sub)
         "alternative" -> stringResource(R.string.catalog_genre_alternative_sub)

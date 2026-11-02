@@ -760,7 +760,39 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
                     .mapValues { (_, list) -> list.sumOf { it.songCount } }
             }
 
+            val dayOfYear = java.time.LocalDate.now().dayOfYear
+            val targetArtists = runCatching {
+                val browse = database.browse()
+                // 1. Fresh discoveries: recently played artists with 1..8 total counted plays
+                val recent = browse.recentPlayedArtists(100)
+                val discoveries = mutableListOf<String>()
+                for (artist in recent) {
+                    val count = browse.artistPlayCount(artist)
+                    if (count in 1..8) {
+                        discoveries.add(artist)
+                        if (discoveries.size >= 4) break
+                    }
+                }
+
+                // 2. Followed artists (rotated daily)
+                val followed = followedArtists.value
+                    .filter { it !in discoveries }
+                    .shuffled(kotlin.random.Random(dayOfYear))
+                    .take(4)
+
+                // 3. Top played artists (rotated daily from top 40)
+                val alreadyPicked = (discoveries + followed).toSet()
+                val top = browse.topArtistsByPlayHistory(40)
+                    .map { it.name }
+                    .filter { it !in alreadyPicked }
+                    .shuffled(kotlin.random.Random(dayOfYear))
+                    .take(4)
+
+                (discoveries + followed + top).distinct()
+            }.getOrDefault(emptyList())
+
             val content = container.catalog.fetchDeezerHomeContent(
+                targetArtists = targetArtists,
                 forceRefresh = forceRefresh,
                 genreCounts = genreCounts,
             )
@@ -769,6 +801,9 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
             }
         }
     }
+    suspend fun officialArtistPlaylist(artistName: String): com.kike.musicplayer.data.catalog.CatalogPlaylist? =
+        container.catalog.fetchOfficialArtistPlaylist(artistName)
+
     val darkMode = settings.darkMode
     val accentColor = settings.accentColor
     val fullScreenCover = settings.fullScreenCover

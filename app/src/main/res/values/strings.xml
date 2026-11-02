@@ -66,6 +66,11 @@
     <string name="catalog_mood_sleep_sub">Ambient soundscapes, gentle piano &amp; deep rest</string>
     <string name="catalog_mood_workout">Workout &amp; Gym</string>
     <string name="catalog_mood_workout_sub">Cardio, running &amp; high-energy beats</string>
+    <string name="catalog_section_artist_essentials">100% Artist Essentials</string>
+    <string name="catalog_section_artist_essentials_sub">Curated career retrospectives from Deezer</string>
+    <string name="artist_essential_playlist">100% Artist Essentials</string>
+    <string name="artist_essential_playlist_sub">%d songs · Curated by Deezer</string>
+    <string name="refresh_section">Refresh</string>
     <string name="channel_downloads_desc">Music download progress</string>
     <string name="channel_downloads_name">Downloads</string>
     <string name="channel_playback_desc">Controls and now playing info</string>

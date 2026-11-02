@@ -809,6 +809,27 @@ interface BrowseDao {
     )
     fun observeArtistPlayCounts(limit: Int): Flow<List<NameCount>>
 
+    /** Counted plays per listed artist, most played first (suspend). */
+    @Query(
+        "SELECT tracks.indexArtist AS name, COUNT(*) AS count FROM play_history JOIN tracks ON tracks.id = play_history.trackId " +
+            "WHERE play_history.counted = 1 AND tracks.indexArtist <> '' GROUP BY tracks.indexArtist ORDER BY count DESC LIMIT :limit"
+    )
+    suspend fun topArtistsByPlayHistory(limit: Int): List<NameCount>
+
+    /** Distinct artist names from recent play history, newest first (only counted plays >50%). */
+    @Query(
+        "SELECT DISTINCT tracks.indexArtist FROM play_history JOIN tracks ON tracks.id = play_history.trackId " +
+            "WHERE play_history.counted = 1 AND tracks.indexArtist <> '' ORDER BY play_history.playedAt DESC LIMIT :limit"
+    )
+    suspend fun recentPlayedArtists(limit: Int): List<String>
+
+    /** Total counted plays for a given artist name. */
+    @Query(
+        "SELECT COUNT(*) FROM play_history JOIN tracks ON tracks.id = play_history.trackId " +
+            "WHERE tracks.indexArtist = :artistName AND play_history.counted = 1"
+    )
+    suspend fun artistPlayCount(artistName: String): Int
+
     /** Counted plays per genre across listening history, most played first. */
     @Query(
         "SELECT COALESCE(NULLIF(tracks.genre, ''), tracks.indexGenre) AS name, COUNT(*) AS count " +
