@@ -7,7 +7,7 @@ Parent workspace notes: @[Shared Android Dev Workspace](../AGENTS.md)
 
 - **Path:** `C:\Users\kike\dev\MusicPlayer` (local git repo, repo-local identity `kike` / `kikeprojo@gmail.com`, nothing pushed).
 - **Package:** `com.kike.musicplayer`
-- **Current Release:** `1.43.0` (`versionCode = 95`, Room DB `v27`, `minSdk = 30`, `targetSdk = 36`, `compileSdk = 37`). Merged to `master`, tag `v1.43.0`.
+- **Current Release:** `1.44.0` (`versionCode = 96`, Room DB `v27`, `minSdk = 30`, `targetSdk = 36`, `compileSdk = 37`). Merged to `master`, tag `v1.44.0`.
 - **Stack:** Kotlin 2.4.20, Jetpack Compose, Media3 1.11.1 `MediaLibraryService` (Android Auto browse tree), Room 2.8.5 via KSP 2.3.12 + Paging 3 (`paging-compose 3.3.6`, `room-paging`), Retrofit 3 + Moshi (reflection), Coil 3, `play-services-auth` 22 `AuthorizationClient` (`drive.readonly` + `email`), `reorderable` 3.1.0, AGP 9.4.1, Gradle 9.8.
 - **Shared Toolchain & Environment:**
   - `JAVA_HOME`: Android Studio's bundled `jbr`
@@ -352,3 +352,26 @@ Started 2026-10-08 from user-pasted spec. NEW app, explicitly independent of Son
   - Cold-Start & Home Scrolling Performance Optimizations (`LibraryViewModel.kt`, `HomeScreens.kt`, `Components.kt`, `CatalogClient.kt`, `Listening.kt`):
     - Removed 500 ms initial debounce on `tracksChanged`, skipped cold-start re-matching of cached Deezer playlists, checked `deezer_home_v3.json` disk cache before SQL joins, scoped initial Replay track loading to the current year, and replaced `SubcomposeAsyncImage` with flat `AsyncImage` + `ColorPainter` and `LazyColumn` `contentType` slot reuse.
   - Verified on OnePlus 12, merged to `master`, tagged `v1.43.0`, release APK `MusicMinchas-1.43.0.apk` installed.
+
+- 2026-11-02 Release 1.44.0 (`versionCode = 96`, Room DB `v27`, GitHub issue #25):
+  - Official Deezer Artist Essentials & Curated Playlists (`CatalogClient.kt`, `CatalogScreens.kt`):
+    - Added `fetchOfficialArtistPlaylist(artistName)` with memory cache `officialArtistPlaylistCache` (ConcurrentHashMap) and strict match validation (`isArtist100PercentMatch()`) requiring boundary checks, delimiter handling, and regex word-boundary isolation to prevent prefix false positives.
+    - Added `OfficialArtistPlaylistBanner` composable showcasing the official playlist artwork, curated badge, track count, and navigation.
+  - Personalized Artist Essentials Row on Home (`HomeScreens.kt`, `LibraryViewModel.kt`):
+    - Added **100% Artist Essentials** row placed prominently at Placement #1 on Home (directly following Trending on Deezer and Top Charts, preceding Recently played albums).
+    - Intelligent daily-seeded blend featuring:
+      1. Fresh discoveries: recently played artists with 1..8 total counted plays.
+      2. Followed artists (daily rotation).
+      3. Top played artists (daily rotation from top 40).
+    - Disk cache bumped to `deezer_home_v4.json`.
+  - Artist Screen Integration (`ArtistScreen.kt`, `CatalogScreens.kt`):
+    - Integrated `OfficialArtistPlaylistBanner` into library `ArtistScreen` (positioned prominently between discography albums and Top songs) and `CatalogArtistScreen`.
+  - Section Refresh Action (`CatalogScreens.kt`, `MainActivity.kt`):
+    - Added refresh action with spinning `CircularProgressIndicator` to `CatalogSectionScreen` `TopAppBar` allowing on-demand reloading of Deezer curated sections.
+  - Strict Play Counted (>50% Listened) Rule Enforcement (`Daos.kt`, `LibraryViewModel.kt`):
+    - Audited play history queries across the codebase to ensure skipped tracks (<50% listened) with `counted = 0` never count towards listening statistics or recommendations.
+    - Fixed `BrowseDao.recentPlayedArtists` to require `WHERE play_history.counted = 1`, preventing skipped tracks from generating discovery recommendations.
+  - Localization & Tests:
+    - Added English and Spanish strings for all new sections, banners, and refresh actions.
+    - All 147 unit tests pass.
+  - Verified on OnePlus 12, merged to `master`, tagged `v1.44.0`, release APK `MusicMinchas-1.44.0.apk` installed.
