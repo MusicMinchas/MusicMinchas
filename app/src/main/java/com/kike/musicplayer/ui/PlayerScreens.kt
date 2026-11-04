@@ -42,6 +42,7 @@ import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -146,7 +147,7 @@ fun MiniPlayer(playerVm: PlayerViewModel, onOpen: () -> Unit) {
     val progress = playerVm.progress.collectAsStateWithLifecycle()
     val item = s.current ?: return
     Surface(tonalElevation = 3.dp, modifier = Modifier.fillMaxWidth().clickable(onClick = onOpen)) {
-        Column {
+        Column(Modifier.navigationBarsPadding()) {
             LinearProgressIndicator(
                 progress = { if (s.durationMs > 0) progress.value.positionMs.toFloat() / s.durationMs else 0f },
                 modifier = Modifier.fillMaxWidth().height(2.dp),

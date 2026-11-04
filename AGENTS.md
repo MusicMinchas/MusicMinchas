@@ -7,7 +7,7 @@ Parent workspace notes: @[Shared Android Dev Workspace](../AGENTS.md)
 
 - **Path:** `C:\Users\kike\dev\MusicPlayer` (local git repo, repo-local identity `kike` / `kikeprojo@gmail.com`, nothing pushed).
 - **Package:** `com.kike.musicplayer`
-- **Current Release:** `1.44.0` (`versionCode = 96`, Room DB `v27`, `minSdk = 30`, `targetSdk = 36`, `compileSdk = 37`). Merged to `master`, tag `v1.44.0`.
+- **Current Release:** `1.44.1` (`versionCode = 97`, Room DB `v27`, `minSdk = 30`, `targetSdk = 36`, `compileSdk = 37`). Merged to `master`, tag `v1.44.1`.
 - **Stack:** Kotlin 2.4.20, Jetpack Compose, Media3 1.11.1 `MediaLibraryService` (Android Auto browse tree), Room 2.8.5 via KSP 2.3.12 + Paging 3 (`paging-compose 3.3.6`, `room-paging`), Retrofit 3 + Moshi (reflection), Coil 3, `play-services-auth` 22 `AuthorizationClient` (`drive.readonly` + `email`), `reorderable` 3.1.0, AGP 9.4.1, Gradle 9.8.
 - **Shared Toolchain & Environment:**
   - `JAVA_HOME`: Android Studio's bundled `jbr`
@@ -375,3 +375,9 @@ Started 2026-10-08 from user-pasted spec. NEW app, explicitly independent of Son
     - Added English and Spanish strings for all new sections, banners, and refresh actions.
     - All 147 unit tests pass.
   - Verified on OnePlus 12, merged to `master`, tagged `v1.44.0`, release APK `MusicMinchas-1.44.0.apk` installed.
+- 2026-11-04 Release 1.44.1 (`versionCode = 97`, Room DB `v27`, GitHub issue #26):
+  - MiniPlayer Navigation Bar Inset Fix (`PlayerScreens.kt`):
+    - Added `Modifier.navigationBarsPadding()` to the inner `Column` of `MiniPlayer`.
+    - Fixes UI bug on devices using the Android 3-button navigation bar (`|||`, `O`, `<`) where the ~48 dp navigation bar was drawn directly on top of the MiniPlayer progress bar, track details, and playback controls.
+    - Preserves edge-to-edge tonal surface background while ensuring all interactive elements sit cleanly above system buttons.
+    - Verified on OnePlus 12, merged to `master`, tagged `v1.44.1`, release APK `MusicMinchas-1.44.1.apk` installed.
