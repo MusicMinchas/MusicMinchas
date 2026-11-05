@@ -89,6 +89,8 @@ private sealed interface Screen {
     data object LibraryHealth : Screen
     data object Integrations : Screen
     data object DataStorage : Screen
+    data object AudioSettings : Screen
+    data object GeneralPreferences : Screen
 }
 
 class MainActivity : ComponentActivity() {
@@ -484,6 +486,18 @@ class MainActivity : ComponentActivity() {
                             onOpenLibraryHealth = { push(Screen.LibraryHealth) },
                             onOpenIntegrations = { push(Screen.Integrations) },
                             onOpenDataStorage = { push(Screen.DataStorage) },
+                            onOpenAudioSettings = { push(Screen.AudioSettings) },
+                            onOpenGeneralPreferences = { push(Screen.GeneralPreferences) },
+                            contentPadding = padding,
+                        )
+                        Screen.AudioSettings -> AudioSettingsScreen(
+                            libraryVm,
+                            onBack = ::pop,
+                            contentPadding = padding,
+                        )
+                        Screen.GeneralPreferences -> GeneralPreferencesScreen(
+                            libraryVm,
+                            onBack = ::pop,
                             contentPadding = padding,
                         )
                         Screen.Integrations -> IntegrationsScreen(

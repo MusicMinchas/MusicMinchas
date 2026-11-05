@@ -447,6 +447,8 @@
     <string name="settings_integrations_title">Integrations</string>
     <string name="settings_integrations_subtitle">Last.fm, Online Metadata, and Automatic Sync</string>
     <string name="settings_data_storage_title">Data &amp; Storage</string>
+    <string name="settings_section_audio">Audio Settings</string>
+    <string name="settings_audio_title">Audio Settings</string>
     <string name="storage_mgmt_title">Storage &amp; Cache Management</string>
     <string name="storage_mgmt_subtitle">Overview and control of local database, artwork, and image cache</string>
     <string name="storage_stat_database">Music Database</string>

@@ -48,6 +48,8 @@ import androidx.compose.foundation.background
 import androidx.compose.material.icons.filled.LibraryMusic
 import androidx.compose.material.icons.filled.Extension
 import androidx.compose.material.icons.filled.Storage
+import androidx.compose.material.icons.filled.GraphicEq
+import androidx.compose.material.icons.filled.Palette
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.Delete
@@ -137,6 +139,8 @@ fun SourcesScreen(
     onOpenLibraryHealth: () -> Unit,
     onOpenIntegrations: () -> Unit,
     onOpenDataStorage: () -> Unit,
+    onOpenAudioSettings: () -> Unit,
+    onOpenGeneralPreferences: () -> Unit,
     contentPadding: PaddingValues,
 ) {
     val status by vm.scanStatus.collectAsState()
@@ -169,14 +173,12 @@ fun SourcesScreen(
             DataStorageEntry(vm, onOpenDataStorage)
 
             // 4. Audio Settings
-            SettingsSectionHeader("Audio Settings")
-            SonosPlaybackCard(vm)
-            AudioDspCard(vm)
+            SettingsSectionHeader(stringResource(R.string.settings_section_audio))
+            AudioSettingsEntry(vm, onOpenAudioSettings)
 
             // 5. General Preferences
             SettingsSectionHeader(stringResource(R.string.settings_section_general))
-            LanguageCard(vm)
-            AppearanceCard(vm)
+            GeneralPreferencesEntry(vm, onOpenGeneralPreferences)
         }
     }
 }
@@ -249,6 +251,130 @@ private fun DataStorageEntry(vm: LibraryViewModel, onOpen: () -> Unit) {
                 )
             }
             Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+    }
+}
+
+/** Entry card leading to Audio Settings submenu (Sonos playback, DSP engine, Bit-perfect). */
+@Composable
+private fun AudioSettingsEntry(vm: LibraryViewModel, onOpen: () -> Unit) {
+    val downsample by vm.sonosDownsample.collectAsState()
+    val loudness by vm.loudnessNormalization.collectAsState()
+    val crossfade by vm.crossfade.collectAsState()
+    val crossfadeSec by vm.crossfadeSeconds.collectAsState()
+
+    val summary = buildString {
+        if (loudness || crossfade) {
+            val active = mutableListOf<String>()
+            if (loudness) active.add("Loudness")
+            if (crossfade) active.add("Crossfade (${crossfadeSec}s)")
+            append(active.joinToString(" · "))
+        } else {
+            append("Bit-perfect output")
+        }
+        append(" · ")
+        append(if (downsample) "Sonos downsample" else "Direct Sonos")
+    }
+
+    Card(Modifier.fillMaxWidth().clickable(onClick = onOpen)) {
+        Row(Modifier.padding(horizontal = 12.dp, vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
+            Icon(Icons.Default.GraphicEq, null, tint = MaterialTheme.colorScheme.primary)
+            Column(Modifier.weight(1f).padding(start = 12.dp)) {
+                Text(stringResource(R.string.settings_audio_title), style = MaterialTheme.typography.titleMedium)
+                Text(
+                    summary,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+    }
+}
+
+/** Entry card leading to General Preferences submenu (Language, Theme, Appearance). */
+@Composable
+private fun GeneralPreferencesEntry(vm: LibraryViewModel, onOpen: () -> Unit) {
+    val language by vm.language.collectAsState()
+    val dark by vm.darkMode.collectAsState()
+    val accentColor by vm.accentColor.collectAsState()
+    val fullCover by vm.fullScreenCover.collectAsState()
+
+    val summary = buildString {
+        val langLabel = when (language) {
+            "en" -> "English"
+            "es" -> "Español"
+            else -> "System"
+        }
+        append(langLabel)
+        append(" · ")
+        append(if (dark) "Dark" else "Light")
+        append(" (${accentColor.replaceFirstChar { it.uppercase() }})")
+        if (fullCover) {
+            append(" · Edge-to-edge")
+        }
+    }
+
+    Card(Modifier.fillMaxWidth().clickable(onClick = onOpen)) {
+        Row(Modifier.padding(horizontal = 12.dp, vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
+            Icon(Icons.Default.Palette, null, tint = MaterialTheme.colorScheme.primary)
+            Column(Modifier.weight(1f).padding(start = 12.dp)) {
+                Text(stringResource(R.string.settings_section_general), style = MaterialTheme.typography.titleMedium)
+                Text(
+                    summary,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+    }
+}
+
+/** Audio Settings sub-screen: Sonos S2 playback and DSP engine settings. */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun AudioSettingsScreen(
+    vm: LibraryViewModel,
+    onBack: () -> Unit,
+    contentPadding: PaddingValues,
+) {
+    Column(Modifier.fillMaxSize().padding(contentPadding)) {
+        TopAppBar(
+            windowInsets = NoTopInsets,
+            title = { Text(stringResource(R.string.settings_audio_title)) },
+            navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, stringResource(R.string.action_back)) } },
+        )
+        Column(
+            Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 12.dp, vertical = 8.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            SonosPlaybackCard(vm)
+            AudioDspCard(vm)
+        }
+    }
+}
+
+/** General Preferences sub-screen: Language, Theme, and Appearance settings. */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun GeneralPreferencesScreen(
+    vm: LibraryViewModel,
+    onBack: () -> Unit,
+    contentPadding: PaddingValues,
+) {
+    Column(Modifier.fillMaxSize().padding(contentPadding)) {
+        TopAppBar(
+            windowInsets = NoTopInsets,
+            title = { Text(stringResource(R.string.settings_section_general)) },
+            navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, stringResource(R.string.action_back)) } },
+        )
+        Column(
+            Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 12.dp, vertical = 8.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            LanguageCard(vm)
+            AppearanceCard(vm)
         }
     }
 }

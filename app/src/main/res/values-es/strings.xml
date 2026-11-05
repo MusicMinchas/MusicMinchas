@@ -447,6 +447,8 @@
     <string name="settings_integrations_title">Integraciones</string>
     <string name="settings_integrations_subtitle">Last.fm, metadatos online y sincronización automática</string>
     <string name="settings_data_storage_title">Datos y almacenamiento</string>
+    <string name="settings_section_audio">Ajustes de audio</string>
+    <string name="settings_audio_title">Ajustes de audio</string>
     <string name="storage_mgmt_title">Gestión de caché y almacenamiento</string>
     <string name="storage_mgmt_subtitle">Información y control de la base de datos, carátulas y caché de imágenes</string>
     <string name="storage_stat_database">Base de datos</string>
