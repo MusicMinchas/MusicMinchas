@@ -683,8 +683,8 @@ private fun SearchResultsList(
         if (!show(SearchFilter.SONGS)) emptyList()
         else addonResults.tracks
     }
-    val addonStreamTracks = remember(addonTracks) {
-        addonTracks.map { com.kike.musicplayer.data.nebula.NebulaUrls.trackFor(it) }
+    val addonStreamTracks = remember(addonTracks, addonResults.addonId) {
+        addonTracks.map { com.kike.musicplayer.data.nebula.NebulaUrls.trackFor(it, addonResults.addonId) }
     }
 
     var inLibraryArtists by remember { mutableStateOf(emptySet<String>()) }
@@ -812,7 +812,7 @@ private fun SearchResultsList(
                     Row(
                         Modifier.fillMaxWidth().clickable {
                             if (!album.tracks.isNullOrEmpty()) {
-                                playerVm.playTracks(album.tracks.map { com.kike.musicplayer.data.nebula.NebulaUrls.trackFor(it) }, 0)
+                                playerVm.playTracks(album.tracks.map { com.kike.musicplayer.data.nebula.NebulaUrls.trackFor(it, addonResults.addonId) }, 0)
                             } else {
                                 libraryVm.setQuery("${album.artist} ${album.title}")
                             }

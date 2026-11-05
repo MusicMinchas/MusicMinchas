@@ -7,7 +7,7 @@ Parent workspace notes: @[Shared Android Dev Workspace](../AGENTS.md)
 
 - **Path:** `C:\Users\kike\dev\MusicPlayer` (local git repo, repo-local identity `kike` / `kikeprojo@gmail.com`, nothing pushed).
 - **Package:** `com.kike.musicplayer`
-- **Current Release:** `1.47.0` (`versionCode = 100`, Room DB `v27`, `minSdk = 30`, `targetSdk = 36`, `compileSdk = 37`). Merged to `master`, tag `v1.47.0`.
+- **Current Release:** `1.48.0` (`versionCode = 101`, Room DB `v27`, `minSdk = 30`, `targetSdk = 36`, `compileSdk = 37`). Merged to `master`, tag `v1.48.0`.
 - **Stack:** Kotlin 2.4.20, Jetpack Compose, Media3 1.11.1 `MediaLibraryService` (Android Auto browse tree), Room 2.8.5 via KSP 2.3.12 + Paging 3 (`paging-compose 3.3.6`, `room-paging`), Retrofit 3 + Moshi (reflection), Coil 3, `play-services-auth` 22 `AuthorizationClient` (`drive.readonly` + `email`), `reorderable` 3.1.0, AGP 9.4.1, Gradle 9.8.
 - **Shared Toolchain & Environment:**
   - `JAVA_HOME`: Android Studio's bundled `jbr`
@@ -426,3 +426,17 @@ Started 2026-10-08 from user-pasted spec. NEW app, explicitly independent of Son
   - Unit Tests:
     - Added `CatalogPlaylistCacheTest.kt` validating Moshi serialization and 7-day TTL expiration boundaries. All 151 unit tests pass.
   - Verified on OnePlus 12, merged to `master`, tagged `v1.47.0`, release APK `MusicMinchas-1.47.0.apk` installed.
+- 2026-11-05 Release 1.48.0 (`versionCode = 101`, Room DB `v27`, GitHub issue #30):
+  - Support Stremio / Apple Music Add-ons (Aero: `com.torbox.apple-music-addon`):
+    - Added recognition and direct streaming for Base64url Apple Music track IDs (`a1_...` and `torbox_am_...`).
+    - Propagated add-on provider identity (`addonId`) from search results through `NebulaUrls.trackFor(..., addonId)` so enqueued tracks maintain add-on association.
+    - Updated `NebulaUrls.canStreamDirectly` to route Apple Music track IDs directly to the add-on without cross-catalog ID mismatch (preventing 422 errors).
+    - Preserved user-defined provider priority order (#1 Aero -> #2 Nebula -> #3 NullBeat) with automatic fallback for catalog/unmatched tracks.
+  - Dynamic Add-on Source Audio Labels (`AudioQuality.kt`, `PlayerViewModel.kt`, `Components.kt`):
+    - Replaced hardcoded `"Nebula Stream"` in the "Source Audio" detail sheet with dynamic add-on names (`"$addonName Stream"`).
+    - `NebulaUrls` tracks the winning add-on provider (`resolvedAddonName`) at runtime as each stream is resolved, ensuring the Audio Quality sheet accurately reflects the provider that actually delivered the audio (e.g. `Aero Stream`, `NullBeat Stream`, `Nebula Stream`).
+    - Updated source badges and tooltips in `Components.kt` to dynamically report the winning add-on name.
+  - Unit Tests:
+    - Added `testAeroDirectStreamResolution` and `testCanStreamDirectlyRules` in `AddonFallbackTest.kt`.
+    - Added `testAddonSourceNames` in `AudioQualityTest.kt` verifying label resolution for explicit, inferred, and fallback tracks. All 157 unit tests pass.
+  - Verified on OnePlus 12, merged to `master`, tagged `v1.48.0`, release APK `MusicMinchas-1.48.0.apk` installed.

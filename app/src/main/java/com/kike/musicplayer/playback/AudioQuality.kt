@@ -163,12 +163,30 @@ fun detectAudioOutput(context: Context, castGroup: SonosGroup?, isDownsamplingSo
     )
 }
 
+fun inferAddonName(track: Track?): String {
+    if (track == null) return "Add-on"
+    val params = com.kike.musicplayer.data.nebula.NebulaUrls.parseParams(track.uri)
+    val provider = params["provider"]
+    if (!provider.isNullOrBlank()) {
+        if (provider.contains("aero", ignoreCase = true) || provider.contains("apple", ignoreCase = true)) return "Aero"
+        if (provider.contains("nullbeat", ignoreCase = true)) return "NullBeat"
+        if (provider.contains("nebula", ignoreCase = true)) return "Nebula"
+        return provider.replaceFirstChar { if (it.isLowerCase()) it.titlecase(java.util.Locale.US) else it.toString() }
+    }
+    val id = params["id"] ?: track.id.removePrefix("nebula:")
+    if (id.startsWith("a1_") || id.startsWith("torbox_am_")) return "Aero"
+    if (id.startsWith("dz:")) return "NullBeat"
+    if (id.startsWith("tidal:track:")) return "Nebula"
+    return "Add-on"
+}
+
 fun resolveAudioQuality(
     format: Format?,
     track: Track?,
     outputInfo: AudioOutputInfo,
     isSonosDownsample: Boolean = false,
     isDspActive: Boolean = false,
+    addonName: String? = null,
 ): AudioQualityDetails {
     val codec = when (format?.sampleMimeType) {
         MimeTypes.AUDIO_FLAC -> "FLAC"
@@ -226,7 +244,10 @@ fun resolveAudioQuality(
         track?.localUri != null -> "Downloaded to Phone"
         track?.source == Track.SOURCE_DRIVE -> "Google Drive"
         track?.source == Track.SOURCE_SUBSONIC -> "Subsonic / Navidrome"
-        track?.source == Track.SOURCE_NEBULA -> "Nebula Stream"
+        track?.source == Track.SOURCE_NEBULA -> {
+            val name = addonName ?: inferAddonName(track)
+            "$name Stream"
+        }
         track?.source == Track.SOURCE_SAF || track?.source == Track.SOURCE_MEDIASTORE -> "Local Device Storage"
         else -> "Audio Stream"
     }

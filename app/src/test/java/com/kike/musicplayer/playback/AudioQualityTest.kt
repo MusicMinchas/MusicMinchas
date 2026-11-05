@@ -161,4 +161,71 @@ class AudioQualityTest {
         assertEquals(OutputRouteType.SONOS_CAST, quality.outputInfo.routeType)
         assertTrue(quality.signalPathDescription.contains("UPnP Lossless HTTP Relay"))
     }
+
+    @Test
+    fun testAddonSourceNames() {
+        val format = Format.Builder()
+            .setSampleMimeType(MimeTypes.AUDIO_FLAC)
+            .setSampleRate(44100)
+            .setPcmEncoding(C.ENCODING_PCM_16BIT)
+            .setChannelCount(2)
+            .build()
+        val output = AudioOutputInfo(
+            routeType = OutputRouteType.PHONE_SPEAKER,
+            displayName = "Phone Speaker",
+            description = "Internal Device Stereo Speakers",
+        )
+
+        // 1. Explicit addonName provided
+        val trackAero = Track(
+            id = "nebula:a1_12345",
+            source = Track.SOURCE_NEBULA,
+            uri = "nebula:stream?artist=Manowar&title=Sign&id=a1_12345&provider=comtorboxapple-music-addon",
+            fileName = "Sign.flac",
+            mimeType = "audio/flac",
+            sizeBytes = null,
+            title = "Sign",
+        )
+        val qualityAero = resolveAudioQuality(format, trackAero, output, addonName = "Aero")
+        assertEquals("Aero Stream", qualityAero.sourceDescription)
+
+        // 2. Inferred from provider param
+        val trackNullbeat = Track(
+            id = "nebula:dz:998877",
+            source = Track.SOURCE_NEBULA,
+            uri = "nebula:stream?artist=Test&title=Song&id=dz:998877&provider=nullbeat",
+            fileName = "Song.flac",
+            mimeType = "audio/flac",
+            sizeBytes = null,
+            title = "Song",
+        )
+        val qualityNullbeat = resolveAudioQuality(format, trackNullbeat, output)
+        assertEquals("NullBeat Stream", qualityNullbeat.sourceDescription)
+
+        // 3. Inferred from track ID
+        val trackAeroInferred = Track(
+            id = "nebula:a1_abcde",
+            source = Track.SOURCE_NEBULA,
+            uri = "nebula:stream?artist=Test&title=Song&id=a1_abcde",
+            fileName = "Song.flac",
+            mimeType = "audio/flac",
+            sizeBytes = null,
+            title = "Song",
+        )
+        val qualityAeroInferred = resolveAudioQuality(format, trackAeroInferred, output)
+        assertEquals("Aero Stream", qualityAeroInferred.sourceDescription)
+
+        // 4. Inferred from tidal ID
+        val trackNebulaInferred = Track(
+            id = "nebula:tidal:track:112233",
+            source = Track.SOURCE_NEBULA,
+            uri = "nebula:stream?artist=Test&title=Song&id=tidal:track:112233",
+            fileName = "Song.flac",
+            mimeType = "audio/flac",
+            sizeBytes = null,
+            title = "Song",
+        )
+        val qualityNebulaInferred = resolveAudioQuality(format, trackNebulaInferred, output)
+        assertEquals("Nebula Stream", qualityNebulaInferred.sourceDescription)
+    }
 }

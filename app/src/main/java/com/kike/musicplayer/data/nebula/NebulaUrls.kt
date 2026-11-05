@@ -1,5 +1,7 @@
 package com.kike.musicplayer.data.nebula
 
+import com.kike.musicplayer.util.AppLog
+
 import android.util.Log
 import com.kike.musicplayer.data.addon.AddonClient
 import com.kike.musicplayer.data.addon.AddonManager
@@ -48,6 +50,12 @@ class NebulaUrls(
     )
 
     private val cache = ConcurrentHashMap<String, Pair<String, Long>>()
+    private val resolvedAddon = ConcurrentHashMap<String, String>()
+
+    fun resolvedAddonName(uriStr: String): String? {
+        val cacheKey = uriStr.removePrefix(PREFIX).removePrefix(ADDON_PREFIX)
+        return resolvedAddon[cacheKey]
+    }
 
     fun resolve(uriStr: String): String? {
         if (!uriStr.startsWith(PREFIX) && !uriStr.startsWith(ADDON_PREFIX)) return null
@@ -55,7 +63,12 @@ class NebulaUrls(
         val cacheKey = uriStr.removePrefix(PREFIX).removePrefix(ADDON_PREFIX)
         val now = System.currentTimeMillis()
         cache[cacheKey]?.let { (url, expiresAt) ->
-            if (now < expiresAt) return url else cache.remove(cacheKey)
+            if (now < expiresAt) {
+                AppLog.log(TAG, "resolve() cache HIT for $cacheKey -> $url")
+                return url
+            } else {
+                cache.remove(cacheKey)
+            }
         }
 
         val params = parseParams(uriStr)
@@ -63,35 +76,47 @@ class NebulaUrls(
         val artist = params["artist"] ?: ""
         val title = params["title"] ?: ""
         val album = params["album"]
+        val provider = params["provider"]
+
+        AppLog.log(TAG, "resolve() starting for uri: $uriStr (trackId=$trackId, artist='$artist', title='$title', provider=$provider)")
 
         // 1. Multi-addon resolution with sequential fallback
         if (addonManager != null && addonClient != null) {
             val addons = addonManager.addonsInOrder()
-            if (addons.isEmpty()) return null
+            if (addons.isEmpty()) {
+                AppLog.log(TAG, "resolve() no enabled add-ons configured")
+                return null
+            }
 
             for (addon in addons) {
                 val baseUrl = addon.baseUrl ?: continue
-                var result = if (!trackId.isNullOrBlank() && (trackId.startsWith("tidal:track:") || trackId.contains(":") || trackId.all { it.isDigit() })) {
+                val canDirect = !trackId.isNullOrBlank() && canStreamDirectly(addon, trackId, provider)
+                AppLog.log(TAG, "Checking addon '${addon.name}' (${addon.id}): canStreamDirectly=$canDirect")
+                var result = if (canDirect) {
                     val idForProvider = if (addon.id == "nebula" && !trackId.startsWith("tidal:track:") && !trackId.contains(":")) {
                         "tidal:track:$trackId"
                     } else trackId
+                    AppLog.log(TAG, "Calling direct stream() on '${addon.name}' with id=$idForProvider")
                     addonClient.stream(baseUrl, idForProvider)
                 } else null
 
                 // Fall back to catalog search if direct ID resolution was skipped or failed
                 if ((result == null || result.isFailure) && artist.isNotBlank() && title.isNotBlank()) {
+                    AppLog.log(TAG, "Direct stream skipped or failed on '${addon.name}'; falling back to findStream(artist='$artist', title='$title')")
                     result = addonClient.findStream(baseUrl, artist, album, title)
                 }
 
                 val streamUrl = result?.getOrNull()?.url
                 if (!streamUrl.isNullOrBlank()) {
+                    AppLog.log(TAG, "Successfully resolved stream via addon '${addon.name}': $streamUrl")
                     cache[cacheKey] = streamUrl to (now + CACHE_TTL_MS)
+                    resolvedAddon[cacheKey] = addon.name
                     return streamUrl
                 } else {
-                    Log.w(TAG, "Addon '${addon.name}' failed to resolve stream (${result?.exceptionOrNull()?.message}), trying next provider...")
+                    AppLog.log(TAG, "Addon '${addon.name}' failed to resolve stream (${result?.exceptionOrNull()?.message}), trying next provider...")
                 }
             }
-            Log.e(TAG, "All configured add-ons failed to resolve stream for: $artist - $title")
+            AppLog.log(TAG, "All configured add-ons failed to resolve stream for: $artist - $title")
             return null
         }
 
@@ -131,19 +156,20 @@ class NebulaUrls(
             }.toMap()
         }
 
-        fun uriFor(artist: String, album: String?, title: String, trackId: String? = null, albumId: String? = null): String {
+        fun uriFor(artist: String, album: String?, title: String, trackId: String? = null, albumId: String? = null, provider: String? = null): String {
             val encArtist = URLEncoder.encode(artist.trim(), "UTF-8")
             val encTitle = URLEncoder.encode(title.trim(), "UTF-8")
             val albumParam = if (!album.isNullOrBlank()) "&album=${URLEncoder.encode(album.trim(), "UTF-8")}" else ""
             val idParam = if (!trackId.isNullOrBlank()) "&id=${URLEncoder.encode(trackId.trim(), "UTF-8")}" else ""
             val albumIdParam = if (!albumId.isNullOrBlank()) "&albumId=${URLEncoder.encode(albumId.trim(), "UTF-8")}" else ""
-            return "nebula:stream?artist=$encArtist&title=$encTitle$albumParam$idParam$albumIdParam"
+            val providerParam = if (!provider.isNullOrBlank()) "&provider=${URLEncoder.encode(provider.trim(), "UTF-8")}" else ""
+            return "nebula:stream?artist=$encArtist&title=$encTitle$albumParam$idParam$albumIdParam$providerParam"
         }
 
-        fun trackFor(addonTrack: com.kike.musicplayer.data.addon.AddonTrack): Track = Track(
+        fun trackFor(addonTrack: com.kike.musicplayer.data.addon.AddonTrack, providerId: String? = null): Track = Track(
             id = "nebula:${addonTrack.id}",
             source = Track.SOURCE_NEBULA,
-            uri = uriFor(addonTrack.artist, addonTrack.album, addonTrack.title, addonTrack.id),
+            uri = uriFor(addonTrack.artist, addonTrack.album, addonTrack.title, addonTrack.id, provider = providerId),
             fileName = "${addonTrack.title}.flac",
             mimeType = "audio/flac",
             sizeBytes = null,
@@ -189,5 +215,31 @@ class NebulaUrls(
             indexArtist = catalogTrack.albumArtist ?: catalogTrack.artist.orEmpty(),
             indexTitle = "",
         )
+        fun canStreamDirectly(addon: com.kike.musicplayer.data.addon.AddonInstance, trackId: String, provider: String?): Boolean {
+            if (!provider.isNullOrBlank() && (provider == addon.id || provider.equals(addon.name, ignoreCase = true))) {
+                return true
+            }
+            if (trackId.startsWith("tidal:track:") && addon.id == "nebula") {
+                return true
+            }
+            if ((trackId.startsWith("dz:") || (trackId.all { it.isDigit() } && !trackId.startsWith("a1_"))) && addon.id == "nullbeat") {
+                return true
+            }
+            if ((trackId.startsWith("a1_") || trackId.startsWith("torbox_am_")) &&
+                (addon.id.contains("apple", ignoreCase = true) || addon.id.contains("aero", ignoreCase = true) || addon.name.contains("aero", ignoreCase = true))
+            ) {
+                return true
+            }
+            if (provider.isNullOrBlank()) {
+                if (addon.id == "nebula" && (trackId.startsWith("tidal:track:") || trackId.all { it.isDigit() })) return true
+                if (addon.id == "nullbeat" && (trackId.startsWith("dz:") || trackId.all { it.isDigit() })) return true
+                if ((trackId.startsWith("a1_") || trackId.startsWith("torbox_am_")) &&
+                    (addon.id.contains("apple", ignoreCase = true) || addon.id.contains("aero", ignoreCase = true) || addon.name.contains("aero", ignoreCase = true))
+                ) {
+                    return true
+                }
+            }
+            return false
+        }
     }
 }

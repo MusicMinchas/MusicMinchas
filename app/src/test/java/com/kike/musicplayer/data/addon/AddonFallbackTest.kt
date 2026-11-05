@@ -144,6 +144,92 @@ class AddonFallbackTest {
         )
     }
 
+    @Test
+    fun testAeroDirectStreamResolution() {
+        val aeroBase = "https://aero.example.com/token"
+        val aero = AddonInstance(
+            id = "comtorboxapplemusicaddon",
+            name = "Aero",
+            manifestUrl = "$aeroBase/manifest.json",
+            enabled = true,
+        )
+
+        val aeroTrack = AddonTrack(
+            id = "a1_IfgFqxNVmcr_UmQTmZVq4rkYrNrgVRGUhbL_9bV_0ADMBvWwRLkWmuMzJA",
+            title = "Bohemian Rhapsody",
+            artist = "Queen",
+            album = "A Night At The Opera",
+        )
+
+        var searchCalled = false
+        var streamCalled = false
+
+        val client = mockAddonClient { req ->
+            val url = req.url.toString()
+            when {
+                url.contains("/search") -> {
+                    searchCalled = true
+                    response(req, 200, """{"tracks":[]}""")
+                }
+                url.contains(aeroTrack.id) -> {
+                    streamCalled = true
+                    response(req, 200, """{"url":"https://cdn.torbox.app/bohemian_aero.flac","format":"flac"}""")
+                }
+                else -> response(req, 404, "not found")
+            }
+        }
+
+        val track = NebulaUrls.trackFor(aeroTrack, providerId = aero.id)
+        assertTrue("URI should contain provider", track.uri.contains("provider=comtorboxapplemusicaddon"))
+        assertTrue("URI should contain track ID", track.uri.contains("id=a1_IfgFqxNVmcr_UmQTmZVq4rkYrNrgVRGUhbL_9bV_0ADMBvWwRLkWmuMzJA"))
+
+        // Test canStreamDirectly directly
+        assertTrue(
+            "canStreamDirectly should be true for Aero with matching provider",
+            NebulaUrls.canStreamDirectly(aero, aeroTrack.id, aero.id)
+        )
+        assertTrue(
+            "canStreamDirectly should be true for Aero ID even without provider parameter",
+            NebulaUrls.canStreamDirectly(aero, aeroTrack.id, null)
+        )
+
+        // When resolving directly via AddonClient.stream
+        val streamResult = client.stream(aero.baseUrl!!, aeroTrack.id)
+        assertTrue(streamResult.isSuccess)
+        assertEquals("https://cdn.torbox.app/bohemian_aero.flac", streamResult.getOrNull()?.url)
+        assertTrue("Stream endpoint was called directly without search", streamCalled)
+        org.junit.Assert.assertFalse("Search was not called because direct ID resolution succeeded", searchCalled)
+    }
+
+    @Test
+    fun testCanStreamDirectlyRules() {
+        val aero = AddonInstance(id = "comtorboxapplemusicaddon", name = "Aero", manifestUrl = "https://aero/manifest.json")
+        val nullbeat = AddonInstance(id = "nullbeat", name = "NullBeat", manifestUrl = "https://nullbeat/manifest.json")
+        val nebula = AddonInstance(id = "nebula", name = "Nebula", manifestUrl = "https://nebula/manifest.json")
+
+        val aeroId = "a1_XyZ123-abc_def"
+        val deezerId = "1109731"
+        val tidalId = "tidal:track:998877"
+
+        // 1. Explicit provider match
+        assertTrue(NebulaUrls.canStreamDirectly(aero, aeroId, "comtorboxapplemusicaddon"))
+        assertTrue(NebulaUrls.canStreamDirectly(nullbeat, deezerId, "nullbeat"))
+        assertTrue(NebulaUrls.canStreamDirectly(nebula, tidalId, "nebula"))
+
+        // 2. Cross-provider mismatch should NOT stream directly
+        org.junit.Assert.assertFalse(NebulaUrls.canStreamDirectly(nullbeat, aeroId, "comtorboxapplemusicaddon"))
+        org.junit.Assert.assertFalse(NebulaUrls.canStreamDirectly(aero, deezerId, "nullbeat"))
+        org.junit.Assert.assertFalse(NebulaUrls.canStreamDirectly(nebula, aeroId, "comtorboxapplemusicaddon"))
+
+        // 3. Fallback when provider is null (e.g. from Deezer catalog or legacy bookmarks)
+        assertTrue(NebulaUrls.canStreamDirectly(aero, aeroId, null))
+        assertTrue(NebulaUrls.canStreamDirectly(nullbeat, deezerId, null))
+        assertTrue(NebulaUrls.canStreamDirectly(nebula, tidalId, null))
+
+        // 4. Deezer track in Aero with null provider should NOT stream directly (avoids 422 TRACK_UNAVAILABLE)
+        org.junit.Assert.assertFalse(NebulaUrls.canStreamDirectly(aero, deezerId, null))
+    }
+
     private fun mockAddonClient(handler: (okhttp3.Request) -> Response): AddonClient {
         val okHttp = OkHttpClient.Builder()
             .addInterceptor { chain -> handler(chain.request()) }

@@ -25,6 +25,7 @@ data class AddonSearchResults(
     val albums: List<AddonAlbum> = emptyList(),
     val artists: List<AddonArtist> = emptyList(),
     val addonName: String = "Add-on",
+    val addonId: String? = null,
     val loading: Boolean = false,
 )
 

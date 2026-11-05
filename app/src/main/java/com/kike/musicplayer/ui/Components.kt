@@ -387,7 +387,7 @@ private fun DownloadStatus(track: Track, progress: DownloadProgress?) {
             } else {
                 Icon(Icons.Default.Downloading, "Waiting to download", Modifier.size(16.dp), tint = tint)
             }
-        else -> Icon(sourceIcon(track.source), sourceName(track.source), Modifier.size(16.dp), tint = tint)
+        else -> Icon(sourceIcon(track.source), sourceName(track.source, track), Modifier.size(16.dp), tint = tint)
     }
 }
 
@@ -442,10 +442,10 @@ fun sourceIcon(source: String): ImageVector = when (source) {
     else -> Icons.Default.Folder
 }
 
-fun sourceName(source: String): String = when (source) {
+fun sourceName(source: String, track: Track? = null): String = when (source) {
     Track.SOURCE_DRIVE -> "Google Drive"
     Track.SOURCE_SUBSONIC -> "Navidrome"
-    Track.SOURCE_NEBULA -> "Nebula"
+    Track.SOURCE_NEBULA -> track?.let { com.kike.musicplayer.playback.inferAddonName(it) } ?: "Add-on"
     else -> "On this device"
 }
 

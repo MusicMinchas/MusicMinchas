@@ -28,6 +28,7 @@ import com.kike.musicplayer.playback.AudioOutputInfo
 import com.kike.musicplayer.playback.AudioQualityDetails
 import com.kike.musicplayer.playback.detectAudioOutput
 import com.kike.musicplayer.playback.resolveAudioQuality
+import com.kike.musicplayer.playback.inferAddonName
 import com.kike.musicplayer.playback.PlaybackService
 import com.kike.musicplayer.playback.toMediaItem
 import com.kike.musicplayer.playback.toTransientTrack
@@ -144,12 +145,33 @@ class PlayerViewModel(private val app: Application) : AndroidViewModel(app) {
         }, MoreExecutors.directExecutor())
     }
 
+    private fun resolveAddonDisplayName(track: Track?): String? {
+        if (track == null || track.source != Track.SOURCE_NEBULA) return null
+        app.container.nebulaUrls.resolvedAddonName(track.uri)?.let { return it }
+        val params = com.kike.musicplayer.data.nebula.NebulaUrls.parseParams(track.uri)
+        val provider = params["provider"]
+        val allAddons = app.container.addonManager.addons.value
+        if (!provider.isNullOrBlank()) {
+            val found = allAddons.firstOrNull { it.id == provider || it.name.equals(provider, ignoreCase = true) }
+            if (found != null) return found.name
+        }
+        val id = params["id"] ?: track.id.removePrefix("nebula:")
+        if (id.startsWith("a1_") || id.startsWith("torbox_am_")) {
+            allAddons.firstOrNull { it.id.contains("apple", ignoreCase = true) || it.name.contains("aero", ignoreCase = true) }?.let { return it.name }
+        } else if (id.startsWith("dz:")) {
+            allAddons.firstOrNull { it.id == "nullbeat" }?.let { return it.name }
+        } else if (id.startsWith("tidal:track:")) {
+            allAddons.firstOrNull { it.id == "nebula" }?.let { return it.name }
+        }
+        return inferAddonName(track)
+    }
+
     private fun refresh(p: Player) {
         val format = selectedAudioFormat(p)
         val transientTrack = p.currentMediaItem?.toTransientTrack()
         val isDsp = app.container.settings.loudnessNormalization.value || app.container.settings.crossfade.value
         val initialQuality = if (p.currentMediaItem != null) {
-            resolveAudioQuality(format, transientTrack, _audioOutput.value, sonosDownsample.value, isDsp)
+            resolveAudioQuality(format, transientTrack, _audioOutput.value, sonosDownsample.value, isDsp, resolveAddonDisplayName(transientTrack))
         } else null
 
         _state.value = PlayerUiState(
@@ -178,7 +200,7 @@ class PlayerViewModel(private val app: Application) : AndroidViewModel(app) {
             viewModelScope.launch(Dispatchers.IO) {
                 val dbTrack = app.container.database.tracks().get(trackId)
                 if (dbTrack != null) {
-                    val refinedQuality = resolveAudioQuality(format, dbTrack, _audioOutput.value, sonosDownsample.value, isDsp)
+                    val refinedQuality = resolveAudioQuality(format, dbTrack, _audioOutput.value, sonosDownsample.value, isDsp, resolveAddonDisplayName(dbTrack))
                     _state.update { curr ->
                         if (curr.current?.mediaId?.let(PlaybackService::trackIdOf) == trackId) {
                             curr.copy(audioQuality = refinedQuality)

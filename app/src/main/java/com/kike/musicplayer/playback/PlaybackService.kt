@@ -1,5 +1,7 @@
 package com.kike.musicplayer.playback
 
+import com.kike.musicplayer.util.AppLog
+
 import android.app.PendingIntent
 import android.content.Intent
 import android.net.wifi.WifiManager
@@ -208,9 +210,13 @@ class PlaybackService : MediaLibraryService(), CastHost {
         val dataSourceFactory = ResolvingDataSource.Factory(
             DefaultDataSource.Factory(this, OkHttpDataSource.Factory(container.driveHttp)),
         ) { spec ->
-            urls.resolve(spec.uri.toString())?.let { spec.withUri(android.net.Uri.parse(it)) }
+            val resolved = urls.resolve(spec.uri.toString())?.let { spec.withUri(android.net.Uri.parse(it)) }
                 ?: nebulaUrls.resolve(spec.uri.toString())?.let { spec.withUri(android.net.Uri.parse(it)) }
                 ?: spec
+            if (resolved.uri != spec.uri) {
+                AppLog.log(TAG, "ResolvingDataSource: ${spec.uri} -> ${resolved.uri}")
+            }
+            resolved
         }
 
         player = ExoPlayer.Builder(this)
@@ -257,7 +263,7 @@ class PlaybackService : MediaLibraryService(), CastHost {
             }
 
             override fun onPlayerError(error: PlaybackException) {
-                Log.w(TAG, "Playback error on ${player.currentMediaItem?.mediaId}", error)
+                Log.e(TAG, "Playback error on ${player.currentMediaItem?.mediaId}: ${error.errorCodeName} (${error.errorCode})", error)
             }
         })
         player.addListener(playTracker)

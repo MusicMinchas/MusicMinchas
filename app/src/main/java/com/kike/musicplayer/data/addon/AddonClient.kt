@@ -1,5 +1,8 @@
 package com.kike.musicplayer.data.addon
 
+import com.kike.musicplayer.util.AppLog
+
+import android.util.Log
 import com.squareup.moshi.Moshi
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -54,12 +57,16 @@ class AddonClient(
         if (clean.isEmpty()) return Result.success(AddonSearchResponse())
         val encoded = URLEncoder.encode(clean, "UTF-8")
         val url = "${baseUrl.trimEnd('/')}/search?q=$encoded"
+        AppLog.log(TAG, "search() GET $url")
         val req = Request.Builder().url(url).header("User-Agent", USER_AGENT).build()
         http.newCall(req).execute().use { resp ->
+            AppLog.log(TAG, "search() HTTP ${resp.code} for $url")
             if (!resp.isSuccessful) throw IOException("Search failed with HTTP ${resp.code}")
             val body = resp.body.string()
             searchAdapter.fromJson(body) ?: throw IOException("Invalid search response JSON")
         }
+    }.onFailure {
+        AppLog.log(TAG, "search() failed for query='$query' at $baseUrl", it)
     }
 
     /**
@@ -68,14 +75,19 @@ class AddonClient(
     fun stream(baseUrl: String, trackId: String): Result<AddonStream> = runCatching {
         val encoded = URLEncoder.encode(trackId.trim(), "UTF-8")
         val url = "${baseUrl.trimEnd('/')}/stream/$encoded"
+        AppLog.log(TAG, "stream() GET $url")
         val req = Request.Builder().url(url).header("User-Agent", USER_AGENT).build()
         http.newCall(req).execute().use { resp ->
+            AppLog.log(TAG, "stream() HTTP ${resp.code} for $url")
             if (!resp.isSuccessful) throw IOException("Stream resolution failed with HTTP ${resp.code}")
             val body = resp.body.string()
+            AppLog.log(TAG, "stream() body: $body")
             val stream = streamAdapter.fromJson(body) ?: throw IOException("Invalid stream response JSON")
             if (stream.url.isNullOrBlank()) throw IOException("No stream URL returned for track")
             stream
         }
+    }.onFailure {
+        AppLog.log(TAG, "stream() failed for trackId=$trackId, baseUrl=$baseUrl", it)
     }
 
     /**
@@ -89,9 +101,11 @@ class AddonClient(
         val cleanArtist = sanitizeForSearch(artist)
         val cleanTitle = sanitizeForSearch(title)
         val query = "$cleanArtist $cleanTitle".trim()
+        AppLog.log(TAG, "findStream() searching '$query' at $baseUrl")
         val searchResult = search(baseUrl, query)
         val tracks = searchResult.getOrNull()?.tracks
         if (tracks.isNullOrEmpty()) {
+            AppLog.log(TAG, "findStream() no matching tracks found for '$query'")
             return Result.failure(IOException("No matching track found for '$query'"))
         }
 
@@ -105,10 +119,12 @@ class AddonClient(
             tracks.first()
         }
 
+        AppLog.log(TAG, "findStream() selected '${selectedTrack.title}' (id=${selectedTrack.id}) for '$query'")
         return stream(baseUrl, selectedTrack.id)
     }
 
     companion object {
+        private const val TAG = "AddonClient"
         private const val USER_AGENT = "MusicMinchas/1.41.0 (Android)"
         private val PUNCTUATION_REGEX = Regex("[()\\[\\]{}\"]")
         private val WHITESPACE_REGEX = Regex("\\s+")

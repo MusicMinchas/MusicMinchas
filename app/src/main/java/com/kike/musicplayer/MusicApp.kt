@@ -64,6 +64,7 @@ class MusicApp : Application(), SingletonImageLoader.Factory {
 
     override fun onCreate() {
         super.onCreate()
+        com.kike.musicplayer.util.AppLog.init(this)
         container = AppContainer(this)
     }
 

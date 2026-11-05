@@ -1504,12 +1504,14 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
                     emit(com.kike.musicplayer.data.addon.AddonSearchResults(addonName = primaryName, loading = true))
                     var foundResp: com.kike.musicplayer.data.addon.AddonSearchResponse? = null
                     var resolvedName = primaryName
+                    var resolvedId: String? = null
                     for (addon in trigger.enabledAddons) {
                         val base = addon.baseUrl ?: continue
                         val res = addonManager.client.search(base, trigger.query.trim()).getOrNull()
                         if (res != null && (!res.tracks.isNullOrEmpty() || !res.albums.isNullOrEmpty() || !res.artists.isNullOrEmpty())) {
                             foundResp = res
                             resolvedName = addon.name
+                            resolvedId = addon.id
                             break
                         }
                     }
@@ -1519,6 +1521,7 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
                             albums = foundResp?.albums.orEmpty(),
                             artists = foundResp?.artists.orEmpty(),
                             addonName = resolvedName,
+                            addonId = resolvedId,
                             loading = false,
                         )
                     )
