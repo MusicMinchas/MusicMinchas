@@ -7,7 +7,7 @@ Parent workspace notes: @[Shared Android Dev Workspace](../AGENTS.md)
 
 - **Path:** `C:\Users\kike\dev\MusicPlayer` (local git repo, repo-local identity `kike` / `kikeprojo@gmail.com`, nothing pushed).
 - **Package:** `com.kike.musicplayer`
-- **Current Release:** `1.45.0` (`versionCode = 98`, Room DB `v27`, `minSdk = 30`, `targetSdk = 36`, `compileSdk = 37`). Merged to `master`, tag `v1.45.0`.
+- **Current Release:** `1.46.0` (`versionCode = 99`, Room DB `v27`, `minSdk = 30`, `targetSdk = 36`, `compileSdk = 37`). Merged to `master`, tag `v1.46.0`.
 - **Stack:** Kotlin 2.4.20, Jetpack Compose, Media3 1.11.1 `MediaLibraryService` (Android Auto browse tree), Room 2.8.5 via KSP 2.3.12 + Paging 3 (`paging-compose 3.3.6`, `room-paging`), Retrofit 3 + Moshi (reflection), Coil 3, `play-services-auth` 22 `AuthorizationClient` (`drive.readonly` + `email`), `reorderable` 3.1.0, AGP 9.4.1, Gradle 9.8.
 - **Shared Toolchain & Environment:**
   - `JAVA_HOME`: Android Studio's bundled `jbr`
@@ -396,3 +396,22 @@ Started 2026-10-08 from user-pasted spec. NEW app, explicitly independent of Son
     - Added English and Spanish strings for streaming add-on search categories and loading indicators.
     - Added unit test in `TrackMatcherTest` validating cross-source song key matching. All 148 unit tests pass.
   - Verified on OnePlus 12, merged to `master`, tagged `v1.45.0`, release APK `MusicMinchas-1.45.0.apk` installed.
+- 2026-11-05 Release 1.46.0 (`versionCode = 99`, Room DB `v27`, GitHub issue #28):
+  - Storage & Cache Diagnostics and Coil 3 Quota Configuration (`Settings.kt`, `MusicApp.kt`, `LibraryViewModel.kt`):
+    - Evaluated phone storage footprint: database (~397 MB for 304k tracks / 50k albums / 13k artists / 27k scrobbles), active SQLite RAM footprint only 5.2 MB, embedded ID3/MP4 artwork in `files/artwork/` (~48 MB), Coil network disk cache (~250 MB).
+    - Configured Coil 3 `DiskCache` with user-selectable size limits (`KEY_IMAGE_CACHE_LIMIT_MB`, default 250 MB, options: 250 MB, 500 MB, 1 GB, 2 GB) and `MemoryCache` (25% app memory budget).
+    - Implemented live `StorageStats` calculation, cache pruning, and cache clearing (`clearImageCache()`, `pruneArtwork()`).
+  - Background Cover Art Prefetching Ahead of Scrolling (`Components.kt`, `LibraryScreens.kt`, `PlaylistScreens.kt`, `CatalogScreens.kt`, `HomeScreens.kt`):
+    - Added `PrefetchArtworkUrls` and `PrefetchTrackArtworks` composables that asynchronously enqueue artwork requests in Coil 3 on `Dispatchers.IO` when entering playlists, mixes, favorites, and catalog lists.
+    - Extended prefetching to Deezer playlists (`CatalogPlaylistScreen`), section grids (`CatalogSectionScreen`), and Home curated rows (`DeezerPlaylistRow`).
+  - Settings Navigation Reorganization into Dedicated Submenus (`SourcesScreen.kt`, `MainActivity.kt`):
+    - Refactored main Settings screen into a unified, high-performance dashboard with 5 top-level entry cards navigating to dedicated submenus:
+      1. Music Sources (`MusicSourcesScreen`) & Library Health (`LibraryHealthScreen`)
+      2. Integrations (`IntegrationsScreen`: Last.fm, Online Metadata Lookup, Automatic Sync)
+      3. Data & Storage (`DataStorageScreen`: Downloaded Songs, Storage & Cache Management tool)
+      4. Audio Settings (`AudioSettingsScreen`: Sonos S2 playback downsampling, Audio Engine & Bit-Perfect DSP controls)
+      5. General Preferences (`GeneralPreferencesScreen`: Language, Theme, Accent Color, Full-Screen Cover)
+  - Localization & Tests:
+    - Added English and Spanish strings for all new sections, settings, and storage stats.
+    - Added unit tests in `StorageSettingsTest.kt`. All 149 unit tests pass.
+  - Verified on OnePlus 12, merged to `master`, tagged `v1.46.0`, release APK `MusicMinchas-1.46.0.apk` installed.
