@@ -7,7 +7,7 @@ Parent workspace notes: @[Shared Android Dev Workspace](../AGENTS.md)
 
 - **Path:** `C:\Users\kike\dev\MusicPlayer` (local git repo, repo-local identity `kike` / `kikeprojo@gmail.com`, nothing pushed).
 - **Package:** `com.kike.musicplayer`
-- **Current Release:** `1.46.0` (`versionCode = 99`, Room DB `v27`, `minSdk = 30`, `targetSdk = 36`, `compileSdk = 37`). Merged to `master`, tag `v1.46.0`.
+- **Current Release:** `1.47.0` (`versionCode = 100`, Room DB `v27`, `minSdk = 30`, `targetSdk = 36`, `compileSdk = 37`). Merged to `master`, tag `v1.47.0`.
 - **Stack:** Kotlin 2.4.20, Jetpack Compose, Media3 1.11.1 `MediaLibraryService` (Android Auto browse tree), Room 2.8.5 via KSP 2.3.12 + Paging 3 (`paging-compose 3.3.6`, `room-paging`), Retrofit 3 + Moshi (reflection), Coil 3, `play-services-auth` 22 `AuthorizationClient` (`drive.readonly` + `email`), `reorderable` 3.1.0, AGP 9.4.1, Gradle 9.8.
 - **Shared Toolchain & Environment:**
   - `JAVA_HOME`: Android Studio's bundled `jbr`
@@ -415,3 +415,14 @@ Started 2026-10-08 from user-pasted spec. NEW app, explicitly independent of Son
     - Added English and Spanish strings for all new sections, settings, and storage stats.
     - Added unit tests in `StorageSettingsTest.kt`. All 149 unit tests pass.
   - Verified on OnePlus 12, merged to `master`, tagged `v1.46.0`, release APK `MusicMinchas-1.46.0.apk` installed.
+- 2026-11-05 Release 1.47.0 (`versionCode = 100`, Room DB `v27`, GitHub issue #29):
+  - Catalog Playlist Track Artwork Prefetching (`CatalogScreens.kt`):
+    - Added `PrefetchArtworkUrls` to `CatalogPlaylistScreen` and `CatalogAlbumScreen` prefetching the first 40 track artworks on screen entry.
+    - Resolves network loading delays for Navidrome tracks (`subsonic:cover/<id>`) and unowned streaming tracks (`catTrack.coverUrl`) while scrolling through public Deezer playlists.
+  - Unified 7-Day Persistent Cache for Deezer Playlists (`LibraryViewModel.kt`, `CatalogClient.kt`, `MainActivity.kt`):
+    - Implemented `CachedCatalogPlaylistData` disk cache in `cacheDir/catalog_playlists/` and in-memory `catalogPlaylistCache` with a 7-day TTL (`CATALOG_PLAYLIST_CACHE_TTL_MS = 7 * 24 * 3600 * 1000L`), matching the update cycle of saved playlists.
+    - Removed eager cache clearing from `MainActivity.kt` on back-navigation so that re-opening any Deezer playlist (Trending, 100% Artist Essentials, Genre rows) loads instantly in 0 ms without reloading or re-matching.
+    - Preserved manual refresh via the TopAppBar refresh button.
+  - Unit Tests:
+    - Added `CatalogPlaylistCacheTest.kt` validating Moshi serialization and 7-day TTL expiration boundaries. All 151 unit tests pass.
+  - Verified on OnePlus 12, merged to `master`, tagged `v1.47.0`, release APK `MusicMinchas-1.47.0.apk` installed.
