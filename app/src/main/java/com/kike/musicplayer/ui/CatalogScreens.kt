@@ -139,6 +139,12 @@ fun CatalogAlbumScreen(
             navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back") } },
             windowInsets = NoTopInsets,
         )
+        val catalogArtworks = remember(tracks, matched) {
+            tracks.map { catTrack ->
+                matched[catTrack.id]?.artworkUri ?: catTrack.coverUrl
+            }
+        }
+        PrefetchArtworkUrls(catalogArtworks, limit = 40)
         LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 16.dp)) {
             item {
                 Column(
@@ -842,6 +848,9 @@ fun CatalogSectionScreen(
 ) {
     var refreshing by remember { mutableStateOf(false) }
     LaunchedEffect(section) { refreshing = false }
+
+    val sectionCovers = remember(section.playlists) { section.playlists.mapNotNull { it.coverUrl } }
+    PrefetchArtworkUrls(sectionCovers, limit = 20)
 
     Column(Modifier.fillMaxSize().padding(contentPadding)) {
         TopAppBar(

@@ -147,18 +147,18 @@ fun PlaylistCover(
 }
 
 /**
- * Prefetches cover art for the given [tracks] (up to [limit]) into Coil's disk/memory cache.
- * Avoids blank placeholders when scrolling through playlists or collections.
+ * Prefetches image URLs (up to [limit]) into Coil's disk/memory cache.
+ * Avoids blank placeholders when scrolling through playlists, catalogs, or collections.
  */
 @Composable
-fun PrefetchTrackArtworks(tracks: List<Track>?, limit: Int = 40) {
+fun PrefetchArtworkUrls(urls: List<String?>?, limit: Int = 40) {
     val context = LocalContext.current
-    LaunchedEffect(tracks) {
-        if (tracks.isNullOrEmpty()) return@LaunchedEffect
+    LaunchedEffect(urls) {
+        if (urls.isNullOrEmpty()) return@LaunchedEffect
         withContext(Dispatchers.IO) {
             val imageLoader = SingletonImageLoader.get(context)
-            tracks.take(limit).forEach { track ->
-                val uri = track.artworkUri ?: return@forEach
+            urls.take(limit).forEach { uri ->
+                if (uri.isNullOrBlank()) return@forEach
                 val normalized = com.kike.musicplayer.data.catalog.normalizeArtworkUrl(uri) ?: return@forEach
                 val request = ImageRequest.Builder(context)
                     .data(normalized)
@@ -168,6 +168,16 @@ fun PrefetchTrackArtworks(tracks: List<Track>?, limit: Int = 40) {
             }
         }
     }
+}
+
+/**
+ * Prefetches cover art for the given [tracks] (up to [limit]) into Coil's disk/memory cache.
+ * Avoids blank placeholders when scrolling through playlists or collections.
+ */
+@Composable
+fun PrefetchTrackArtworks(tracks: List<Track>?, limit: Int = 40) {
+    val urls = remember(tracks) { tracks?.map { it.artworkUri } }
+    PrefetchArtworkUrls(urls, limit)
 }
 
 @Composable
