@@ -129,6 +129,12 @@ fun CatalogAlbumScreen(
             matched[catTrack.id] ?: if (nebulaConnected) NebulaUrls.trackFor(catTrack) else null
         }
     }
+    val playlistArtworks = remember(tracks, matched) {
+        tracks.mapNotNull { catTrack ->
+            matched[catTrack.id]?.artworkUri ?: catTrack.coverUrl
+        }
+    }
+    PrefetchArtworkUrls(playlistArtworks, limit = 40)
     val year = album.year ?: tracks.firstNotNullOfOrNull { it.year }
     val genre = album.genre ?: tracks.firstNotNullOfOrNull { it.genre }
     val cover = album.coverUrl ?: tracks.firstNotNullOfOrNull { it.coverUrl }
@@ -527,6 +533,12 @@ fun CatalogPlaylistScreen(
             matched[catTrack.id] ?: if (nebulaConnected) NebulaUrls.trackFor(catTrack) else null
         }
     }
+    val playlistArtworks = remember(tracks, matched) {
+        tracks.mapNotNull { catTrack ->
+            matched[catTrack.id]?.artworkUri ?: catTrack.coverUrl
+        }
+    }
+    PrefetchArtworkUrls(playlistArtworks, limit = 40)
 
     if (saveDialog) {
         var name by remember { mutableStateOf(playlist.title) }

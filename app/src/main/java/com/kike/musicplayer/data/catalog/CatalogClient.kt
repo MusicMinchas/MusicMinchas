@@ -120,6 +120,12 @@ data class ResolvedPlaylist(
     val tracks: List<CatalogTrack>,
 )
 
+data class CachedCatalogPlaylistData(
+    val tracks: List<CatalogTrack>,
+    val matches: Map<String, String>,
+    val fetchedAt: Long = System.currentTimeMillis(),
+)
+
 data class CatalogSearchResults(
     val artists: List<CatalogArtist> = emptyList(),
     val albums: List<CatalogAlbum> = emptyList(),
