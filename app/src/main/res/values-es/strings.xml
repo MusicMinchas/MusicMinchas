@@ -439,4 +439,25 @@
     <string name="addon_disconnect_confirm">¿Desconectar %s?</string>
     <string name="addon_disconnect_message">MusicMinchas dejará de reproducir canciones no poseídas desde este proveedor. Si tienes otros complementos, se recurrirá a ellos automáticamente.</string>
     <string name="addon_quality_badge">FLAC sin pérdidas (Torbox)</string>
+
+    <string name="action_refresh">Actualizar</string>
+
+    <!-- Integrations & Storage Reorganization -->
+    <string name="settings_section_integrations">Integraciones</string>
+    <string name="settings_integrations_title">Integraciones</string>
+    <string name="settings_integrations_subtitle">Last.fm, metadatos online y sincronización automática</string>
+    <string name="settings_data_storage_title">Datos y almacenamiento</string>
+    <string name="storage_mgmt_title">Gestión de caché y almacenamiento</string>
+    <string name="storage_mgmt_subtitle">Información y control de la base de datos, carátulas y caché de imágenes</string>
+    <string name="storage_stat_database">Base de datos</string>
+    <string name="storage_stat_embedded_artwork">Carátulas integradas</string>
+    <string name="storage_stat_image_cache">Caché de imágenes de red</string>
+    <string name="storage_stat_runtime_cache">Caché del sistema Android</string>
+    <string name="storage_cache_limit_label">Tamaño máximo de caché de imágenes</string>
+    <string name="storage_cache_limit_desc">Límite de almacenamiento en disco para carátulas de Navidrome y streaming (250 MB – 2 GB).</string>
+    <string name="storage_clear_image_cache">Borrar caché de imágenes</string>
+    <string name="storage_prune_artwork">Limpiar carátulas huérfanas</string>
+    <string name="storage_cache_cleared">Caché de imágenes borrada correctamente</string>
+    <string name="storage_prune_result">Se eliminaron %1$d carátulas huérfanas (%2$s liberados)</string>
+    <string name="storage_prune_none">No se encontraron carátulas huérfanas</string>
 </resources>

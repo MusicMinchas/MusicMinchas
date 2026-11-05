@@ -343,6 +343,15 @@ class Settings(private val context: Context, name: String = "settings") {
         }
     }
 
+    private val _imageCacheLimitMb = MutableStateFlow(prefs.getLong(KEY_IMAGE_CACHE_LIMIT_MB, 250L))
+    /** Maximum disk cache size in MB for Coil image cache (default 250 MB). */
+    val imageCacheLimitMb: StateFlow<Long> = _imageCacheLimitMb.asStateFlow()
+
+    fun setImageCacheLimitMb(mb: Long) {
+        prefs.edit { putLong(KEY_IMAGE_CACHE_LIMIT_MB, mb) }
+        _imageCacheLimitMb.value = mb
+    }
+
     fun setLanguage(tag: String) {
         prefs.edit { putString(KEY_LANGUAGE, tag) }
         _language.value = tag
@@ -365,6 +374,7 @@ class Settings(private val context: Context, name: String = "settings") {
     }
 
     private companion object {
+        const val KEY_IMAGE_CACHE_LIMIT_MB = "image_cache_limit_mb"
         const val KEY_LANGUAGE = "app_language"
         const val KEY_SAF = "saf_folders"
         const val KEY_HIDDEN_SCOPES = "hidden_scopes"

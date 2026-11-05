@@ -1192,6 +1192,7 @@ fun TrackListScreen(
             navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back") } },
         )
         if (tracks == null) return@Column
+        PrefetchTrackArtworks(tracks)
         LazyColumn(Modifier.fillMaxSize()) {
             item { CollectionHeader(title, tracks, subtitle) }
             item {

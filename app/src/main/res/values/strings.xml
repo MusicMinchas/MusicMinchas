@@ -439,4 +439,25 @@
     <string name="addon_disconnect_confirm">Disconnect %s?</string>
     <string name="addon_disconnect_message">MusicMinchas will stop streaming unowned tracks from this provider. If you have other add-ons, playback will automatically fall back to them.</string>
     <string name="addon_quality_badge">Lossless FLAC (Torbox)</string>
+
+    <string name="action_refresh">Refresh</string>
+
+    <!-- Integrations & Storage Reorganization -->
+    <string name="settings_section_integrations">Integrations</string>
+    <string name="settings_integrations_title">Integrations</string>
+    <string name="settings_integrations_subtitle">Last.fm, Online Metadata, and Automatic Sync</string>
+    <string name="settings_data_storage_title">Data &amp; Storage</string>
+    <string name="storage_mgmt_title">Storage &amp; Cache Management</string>
+    <string name="storage_mgmt_subtitle">Overview and control of local database, artwork, and image cache</string>
+    <string name="storage_stat_database">Music Database</string>
+    <string name="storage_stat_embedded_artwork">Embedded Artwork</string>
+    <string name="storage_stat_image_cache">Network Image Cache</string>
+    <string name="storage_stat_runtime_cache">System Runtime Cache</string>
+    <string name="storage_cache_limit_label">Maximum Image Cache Size</string>
+    <string name="storage_cache_limit_desc">Coil disk cache quota for Navidrome and streaming artwork (250 MB – 2 GB).</string>
+    <string name="storage_clear_image_cache">Clear Image Cache</string>
+    <string name="storage_prune_artwork">Prune Unused Art</string>
+    <string name="storage_cache_cleared">Image cache cleared successfully</string>
+    <string name="storage_prune_result">Pruned %1$d unused cover files (%2$s freed)</string>
+    <string name="storage_prune_none">No unused artwork found</string>
 </resources>

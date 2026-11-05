@@ -33,6 +33,12 @@ import androidx.compose.material3.Text
 import androidx.compose.ui.res.pluralStringResource
 import com.kike.musicplayer.R
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.ui.platform.LocalContext
+import coil3.SingletonImageLoader
+import coil3.request.ImageRequest
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -136,6 +142,30 @@ fun PlaylistCover(
             Artwork(nonNullCovers.first(), modifier = modifier, size = size, shape = shape)
         } else {
             Artwork(null, modifier = modifier, size = size, shape = shape)
+        }
+    }
+}
+
+/**
+ * Prefetches cover art for the given [tracks] (up to [limit]) into Coil's disk/memory cache.
+ * Avoids blank placeholders when scrolling through playlists or collections.
+ */
+@Composable
+fun PrefetchTrackArtworks(tracks: List<Track>?, limit: Int = 40) {
+    val context = LocalContext.current
+    LaunchedEffect(tracks) {
+        if (tracks.isNullOrEmpty()) return@LaunchedEffect
+        withContext(Dispatchers.IO) {
+            val imageLoader = SingletonImageLoader.get(context)
+            tracks.take(limit).forEach { track ->
+                val uri = track.artworkUri ?: return@forEach
+                val normalized = com.kike.musicplayer.data.catalog.normalizeArtworkUrl(uri) ?: return@forEach
+                val request = ImageRequest.Builder(context)
+                    .data(normalized)
+                    .size(192)
+                    .build()
+                imageLoader.enqueue(request)
+            }
         }
     }
 }

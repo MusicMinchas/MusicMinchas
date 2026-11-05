@@ -4,7 +4,10 @@ import android.app.Application
 import coil3.ImageLoader
 import coil3.PlatformContext
 import coil3.SingletonImageLoader
+import coil3.disk.DiskCache
+import coil3.memory.MemoryCache
 import coil3.network.okhttp.OkHttpNetworkFetcherFactory
+import okio.Path.Companion.toOkioPath
 import com.kike.musicplayer.playback.SleepTimerManager
 import com.kike.musicplayer.data.AutoSync
 import com.kike.musicplayer.data.LibraryIndexer
@@ -64,8 +67,21 @@ class MusicApp : Application(), SingletonImageLoader.Factory {
         container = AppContainer(this)
     }
 
-    override fun newImageLoader(context: PlatformContext): ImageLoader =
-        ImageLoader.Builder(context)
+    override fun newImageLoader(context: PlatformContext): ImageLoader {
+        val limitMb = container.settings.imageCacheLimitMb.value
+        val maxDiskBytes = limitMb * 1024L * 1024L
+        return ImageLoader.Builder(context)
+            .memoryCache {
+                MemoryCache.Builder()
+                    .maxSizePercent(context, 0.25)
+                    .build()
+            }
+            .diskCache {
+                DiskCache.Builder()
+                    .directory(context.cacheDir.resolve("image_cache").toOkioPath())
+                    .maxSizeBytes(maxDiskBytes)
+                    .build()
+            }
             .components {
                 val covers = SubsonicCoverMapper(container.subsonic)
                 add(covers)
@@ -73,6 +89,7 @@ class MusicApp : Application(), SingletonImageLoader.Factory {
                 add(OkHttpNetworkFetcherFactory(callFactory = { container.baseHttp }))
             }
             .build()
+    }
 }
 
 /** Hand-wired dependencies; small enough not to need a DI framework. */

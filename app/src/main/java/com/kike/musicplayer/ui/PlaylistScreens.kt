@@ -256,6 +256,7 @@ fun PlaylistScreen(
                 },
             )
             if (playlist == null) return@Column
+            PrefetchTrackArtworks(playlist.tracks)
             LazyColumn(Modifier.fillMaxSize(), state = listState, contentPadding = PaddingValues(bottom = 96.dp)) {
                 item(key = "header") { CollectionHeader(playlist.name, order) }
                 item(key = "actions") {

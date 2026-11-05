@@ -305,6 +305,9 @@ interface LastFmScrobbleDao {
 
     @Query("SELECT COUNT(*) AS total, COALESCE(SUM(trackId IS NULL), 0) AS unmatched FROM lastfm_scrobbles WHERE user = :user")
     fun observeCounts(user: String): Flow<ScrobbleCounts>
+
+    @Query("SELECT COUNT(*) FROM lastfm_scrobbles")
+    suspend fun countAll(): Int
 }
 
 @Dao
@@ -704,6 +707,12 @@ interface BrowseDao {
             "GROUP BY substr(sortKey, 1, 2) ORDER BY substr(sortKey, 1, 2)"
     )
     fun albumFirstChars(scopes: List<Int>): Flow<List<FirstChar>>
+
+    @Query("SELECT COUNT(DISTINCT `key`) FROM album_index")
+    suspend fun albumCount(): Int
+
+    @Query("SELECT COUNT(DISTINCT name) FROM artist_index")
+    suspend fun artistCount(): Int
 
     @Query("SELECT $ALBUM_SUM FROM album_index WHERE `key` = :key AND scope IN (:scopes) GROUP BY `key`")
     fun observeAlbum(key: String, scopes: List<Int>): Flow<AlbumIndex?>

@@ -1,6 +1,7 @@
 package com.kike.musicplayer.ui
 
 import android.app.Application
+import java.io.File
 import android.app.PendingIntent
 import android.content.Intent
 import android.net.Uri
@@ -1107,6 +1108,136 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
     val downloadTotals = downloader.totals.stateIn(viewModelScope, SharingStarted.Eagerly, null)
     fun removeAllDownloads() = downloader.removeAll()
 
+    // ---- Storage & Cache Management ----
+
+    val imageCacheLimitMb: StateFlow<Long> = settings.imageCacheLimitMb
+
+    private val _storageStats = MutableStateFlow(StorageStats(loading = true))
+    val storageStats: StateFlow<StorageStats> = _storageStats.asStateFlow()
+
+    private fun measureDir(dir: File): Pair<Long, Int> {
+        if (!dir.exists()) return 0L to 0
+        var totalBytes = 0L
+        var count = 0
+        val stack = ArrayDeque<File>()
+        stack.add(dir)
+        while (stack.isNotEmpty()) {
+            val current = stack.removeFirst()
+            val files = current.listFiles() ?: continue
+            for (f in files) {
+                if (f.isDirectory) {
+                    stack.add(f)
+                } else {
+                    totalBytes += f.length()
+                    count++
+                }
+            }
+        }
+        return totalBytes to count
+    }
+
+    fun refreshStorageStats() {
+        viewModelScope.launch(Dispatchers.IO) {
+            _storageStats.update { it.copy(loading = true) }
+            val app = getApplication<Application>()
+
+            val appBytes = runCatching { File(app.packageCodePath).length() }.getOrDefault(0L)
+
+            val dbFile = app.getDatabasePath("music.db")
+            val walFile = app.getDatabasePath("music.db-wal")
+            val shmFile = app.getDatabasePath("music.db-shm")
+            val dbBytes = (dbFile.takeIf { it.exists() }?.length() ?: 0L) +
+                (walFile.takeIf { it.exists() }?.length() ?: 0L) +
+                (shmFile.takeIf { it.exists() }?.length() ?: 0L)
+
+            val trackCount = runCatching { database.tracks().countAll() }.getOrDefault(0)
+            val albumCount = runCatching { database.browse().albumCount() }.getOrDefault(0)
+            val artistCount = runCatching { database.browse().artistCount() }.getOrDefault(0)
+            val scrobbleCount = runCatching { database.lastFmScrobbles().countAll() }.getOrDefault(0)
+
+            val artworkDir = File(app.filesDir, "artwork")
+            val (artBytes, artCount) = measureDir(artworkDir)
+
+            val imgCacheDir = app.cacheDir.resolve("image_cache")
+            val (imgBytes, imgCount) = measureDir(imgCacheDir)
+
+            val (codeBytes, _) = measureDir(app.codeCacheDir)
+
+            val dataDir = app.filesDir.parentFile
+            val (totalDataBytes, _) = if (dataDir != null) measureDir(dataDir) else (dbBytes + artBytes to 0)
+
+            _storageStats.value = StorageStats(
+                appBytes = appBytes,
+                totalDataBytes = totalDataBytes,
+                databaseBytes = dbBytes,
+                databaseTrackCount = trackCount,
+                databaseAlbumCount = albumCount,
+                databaseArtistCount = artistCount,
+                databaseScrobbleCount = scrobbleCount,
+                artworkBytes = artBytes,
+                artworkCount = artCount,
+                imageCacheBytes = imgBytes,
+                imageCacheCount = imgCount,
+                codeCacheBytes = codeBytes,
+                loading = false,
+            )
+        }
+    }
+
+    @OptIn(coil3.annotation.DelicateCoilApi::class)
+    fun clearImageCache(onDone: () -> Unit = {}) {
+        viewModelScope.launch(Dispatchers.IO) {
+            val app = getApplication<Application>()
+            runCatching {
+                val loader = coil3.SingletonImageLoader.get(app)
+                loader.diskCache?.clear()
+                loader.memoryCache?.clear()
+            }
+            val cacheDir = app.cacheDir.resolve("image_cache")
+            runCatching {
+                cacheDir.deleteRecursively()
+                cacheDir.mkdirs()
+            }
+            coil3.SingletonImageLoader.reset()
+            refreshStorageStats()
+            withContext(Dispatchers.Main) {
+                onDone()
+            }
+        }
+    }
+
+    fun pruneArtwork(onDone: (freedBytes: Long, count: Int) -> Unit = { _, _ -> }) {
+        viewModelScope.launch(Dispatchers.IO) {
+            val app = getApplication<Application>()
+            val artworkDir = File(app.filesDir, "artwork")
+            val usedUris = runCatching {
+                database.tracks().localArtworkUris().mapNotNullTo(HashSet()) { Uri.parse(it).path }
+            }.getOrDefault(emptySet())
+            var freed = 0L
+            var removed = 0
+            artworkDir.listFiles().orEmpty().forEach { file ->
+                if (file.path !in usedUris) {
+                    val len = file.length()
+                    if (file.delete()) {
+                        freed += len
+                        removed++
+                    }
+                }
+            }
+            refreshStorageStats()
+            withContext(Dispatchers.Main) {
+                onDone(freed, removed)
+            }
+        }
+    }
+
+    @OptIn(coil3.annotation.DelicateCoilApi::class)
+    fun setImageCacheLimit(limitMb: Long) {
+        settings.setImageCacheLimitMb(limitMb)
+        coil3.SingletonImageLoader.reset()
+        refreshStorageStats()
+    }
+
     // ---- Browsing: straight from the database, page by page (large libraries) ----
 
     private val browse = container.database.browse()
@@ -1426,6 +1557,7 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
     fun importLoved() = importer.importLoved()
 
     init {
+        refreshStorageStats()
         viewModelScope.launch {
             settings.deezerHomeEnrichment.collect { enabled ->
                 if (enabled && _deezerHomeContent.value == null) {
@@ -1520,3 +1652,20 @@ internal fun preferOwnCopies(tracks: List<Track>): List<Track> {
     val own = tracks.filter { it.source != Track.SOURCE_SUBSONIC }.mapTo(HashSet(), ::key)
     return tracks.filter { it.source != Track.SOURCE_SUBSONIC || key(it) !in own }
 }
+
+
+data class StorageStats(
+    val appBytes: Long = 0L,
+    val totalDataBytes: Long = 0L,
+    val databaseBytes: Long = 0L,
+    val databaseTrackCount: Int = 0,
+    val databaseAlbumCount: Int = 0,
+    val databaseArtistCount: Int = 0,
+    val databaseScrobbleCount: Int = 0,
+    val artworkBytes: Long = 0L,
+    val artworkCount: Int = 0,
+    val imageCacheBytes: Long = 0L,
+    val imageCacheCount: Int = 0,
+    val codeCacheBytes: Long = 0L,
+    val loading: Boolean = false,
+)

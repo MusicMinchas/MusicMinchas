@@ -44,7 +44,11 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Cloud
+import androidx.compose.foundation.background
 import androidx.compose.material.icons.filled.LibraryMusic
+import androidx.compose.material.icons.filled.Extension
+import androidx.compose.material.icons.filled.Storage
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.FactCheck
@@ -131,21 +135,12 @@ fun SourcesScreen(
     onBack: () -> Unit,
     onOpenMusicSources: () -> Unit,
     onOpenLibraryHealth: () -> Unit,
+    onOpenIntegrations: () -> Unit,
+    onOpenDataStorage: () -> Unit,
     contentPadding: PaddingValues,
 ) {
-    val online by vm.onlineMetadata.collectAsState()
-    val pending by vm.pendingMetadata.collectAsState()
-    val progress by vm.metadataProgress.collectAsState()
     val status by vm.scanStatus.collectAsState()
     val error by vm.lastError.collectAsState()
-    val downloads by vm.downloadTotals.collectAsState()
-    var confirmDeleteDownloads by remember { mutableStateOf(false) }
-    val lastFm by vm.lastFmState.collectAsState()
-    val scrobbling by vm.scrobbleSettings.collectAsState()
-    val pendingScrobbles by vm.pendingScrobbles.collectAsState()
-    val importStatus by vm.importStatus.collectAsState()
-    val scrobbleCounts by vm.scrobbleCounts.collectAsState()
-    val uriHandler = LocalUriHandler.current
 
     Column(Modifier.fillMaxSize().padding(contentPadding)) {
         TopAppBar(
@@ -165,8 +160,127 @@ fun SourcesScreen(
             MusicSourcesEntry(vm, onOpenMusicSources)
             LibraryHealthEntry(onOpenLibraryHealth)
 
-            // 2. Services & Playback
-            SettingsSectionHeader(stringResource(R.string.settings_section_services))
+            // 2. Integrations
+            SettingsSectionHeader(stringResource(R.string.settings_section_integrations))
+            IntegrationsEntry(vm, onOpenIntegrations)
+
+            // 3. Data & Storage
+            SettingsSectionHeader(stringResource(R.string.settings_section_data))
+            DataStorageEntry(vm, onOpenDataStorage)
+
+            // 4. Audio Settings
+            SettingsSectionHeader("Audio Settings")
+            SonosPlaybackCard(vm)
+            AudioDspCard(vm)
+
+            // 5. General Preferences
+            SettingsSectionHeader(stringResource(R.string.settings_section_general))
+            LanguageCard(vm)
+            AppearanceCard(vm)
+        }
+    }
+}
+
+/** Entry card leading to the Integrations submenu (Last.fm, Metadata, Automatic Sync). */
+@Composable
+private fun IntegrationsEntry(vm: LibraryViewModel, onOpen: () -> Unit) {
+    val lastFm by vm.lastFmState.collectAsState()
+    val deezer by vm.metaDeezer.collectAsState()
+    val apple by vm.metaApple.collectAsState()
+    val mb by vm.metaMusicBrainz.collectAsState()
+    val autoSync by vm.autoSync.collectAsState()
+
+    val summary = buildString {
+        if (lastFm.user != null) {
+            append("Last.fm (${lastFm.user})")
+        } else {
+            append("Last.fm")
+        }
+        val metaCount = listOf(deezer, apple, mb).count { it }
+        append(" · ")
+        append(if (metaCount > 0) "Metadata ($metaCount/3)" else "Metadata")
+        append(" · ")
+        append(if (autoSync.enabled) "Auto-sync (On)" else "Auto-sync (Off)")
+    }
+
+    Card(Modifier.fillMaxWidth().clickable(onClick = onOpen)) {
+        Row(Modifier.padding(horizontal = 12.dp, vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
+            Icon(Icons.Default.Extension, null, tint = MaterialTheme.colorScheme.primary)
+            Column(Modifier.weight(1f).padding(start = 12.dp)) {
+                Text(stringResource(R.string.settings_integrations_title), style = MaterialTheme.typography.titleMedium)
+                Text(
+                    summary,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+    }
+}
+
+/** Entry card leading to Data & Storage submenu (Downloads, Cache & Storage Management). */
+@Composable
+private fun DataStorageEntry(vm: LibraryViewModel, onOpen: () -> Unit) {
+    val downloads by vm.downloadTotals.collectAsState()
+    val stats by vm.storageStats.collectAsState()
+    val cacheLimitMb by vm.imageCacheLimitMb.collectAsState()
+
+    val summary = buildString {
+        val downloadedSongs = downloads?.songs ?: 0
+        if (downloadedSongs > 0) {
+            append("$downloadedSongs downloaded · ")
+        }
+        if (stats.databaseBytes > 0) {
+            append("${formatBytes(stats.databaseBytes)} DB · ")
+        }
+        append("${formatBytes(stats.imageCacheBytes)} cache (max ${cacheLimitMb}MB)")
+    }
+
+    Card(Modifier.fillMaxWidth().clickable(onClick = onOpen)) {
+        Row(Modifier.padding(horizontal = 12.dp, vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
+            Icon(Icons.Default.Storage, null, tint = MaterialTheme.colorScheme.primary)
+            Column(Modifier.weight(1f).padding(start = 12.dp)) {
+                Text(stringResource(R.string.settings_data_storage_title), style = MaterialTheme.typography.titleMedium)
+                Text(
+                    summary,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+    }
+}
+
+/** Integrations sub-screen: Last.fm settings, Online Metadata Lookup, Automatic Sync. */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun IntegrationsScreen(
+    vm: LibraryViewModel,
+    onBack: () -> Unit,
+    contentPadding: PaddingValues,
+) {
+    val pending by vm.pendingMetadata.collectAsState()
+    val progress by vm.metadataProgress.collectAsState()
+    val lastFm by vm.lastFmState.collectAsState()
+    val scrobbling by vm.scrobbleSettings.collectAsState()
+    val pendingScrobbles by vm.pendingScrobbles.collectAsState()
+    val importStatus by vm.importStatus.collectAsState()
+    val scrobbleCounts by vm.scrobbleCounts.collectAsState()
+    val uriHandler = LocalUriHandler.current
+
+    Column(Modifier.fillMaxSize().padding(contentPadding)) {
+        TopAppBar(
+            windowInsets = NoTopInsets,
+            title = { Text(stringResource(R.string.settings_integrations_title)) },
+            navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, stringResource(R.string.action_back)) } },
+        )
+        Column(
+            Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 12.dp, vertical = 8.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            // 1. Last.fm
             SourceCard(
                 "Last.fm",
                 when {
@@ -191,9 +305,62 @@ fun SourcesScreen(
                 }
             }
 
-            // 3. Data & Storage
-            SettingsSectionHeader(stringResource(R.string.settings_section_data))
+            // 2. Online Metadata Lookup
             MetadataCard(vm, pending, progress)
+
+            // 3. Automatic Sync
+            SyncCard(vm)
+        }
+    }
+}
+
+/** Data & Storage sub-screen: Downloaded Songs and Storage & Cache Management. */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun DataStorageScreen(
+    vm: LibraryViewModel,
+    onBack: () -> Unit,
+    contentPadding: PaddingValues,
+) {
+    val downloads by vm.downloadTotals.collectAsState()
+    var confirmDeleteDownloads by remember { mutableStateOf(false) }
+    val stats by vm.storageStats.collectAsState()
+    val cacheLimitMb by vm.imageCacheLimitMb.collectAsState()
+    var actionMessage by remember { mutableStateOf<String?>(null) }
+
+    Column(Modifier.fillMaxSize().padding(contentPadding)) {
+        TopAppBar(
+            windowInsets = NoTopInsets,
+            title = { Text(stringResource(R.string.settings_data_storage_title)) },
+            navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, stringResource(R.string.action_back)) } },
+            actions = {
+                IconButton(onClick = vm::refreshStorageStats) {
+                    Icon(Icons.Default.Refresh, stringResource(R.string.action_refresh))
+                }
+            }
+        )
+        Column(
+            Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 12.dp, vertical = 8.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            actionMessage?.let { msg ->
+                Surface(
+                    color = MaterialTheme.colorScheme.primaryContainer,
+                    shape = RoundedCornerShape(8.dp),
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Row(
+                        Modifier.padding(12.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                    ) {
+                        Text(msg, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onPrimaryContainer, modifier = Modifier.weight(1f))
+                        TextButton(onClick = { actionMessage = null }) { Text(stringResource(R.string.action_close)) }
+                    }
+                }
+            }
+
+            // 1. Downloaded Songs
             SourceCard(
                 stringResource(R.string.sources_downloads),
                 stringResource(R.string.sources_downloads_subtitle),
@@ -220,18 +387,136 @@ fun SourcesScreen(
                     dismissButton = { TextButton(onClick = { confirmDeleteDownloads = false }) { Text(stringResource(R.string.action_cancel)) } },
                 )
             }
-            SyncCard(vm)
 
-            // 4. Audio Settings
-            SettingsSectionHeader("Audio Settings")
-            SonosPlaybackCard(vm)
-            AudioDspCard(vm)
-
-            // 5. General Preferences
-            SettingsSectionHeader(stringResource(R.string.settings_section_general))
-            LanguageCard(vm)
-            AppearanceCard(vm)
+            // 2. Cache & Storage Management
+            StorageManagementCard(
+                stats = stats,
+                cacheLimitMb = cacheLimitMb,
+                onSetLimit = vm::setImageCacheLimit,
+                onClearCache = {
+                    vm.clearImageCache {
+                        actionMessage = "Image cache cleared successfully"
+                    }
+                },
+                onPruneArtwork = {
+                    vm.pruneArtwork { freed, count ->
+                        actionMessage = if (count > 0) "Pruned $count unused cover files (${formatBytes(freed)} freed)" else "No unused artwork found"
+                    }
+                },
+            )
         }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun StorageManagementCard(
+    stats: StorageStats,
+    cacheLimitMb: Long,
+    onSetLimit: (Long) -> Unit,
+    onClearCache: () -> Unit,
+    onPruneArtwork: () -> Unit,
+) {
+    SourceCard(
+        title = stringResource(R.string.storage_mgmt_title),
+        subtitle = stringResource(R.string.storage_mgmt_subtitle),
+    ) {
+        val number = java.text.NumberFormat.getIntegerInstance()
+
+        // Storage Breakdown Table
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f), RoundedCornerShape(8.dp))
+                .padding(12.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            StorageStatRow(
+                label = stringResource(R.string.storage_stat_database),
+                size = formatBytes(stats.databaseBytes),
+                detail = "${number.format(stats.databaseTrackCount)} songs · ${number.format(stats.databaseAlbumCount)} albums · ${number.format(stats.databaseScrobbleCount)} scrobbles",
+            )
+            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+            StorageStatRow(
+                label = stringResource(R.string.storage_stat_embedded_artwork),
+                size = formatBytes(stats.artworkBytes),
+                detail = "${number.format(stats.artworkCount)} extracted ID3/Drive covers",
+            )
+            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+            StorageStatRow(
+                label = stringResource(R.string.storage_stat_image_cache),
+                size = formatBytes(stats.imageCacheBytes),
+                detail = "${number.format(stats.imageCacheCount)} cached network images",
+            )
+            if (stats.codeCacheBytes > 0) {
+                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+                StorageStatRow(
+                    label = stringResource(R.string.storage_stat_runtime_cache),
+                    size = formatBytes(stats.codeCacheBytes),
+                    detail = "ART bytecode compilation & GPU shaders",
+                )
+            }
+        }
+
+        Spacer(Modifier.height(4.dp))
+
+        // Image Cache Limit Selector
+        Text(
+            text = stringResource(R.string.storage_cache_limit_label),
+            style = MaterialTheme.typography.labelMedium,
+            color = MaterialTheme.colorScheme.primary,
+        )
+        Text(
+            text = stringResource(R.string.storage_cache_limit_desc),
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+
+        val options = listOf(250L, 500L, 1024L, 2048L)
+        val labels = listOf("250 MB", "500 MB", "1 GB", "2 GB")
+        SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
+            options.forEachIndexed { index, mb ->
+                SegmentedButton(
+                    selected = cacheLimitMb == mb,
+                    onClick = { onSetLimit(mb) },
+                    shape = SegmentedButtonDefaults.itemShape(index = index, count = options.size),
+                ) {
+                    Text(labels[index], style = MaterialTheme.typography.labelSmall)
+                }
+            }
+        }
+
+        Spacer(Modifier.height(4.dp))
+
+        // Management Actions
+        Row(
+            Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            OutlinedButton(
+                onClick = onClearCache,
+                modifier = Modifier.weight(1f),
+            ) {
+                Text(stringResource(R.string.storage_clear_image_cache), maxLines = 1, overflow = TextOverflow.Ellipsis)
+            }
+            OutlinedButton(
+                onClick = onPruneArtwork,
+                modifier = Modifier.weight(1f),
+            ) {
+                Text(stringResource(R.string.storage_prune_artwork), maxLines = 1, overflow = TextOverflow.Ellipsis)
+            }
+        }
+    }
+}
+
+@Composable
+private fun StorageStatRow(label: String, size: String, detail: String) {
+    Column(Modifier.fillMaxWidth()) {
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+            Text(label, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
+            Text(size, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+        }
+        Text(detail, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
 }
 

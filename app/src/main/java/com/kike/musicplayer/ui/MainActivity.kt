@@ -87,6 +87,8 @@ private sealed interface Screen {
     data class CatalogSectionDetail(val section: com.kike.musicplayer.data.catalog.DeezerHomeSection) : Screen
     data class PlaylistCategory(val type: PlaylistCategoryType) : Screen
     data object LibraryHealth : Screen
+    data object Integrations : Screen
+    data object DataStorage : Screen
 }
 
 class MainActivity : ComponentActivity() {
@@ -480,6 +482,18 @@ class MainActivity : ComponentActivity() {
                             onBack = ::pop,
                             onOpenMusicSources = { push(Screen.MusicSources) },
                             onOpenLibraryHealth = { push(Screen.LibraryHealth) },
+                            onOpenIntegrations = { push(Screen.Integrations) },
+                            onOpenDataStorage = { push(Screen.DataStorage) },
+                            contentPadding = padding,
+                        )
+                        Screen.Integrations -> IntegrationsScreen(
+                            libraryVm,
+                            onBack = ::pop,
+                            contentPadding = padding,
+                        )
+                        Screen.DataStorage -> DataStorageScreen(
+                            libraryVm,
+                            onBack = ::pop,
                             contentPadding = padding,
                         )
                         Screen.LibraryHealth -> LibraryHealthScreen(
