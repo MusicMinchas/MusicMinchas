@@ -1,68 +1,96 @@
 # MusicMinchas
 
-A native Android music player: Kotlin, Jetpack Compose, Media3/ExoPlayer, Room, Retrofit, and Coil.
+A native Android music player built with Kotlin, Jetpack Compose, Media3/ExoPlayer, and Room. Designed for power users and audiophiles who want unified multi-source streaming, bit-perfect playback, local and cast listening, and rich metadata.
+
+---
 
 ## Features
 
-- **Playback** with ExoPlayer inside a `MediaLibraryService`: background playback, notification, lock screen, hardware/Bluetooth buttons, Android Auto browse tree (Songs / Albums plus search), and resume after the app was killed.
-- **Formats**: MP3, AAC, FLAC, ALAC, and WAV, using ExoPlayer's built-in extractors (no FFmpeg). MP3, AAC, FLAC, and WAV use the platform decoders. ALAC uses a built-in Kotlin port of Apple's reference decoder (`playback/alac`), because Qualcomm's `c2.qti.alac.*` decoders reject valid files. It is verified bit-exact against FFmpeg for 16-bit stereo, 16-bit mono, and 24-bit/96 kHz stereo. Float output is enabled so 24-bit sources keep their resolution.
-- **Queue**: play, pause, skip, seek, shuffle, and repeat (off / all / one). The Up Next list follows the shuffle order. Drag-to-reorder works when shuffle is off. You can remove items, and add songs with *Play next* or *Add to queue*. The queue and position are saved in Room and restored.
-- **Sources**
-  Only folders the user picks are imported, so ringtones, app sounds and other stray audio stay out.
-  - *Device folders*: picked through the Storage Access Framework, with a persisted grant, so no storage permission is needed. Sub-folders are included.
-  - *Google Drive folders*: picked in an in-app browser (My Drive and Shared with me). The app lists all folders and audio files once and filters by ancestry, so it doesn't make one request per folder. Drive access uses OAuth 2.0 through Google Identity Services `AuthorizationClient` with the `drive.readonly` scope. Files are streamed with HTTP Range requests through OkHttp, so playback starts before the file is downloaded.
-- **Play on Sonos**: the cast button in Now Playing lists Sonos rooms and groups (SSDP discovery). The app's queue is copied into the group's Sonos queue, and Sonos fetches each track from a small HTTP server in the app (`sonos/TrackServer`). Drive files are relayed with the OAuth token, which never leaves the phone; folder files are served directly; Range requests are supported, so Sonos seeks and reads ahead (about 4× real time). Sonos plays the audio itself. While casting, the media session uses `SonosPlayer` (a Media3 `SimpleBasePlayer`), so the app UI, notification, lock screen and volume keys control the speaker. Picking "This phone" hands the queue back at the same position.
-- **Library tabs**: Home, Albums, Artists, Genres, Playlists, Songs, with search above them (artists, albums and song titles; Artists / Albums / Songs chips narrow it down).
-- **Genres**: from the files' own genre tag (read during the tag scan; older libraries get a one-time background backfill), else the artist's top MusicBrainz tag. An album is listed under the genre most of its songs have.
-- **Home**: Recently Played, Replay and Most Played tiles, generated mixes ("Made for you") and recently played albums.
-- **Play counting**: a play is recorded when a track starts; the time actually listened accumulates (seeking doesn't count) and the play counts once it reaches half the track, on the phone or on Sonos. The full history is kept.
-- **Replay**: most played songs, artists and albums for a year or one of its months, with plays and listening time.
-- **Recommendations** (`recommend/Recommender`), all on the phone: artist genre tags from MusicBrainz (one artist search each, cached) plus listening signals (counted plays decaying with age, recency, skips). Mixes: *Because you listened to …* (artists with similar MusicBrainz tags, or file genres when MusicBrainz has none), top genres (file genre first), top decades, *Rediscover* (loved albums not played for two months), *Fresh Picks* (unplayed albums). At most 2–3 songs per artist, no artist twice in a row, songs skipped repeatedly left out; seeded by the day, so mixes change daily.
-- **Playlists**: two automatic playlists built from the play history (a play is recorded when a track starts, on the phone or on Sonos): *Recently Played* (last 30 different songs) and *Recently Played Albums* (last 10 different albums). Tiles show a strip of covers fading from 30% to 80% transparency.
-- **Drive sync**: automatic sync of the chosen Drive folders is *No automatic sync*, *Every 24 h* (default) or *At app start*; *Sync* runs it any time. Device folders are rescanned at each start (local and quick).
-- **Metadata pipeline**, cached in Room:
-  1. Local: tags and embedded artwork are read from the file, 12 files at a time, and written to Room in batches. Device files use `MediaMetadataRetriever`. Drive files use ExoPlayer's extractors (`media3-inspector` `MetadataRetriever`) with each request capped at 1 MB, because tags sit in the header. Artwork is stored once per album in `files/artwork`.
-  2. Online fallback for songs still missing artist, album, or artwork: MusicBrainz release search (once per album) or recording search gives the MBIDs, then the Cover Art Archive gives the front cover. Requests are limited to 1 per second as MusicBrainz requires. You can turn this off in *Sources & metadata*.
+### Multi-Source Library & Streaming
+- **Local Storage**: Storage Access Framework (SAF) folder selection with persistent URI permissions (no broad storage permissions required).
+- **Google Drive**: In-app folder browser with streaming via HTTP Range requests (OAuth 2.0 PKCE with `drive.readonly` scope).
+- **Navidrome / Subsonic**: Connect to any Subsonic-compatible server (`/rest` API) with token/salt authentication, library browsing, search, and streaming.
+- **Lossless Streaming Add-ons**: Stremio / Eclipse streaming add-on support via Torbox debrid integration.
+- **Unified Library**: Merged multi-source artist and album views with customizable source priority preferences (Local, Drive, Server).
+
+### Audio Engine & Bit-Perfect Playback
+- **Media3 & Background Service**: ExoPlayer integrated into a foreground `MediaLibraryService` with Android Auto support, lock screen controls, and persistent queue restoration.
+- **Custom ALAC Decoder**: Built-in bit-exact Kotlin port of Apple's reference ALAC decoder (`playback/alac`) bypassing Qualcomm hardware decoder bugs; supports 16-bit and 24-bit/96 kHz audio with float output.
+- **Audio Processing**: Bit-perfect output with optional Loudness Normalization, Crossfade, and Equalizer.
+
+### Play on Sonos
+- **Direct Casting**: Discover Sonos speakers and groups via SSDP and mirror the app queue to Sonos.
+- **Local HTTP Relay**: Built-in high-throughput streaming relay (`sonos/TrackServer`) on port 8765 with block caching and prefetching.
+- **Hi-Res Downsampling**: On-the-fly 24-bit/48 kHz downsampling for hi-res files (>48 kHz) to ensure seamless playback on Sonos S2 hardware.
+- **Native App Shuffle**: App-managed playback order prevents Sonos queue reshuffling quirks.
+
+### Public Catalog & Music Discovery
+- **Deezer Public Catalog**: Explore Trending Charts, Genre playlists, and "100% Artist Essentials".
+- **Intelligent Caching**: 7-day persistent disk cache for catalog playlists with background artwork prefetching.
+- **Catalog Matching**: Instant cross-referencing between catalog tracks and your personal library for quick playback.
+
+### On-Device Recommendations & Replay
+- **100% On-Device Engine**: Recommender powered by MusicBrainz metadata tags, listen counts, skip history, and favourites (`recommend/`).
+- **Daily Mixes**: Daily seeded mixes including *Because you listened to...*, Top Genres, *Forgotten Favourites*, *Rediscover*, and *Fresh Picks*.
+- **Replay Statistics**: Detailed monthly and annual listening statistics, top tracks, artists, and albums.
+
+### Lyrics & Rich Metadata
+- **LRCLIB Lyrics**: Synced and plain-text lyrics with tap-to-seek and interactive 3D album cover flip.
+- **Enrichment Pipeline**: Reads embedded ID3/Vorbis/MP4 tags, with online fallbacks to MusicBrainz, Cover Art Archive, Deezer, and Wikidata artist images.
+- **Case-Sensitive Artist Grouping**: Preserves tag casing integrity across your library.
+
+### Scrobbling & Imports
+- **Last.fm Scrobbling**: Real-time scrobbling with persistent offline outbox and automatic retry.
+- **Favourites & Loved Tracks**: Two-way synchronization between Loved tracks and in-app Favourites.
+- **Scrobble History Import**: Full Last.fm scrobble history importer with fuzzy track matching.
+
+### Offline Downloads & File Upgrades
+- **Direct Downloads**: Download cloud/server tracks to local storage (`Music/MusicMinchas/`).
+- **Replacement Tracking**: Checksum-based replacement system that seamlessly transfers play history, scrobbles, and playlist positions when upgrading audio files to higher-quality formats.
+
+### Modular Settings & Storage Control
+- **Organized Settings**: Dedicated submenus for *Music Sources & Library Health*, *Integrations*, *Data & Storage*, *Audio Settings*, and *General Preferences*.
+- **Cache Management**: Configurable Coil 3 disk image cache (250 MB – 2 GB) with cache size monitoring and instant one-tap cleanup.
+
+---
+
+## Tech Stack
+
+- **UI**: Jetpack Compose, Material 3
+- **Audio**: Media3 / ExoPlayer 1.11, custom ALAC decoder
+- **Database**: Room 2.8 with KSP and Paging 3
+- **Network**: Retrofit 3, OkHttp, Moshi
+- **Image Loading**: Coil 3 (custom disk cache)
+- **Toolchain**: AGP 9.4, Kotlin 2.4, Gradle 9.8, compileSdk 37, targetSdk 36, minSdk 30
+
+---
 
 ## Build
 
-```
+To build the debug APK:
+
+```bash
 JAVA_HOME="C:/Program Files/Android/Android Studio/jbr" ./gradlew :app:assembleDebug
 ```
 
-Toolchain: AGP 9.4.1, Kotlin 2.4.20, KSP 2.3.12, Gradle 9.8; compileSdk 37, targetSdk 36, minSdk 30.
+---
 
-## Google Drive setup (one time)
+## Google Drive Setup (One-Time)
 
-The app holds no client ID. Google matches the app by its package name and signing certificate:
+The app does not require embedded client secrets. Google matches the app by its package name and signing certificate:
 
-1. In [Google Cloud Console](https://console.cloud.google.com/), create a project (or reuse one).
-2. *APIs & Services → Library*: enable **Google Drive API**.
-3. *Google Auth Platform → Branding / Audience*: set the app to **External**, keep it in **Testing**, and add your Google account as a **test user**.
-4. *Data Access*: add the scope `https://www.googleapis.com/auth/drive.readonly`.
-5. *Clients → Create client → Android*:
+1. In [Google Cloud Console](https://console.cloud.google.com/), create or open a project.
+2. Under **APIs & Services → Library**, enable the **Google Drive API**.
+3. Under **Google Auth Platform → Branding / Audience**, configure your app and OAuth consent screen.
+4. Under **Data Access**, add the scope `https://www.googleapis.com/auth/drive.readonly`.
+5. Under **Clients → Create Client → Android**:
    - Package name: `com.kike.musicplayer`
-   - SHA-1: the certificate that signs the APK. For this PC's debug key that is
-     `95:AD:8F:35:81:53:F9:F8:25:03:D9:4C:46:92:CE:60:F0:7F:37:82`.
-     If you sign a release build with another key, add a second Android client with that key's SHA-1.
-
-Because the app stays in Testing, Google shows an "unverified app" warning at consent. That is expected for a personal app.
-
-## Layout
-
-```
-data/db          Room: tracks, saved queue, session state
-data/local       MediaStore + SAF scanning
-data/drive       OAuth, Drive REST API, auth interceptor (also used by ExoPlayer)
-data/metadata    MusicBrainz / Cover Art Archive APIs, MetadataEnricher
-data/LibraryRepository   merges scans into Room, triggers enrichment
-playback         PlaybackService (ExoPlayer + MediaLibrarySession), MediaItem mapping
-ui               Compose screens, PlayerViewModel (MediaController), LibraryViewModel
-```
-
-## Known limits
-
-- The first tag scan of a large Drive library reads each file's header over the network, about 140 files per minute. Results are cached, so later scans only read new files.
-- Casting needs the phone on the same Wi-Fi as Sonos, with the app running (a foreground service with wake and Wi-Fi locks keeps it serving). Sonos S2 plays FLAC/ALAC up to 24-bit/48 kHz; higher sample rates won't play there. Up next ignores Sonos' own shuffle order.
-- Android Auto cannot load artwork from `file://` (extracted embedded art). Online covers (https) do show.
-- Drive has no tag index, so the first metadata pass for Drive songs reads each file's header over the network.
+   - SHA-1 certificate fingerprint: Obtain your signing certificate's SHA-1 fingerprint by running:
+     ```bash
+     ./gradlew signingReport
+     ```
+     or using `keytool`:
+     ```bash
+     keytool -list -v -keystore <path-to-keystore>
+     ```
+   - If signing release builds with a separate key, add a second Android client with the release certificate's SHA-1.
