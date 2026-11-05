@@ -7,7 +7,7 @@ Parent workspace notes: @[Shared Android Dev Workspace](../AGENTS.md)
 
 - **Path:** `C:\Users\kike\dev\MusicPlayer` (local git repo, repo-local identity `kike` / `kikeprojo@gmail.com`, nothing pushed).
 - **Package:** `com.kike.musicplayer`
-- **Current Release:** `1.44.1` (`versionCode = 97`, Room DB `v27`, `minSdk = 30`, `targetSdk = 36`, `compileSdk = 37`). Merged to `master`, tag `v1.44.1`.
+- **Current Release:** `1.45.0` (`versionCode = 98`, Room DB `v27`, `minSdk = 30`, `targetSdk = 36`, `compileSdk = 37`). Merged to `master`, tag `v1.45.0`.
 - **Stack:** Kotlin 2.4.20, Jetpack Compose, Media3 1.11.1 `MediaLibraryService` (Android Auto browse tree), Room 2.8.5 via KSP 2.3.12 + Paging 3 (`paging-compose 3.3.6`, `room-paging`), Retrofit 3 + Moshi (reflection), Coil 3, `play-services-auth` 22 `AuthorizationClient` (`drive.readonly` + `email`), `reorderable` 3.1.0, AGP 9.4.1, Gradle 9.8.
 - **Shared Toolchain & Environment:**
   - `JAVA_HOME`: Android Studio's bundled `jbr`
@@ -381,3 +381,18 @@ Started 2026-10-08 from user-pasted spec. NEW app, explicitly independent of Son
     - Fixes UI bug on devices using the Android 3-button navigation bar (`|||`, `O`, `<`) where the ~48 dp navigation bar was drawn directly on top of the MiniPlayer progress bar, track details, and playback controls.
     - Preserves edge-to-edge tonal surface background while ensuring all interactive elements sit cleanly above system buttons.
     - Verified on OnePlus 12, merged to `master`, tagged `v1.44.1`, release APK `MusicMinchas-1.44.1.apk` installed.
+- 2026-11-05 Release 1.45.0 (`versionCode = 98`, Room DB `v27`, GitHub issue #27):
+  - Cross-Source Favourites Matching in UI (`TrackMatcher.kt`, `Entities.kt`, `Daos.kt`, `PlayerViewModel.kt`, `Components.kt`, `PlayerScreens.kt`, `Recommender.kt`, `LibraryViewModel.kt`):
+    - Normalized song matching key (`TrackMatcher.songKey(artist, albumArtist, title)`) unifies casing, accents, punctuation, and featured artists across sources (Drive, Navidrome, Local SAF).
+    - Added `FavouriteSongMeta` query (`SELECT f.trackId, t.title, t.artist, t.albumArtist...`) exposed via reactive `favouriteSongKeys` flow to display favourite status across duplicate or mirrored tracks in search results and album listings.
+    - Preserves database storage integrity (favourites table retains exact canonical `trackId` of the user's preferred own copy via "Own Copy Wins", avoiding duplicate rows or distorted Recommender weights).
+    - Unfavouriting any matching copy removes the favourite from the database; favouriting a Navidrome track automatically promotes and stores the user's own local/Drive copy if present.
+  - Streaming Add-on Search Integration (`AddonModels.kt`, `AddonClient.kt`, `Settings.kt`, `NebulaUrls.kt`, `LibraryViewModel.kt`, `LibraryScreens.kt`):
+    - Search now queries enabled streaming add-ons with debounced background fetch (350 ms).
+    - Dedicated "Streaming Add-on" sections in `SearchResultsList` display categorized Artists, Albums, and Songs with format badges ("Lossless", "Hi-Res").
+    - Direct CDN lossless playback supported via `NebulaUrls.trackFor()` without requiring prior library import.
+    - Added toggle switch in the Search Sources dropdown menu (`KEY_ADDON_SEARCH_SHOWN`, default true) with persistent preference.
+  - Localization & Tests:
+    - Added English and Spanish strings for streaming add-on search categories and loading indicators.
+    - Added unit test in `TrackMatcherTest` validating cross-source song key matching. All 148 unit tests pass.
+  - Verified on OnePlus 12, merged to `master`, tagged `v1.45.0`, release APK `MusicMinchas-1.45.0.apk` installed.
