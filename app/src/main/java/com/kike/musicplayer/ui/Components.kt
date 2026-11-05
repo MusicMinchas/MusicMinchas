@@ -151,9 +151,26 @@ private fun ArtworkPlaceholder() {
 }
 
 /** The favourite songs and how to toggle one; provided once at the top of the UI for the track menus. */
-class Favourites(val ids: Set<String>, val toggle: (trackId: String, track: Track?) -> Unit) {
-    constructor(ids: Set<String>, toggleSingle: (trackId: String) -> Unit) : this(ids, { id, _ -> toggleSingle(id) })
+class Favourites(
+    val ids: Set<String>,
+    val songKeys: Set<String> = emptySet(),
+    val toggle: (trackId: String, track: Track?) -> Unit,
+) {
+    constructor(ids: Set<String>, toggleSingle: (trackId: String) -> Unit) : this(ids, emptySet(), { id, _ -> toggleSingle(id) })
     fun toggle(trackId: String) = toggle(trackId, null)
+
+    fun isFavourite(track: Track?): Boolean {
+        if (track == null) return false
+        if (track.id in ids) return true
+        val k = track.songKey
+        return k.isNotEmpty() && k in songKeys
+    }
+
+    fun isFavourite(trackId: String?, artist: String?, albumArtist: String?, title: String?): Boolean {
+        if (trackId != null && trackId in ids) return true
+        val k = com.kike.musicplayer.data.lastfm.TrackMatcher.songKey(artist, albumArtist, title)
+        return k.isNotEmpty() && k in songKeys
+    }
 }
 
 val LocalFavourites = compositionLocalOf { Favourites(emptySet()) {} }
@@ -496,7 +513,8 @@ fun TrackRow(
             Text(it, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary,
                 modifier = Modifier.padding(horizontal = 6.dp))
         }
-        if (showStatus && track.id in favourites.ids) {
+        val isFav = favourites.isFavourite(track)
+        if (showStatus && isFav) {
             Icon(Icons.Default.Favorite, "Favourite", Modifier.padding(end = 6.dp).size(16.dp), tint = FAVOURITE_RED)
         }
         if (showStatus) DownloadStatus(track, downloads.progress)
@@ -506,7 +524,7 @@ fun TrackRow(
                 DropdownMenuItem(text = { Text(stringResource(R.string.action_play_next)) }, onClick = { menu = false; onPlayNext() })
                 DropdownMenuItem(text = { Text(stringResource(R.string.action_add_to_queue)) }, onClick = { menu = false; onAddToQueue() })
                 DropdownMenuItem(
-                    text = { Text(if (track.id in favourites.ids) stringResource(R.string.action_remove_from_favourites) else stringResource(R.string.action_add_to_favourites)) },
+                    text = { Text(if (isFav) stringResource(R.string.action_remove_from_favourites) else stringResource(R.string.action_add_to_favourites)) },
                     onClick = { menu = false; favourites.toggle(track.id, track) },
                 )
                 DropdownMenuItem(text = { Text(stringResource(R.string.action_add_to_playlist)) }, onClick = { menu = false; addToPlaylist = true })

@@ -165,6 +165,10 @@ fun LibraryScreen(
     val query by libraryVm.query.collectAsState()
     val catalogEnabled by libraryVm.catalogEnabled.collectAsState()
     val catalogShown by libraryVm.catalogShown.collectAsState()
+    val addonsConnected by libraryVm.addonsConnected.collectAsState()
+    val addonSearchShown by libraryVm.addonSearchShown.collectAsState()
+    val addonResults by libraryVm.addonSearchResults.collectAsState()
+    val primaryAddonName = libraryVm.addons.collectAsState().value.firstOrNull { it.enabled }?.name ?: "Streaming Add-on" 
     val scanStatus by libraryVm.scanStatus.collectAsState()
     val progress by libraryVm.metadataProgress.collectAsState()
     val player by playerVm.state.collectAsState()
@@ -214,7 +218,7 @@ fun LibraryScreen(
                 }
             }
             val available by libraryVm.availableScopes.collectAsState()
-            val showSources = available.size + (if (catalogEnabled) 1 else 0) > 1
+            val showSources = available.size + (if (catalogEnabled) 1 else 0) + (if (addonsConnected) 1 else 0) > 1
             if (isSearching) {
                 SearchField(
                     query = query,
@@ -253,8 +257,12 @@ fun LibraryScreen(
                             serverName = server?.substringBefore(' ')?.takeIf { it.isNotBlank() } ?: "Navidrome",
                             catalogEnabled = catalogEnabled,
                             catalogShown = catalogShown,
+                            addonEnabled = addonsConnected,
+                            addonShown = addonSearchShown,
+                            addonName = primaryAddonName,
                             onToggle = libraryVm::toggleScope,
                             onToggleCatalog = libraryVm::toggleCatalogShown,
+                            onToggleAddon = libraryVm::toggleAddonSearchShown,
                         )
                     }
                 }
@@ -296,6 +304,7 @@ fun LibraryScreen(
             SearchResultsList(
                 results = results,
                 catalogResults = catalogResults,
+                addonResults = addonResults,
                 filters = filters,
                 currentId = player.current?.mediaId,
                 libraryVm = libraryVm,
@@ -385,8 +394,12 @@ private fun SourcesMenu(
     serverName: String,
     catalogEnabled: Boolean,
     catalogShown: Boolean,
+    addonEnabled: Boolean = false,
+    addonShown: Boolean = true,
+    addonName: String = "Streaming Add-on",
     onToggle: (Int) -> Unit,
     onToggleCatalog: () -> Unit,
+    onToggleAddon: () -> Unit = {},
 ) {
     var open by remember { mutableStateOf(false) }
     val shown = available.filter { it !in hidden }.ifEmpty { available }
@@ -401,10 +414,13 @@ private fun SourcesMenu(
         Track.SCOPE_SERVER -> SubmarineIcon
         else -> Icons.Default.Folder
     }
-    val allShown = shown.size == available.size && (!catalogEnabled || catalogShown)
+    val allShown = shown.size == available.size &&
+        (!catalogEnabled || catalogShown) &&
+        (!addonEnabled || addonShown)
     val activeLabels = buildList {
         shown.forEach { add(label(it)) }
         if (catalogEnabled && catalogShown) add("Deezer / Apple")
+        if (addonEnabled && addonShown) add(addonName)
     }
     Box {
         AssistChip(
@@ -421,7 +437,11 @@ private fun SourcesMenu(
             },
             leadingIcon = {
                 Icon(
-                    if (shown.size == 1 && (!catalogEnabled || !catalogShown)) icon(shown.single()) else Icons.Default.LibraryMusic,
+                    if (shown.size == 1 && (!catalogEnabled || !catalogShown) && (!addonEnabled || !addonShown)) {
+                        icon(shown.single())
+                    } else {
+                        Icons.Default.LibraryMusic
+                    },
                     null,
                     Modifier.size(18.dp),
                 )
@@ -439,6 +459,14 @@ private fun SourcesMenu(
                     leadingIcon = { Icon(icon(scope), null) },
                     trailingIcon = { Checkbox(checked = on, onCheckedChange = null) },
                     enabled = !(on && shown.size == 1),
+                )
+            }
+            if (addonEnabled) {
+                DropdownMenuItem(
+                    text = { Text(addonName) },
+                    onClick = onToggleAddon,
+                    leadingIcon = { Icon(Icons.Default.Cloud, null) },
+                    trailingIcon = { Checkbox(checked = addonShown, onCheckedChange = null) },
                 )
             }
             if (catalogEnabled) {
@@ -579,6 +607,7 @@ internal fun ArtistPhoto(url: String?, modifier: Modifier = Modifier) {
 private fun SearchResultsList(
     results: SearchResults,
     catalogResults: com.kike.musicplayer.data.catalog.CatalogSearchResults,
+    addonResults: com.kike.musicplayer.data.addon.AddonSearchResults = com.kike.musicplayer.data.addon.AddonSearchResults(),
     filters: Set<SearchFilter>,
     currentId: String?,
     libraryVm: LibraryViewModel,
@@ -642,6 +671,22 @@ private fun SearchResultsList(
         else catalogResults.playlists
     }
 
+    val addonArtists = remember(addonResults.artists, filters) {
+        if (!show(SearchFilter.ARTISTS)) emptyList()
+        else addonResults.artists
+    }
+    val addonAlbums = remember(addonResults.albums, filters) {
+        if (!show(SearchFilter.ALBUMS)) emptyList()
+        else addonResults.albums
+    }
+    val addonTracks = remember(addonResults.tracks, filters) {
+        if (!show(SearchFilter.SONGS)) emptyList()
+        else addonResults.tracks
+    }
+    val addonStreamTracks = remember(addonTracks) {
+        addonTracks.map { com.kike.musicplayer.data.nebula.NebulaUrls.trackFor(it) }
+    }
+
     var inLibraryArtists by remember { mutableStateOf(emptySet<String>()) }
     LaunchedEffect(catArtists) {
         val inLib = catArtists.map { it.name }.filter { libraryVm.firstArtist(listOf(it)) != null }
@@ -650,7 +695,8 @@ private fun SearchResultsList(
 
     if (artists.isEmpty() && albums.isEmpty() && songs.isEmpty() &&
         catArtists.isEmpty() && catAlbums.isEmpty() && catSongs.isEmpty() &&
-        catPlaylists.isEmpty() && !catalogResults.loading
+        catPlaylists.isEmpty() && !catalogResults.loading &&
+        addonTracks.isEmpty() && addonAlbums.isEmpty() && addonArtists.isEmpty() && !addonResults.loading
     ) {
         Text("No matches", Modifier.padding(16.dp), color = MaterialTheme.colorScheme.onSurfaceVariant)
         return
@@ -711,6 +757,96 @@ private fun SearchResultsList(
                     TrackRow(
                         track = track,
                         isCurrent = track.id == currentId,
+                        onClick = { playerVm.playTracks(listOf(track), 0) },
+                        onPlayNext = { playerVm.playNext(track) },
+                        onAddToQueue = { playerVm.addToQueue(track) },
+                    )
+                }
+            }
+        }
+        if (addonResults.loading) {
+            item {
+                Row(
+                    Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    androidx.compose.material3.CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 2.dp)
+                    Spacer(Modifier.width(10.dp))
+                    Text(
+                        stringResource(R.string.search_addon_loading, addonResults.addonName),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
+        }
+        if (addonArtists.isNotEmpty()) {
+            val collapsed = "addon_artists" in collapsedSections
+            item {
+                ResultsHeader(stringResource(R.string.search_addon_artists, addonResults.addonName), addonArtists.size, collapsed) { toggleSection("addon_artists") }
+            }
+            if (!collapsed) {
+                items(addonArtists, key = { "addon-ar:" + it.id }) { artist ->
+                    Row(
+                        Modifier.fillMaxWidth().clickable {
+                            libraryVm.setQuery(artist.name)
+                        }.padding(horizontal = 16.dp, vertical = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        ArtistPhoto(artist.artworkURL, Modifier.size(52.dp))
+                        Column(Modifier.padding(start = 14.dp)) {
+                            Text(artist.name, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            Text(addonResults.addonName, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                    }
+                }
+            }
+        }
+        if (addonAlbums.isNotEmpty()) {
+            val collapsed = "addon_albums" in collapsedSections
+            item {
+                ResultsHeader(stringResource(R.string.search_addon_albums, addonResults.addonName), addonAlbums.size, collapsed) { toggleSection("addon_albums") }
+            }
+            if (!collapsed) {
+                items(addonAlbums, key = { "addon-al:" + it.id }) { album ->
+                    Row(
+                        Modifier.fillMaxWidth().clickable {
+                            if (!album.tracks.isNullOrEmpty()) {
+                                playerVm.playTracks(album.tracks.map { com.kike.musicplayer.data.nebula.NebulaUrls.trackFor(it) }, 0)
+                            } else {
+                                libraryVm.setQuery("${album.artist} ${album.title}")
+                            }
+                        }.padding(horizontal = 16.dp, vertical = 6.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Artwork(album.artworkURL, size = 48.dp)
+                        Column(Modifier.padding(start = 12.dp)) {
+                            Text(album.title, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            val sub = buildList {
+                                add(album.artist)
+                                album.year?.takeIf { it > 0 }?.let { add(it.toString()) }
+                                album.trackCount?.takeIf { it > 0 }?.let { add(pluralStringResource(R.plurals.songs_count, it, it)) }
+                                add(addonResults.addonName)
+                            }.joinToString(" · ")
+                            Text(sub, maxLines = 1, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                    }
+                }
+            }
+        }
+        if (addonTracks.isNotEmpty()) {
+            val collapsed = "addon_songs" in collapsedSections
+            item {
+                ResultsHeader(stringResource(R.string.search_addon_songs, addonResults.addonName), addonTracks.size, collapsed) { toggleSection("addon_songs") }
+            }
+            if (!collapsed) {
+                itemsIndexed(addonStreamTracks, key = { idx, track -> "addon-so:${track.id}:$idx" }) { index, track ->
+                    val orig = addonTracks.getOrNull(index)
+                    val badge = if (orig?.isHiRes == true) "Hi-Res" else "Lossless"
+                    TrackRow(
+                        track = track,
+                        isCurrent = track.id == currentId,
+                        badge = badge,
                         onClick = { playerVm.playTracks(listOf(track), 0) },
                         onPlayNext = { playerVm.playNext(track) },
                         onAddToQueue = { playerVm.addToQueue(track) },

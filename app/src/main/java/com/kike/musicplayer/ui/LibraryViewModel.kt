@@ -354,6 +354,7 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
     private suspend fun makeMixes(scopes: List<Int>): List<Mix> {
         val history = history.first()
         val favouriteIds = favouriteRows.first().mapTo(HashSet()) { it.trackId }
+        val favouriteKeys = database.favourites().observeFavouriteMetas().first().mapNotNullTo(HashSet()) { it.songKey }
         val candidates = MixCandidates.load(database, history, favouriteIds, scopes)
         return Bench.time("mixes from ${candidates.size} songs") {
             Recommender(
@@ -361,6 +362,7 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
                 history = history,
                 artistTags = artistTags.first(),
                 favourites = favouriteIds,
+                favouriteKeys = favouriteKeys,
                 pickable = { it.scope in scopes },
                 historicalDates = container.historicalDates.csvDates.value,
                 inAppPlayDates = container.historicalDates.inAppDates.value,
@@ -1288,6 +1290,60 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
     val nebulaUrls = container.nebulaUrls
     fun connectNebula(manifestUrl: String) = connectAddon(manifestUrl, "nebula")
     fun disconnectNebula() = disconnectAddon("nebula")
+
+    val addonSearchShown: StateFlow<Boolean> = settings.addonSearchShown
+    fun toggleAddonSearchShown() = settings.toggleAddonSearchShown()
+
+    private val ADDON_SEARCH_DEBOUNCE_MS = 350L
+
+    private data class AddonSearchTrigger(
+        val query: String,
+        val connected: Boolean,
+        val shown: Boolean,
+        val enabledAddons: List<com.kike.musicplayer.data.addon.AddonInstance>,
+    )
+
+    @OptIn(kotlinx.coroutines.FlowPreview::class, kotlinx.coroutines.ExperimentalCoroutinesApi::class)
+    val addonSearchResults: StateFlow<com.kike.musicplayer.data.addon.AddonSearchResults> = combine(
+        _query.debounce { if (it.isBlank()) 0L else ADDON_SEARCH_DEBOUNCE_MS },
+        addonsConnected,
+        settings.addonSearchShown,
+        addons,
+    ) { q, connected, shown, allAddons ->
+        AddonSearchTrigger(q, connected, shown, allAddons.filter { it.enabled })
+    }
+        .flatMapLatest { trigger ->
+            val primaryName = trigger.enabledAddons.firstOrNull()?.name ?: "Add-on"
+            if (!trigger.connected || !trigger.shown || trigger.query.trim().length < 2 || trigger.enabledAddons.isEmpty()) {
+                flowOf(com.kike.musicplayer.data.addon.AddonSearchResults(addonName = primaryName))
+            } else {
+                kotlinx.coroutines.flow.flow {
+                    emit(com.kike.musicplayer.data.addon.AddonSearchResults(addonName = primaryName, loading = true))
+                    var foundResp: com.kike.musicplayer.data.addon.AddonSearchResponse? = null
+                    var resolvedName = primaryName
+                    for (addon in trigger.enabledAddons) {
+                        val base = addon.baseUrl ?: continue
+                        val res = addonManager.client.search(base, trigger.query.trim()).getOrNull()
+                        if (res != null && (!res.tracks.isNullOrEmpty() || !res.albums.isNullOrEmpty() || !res.artists.isNullOrEmpty())) {
+                            foundResp = res
+                            resolvedName = addon.name
+                            break
+                        }
+                    }
+                    emit(
+                        com.kike.musicplayer.data.addon.AddonSearchResults(
+                            tracks = foundResp?.tracks.orEmpty(),
+                            albums = foundResp?.albums.orEmpty(),
+                            artists = foundResp?.artists.orEmpty(),
+                            addonName = resolvedName,
+                            loading = false,
+                        )
+                    )
+                }
+            }
+        }
+        .flowOn(Dispatchers.IO)
+        .stateIn(viewModelScope, SharingStarted.Eagerly, com.kike.musicplayer.data.addon.AddonSearchResults())
 
     // ---- Subsonic / Navidrome server ----
 

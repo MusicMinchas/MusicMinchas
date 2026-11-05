@@ -50,6 +50,8 @@ class Recommender(
     private val now: Long = System.currentTimeMillis(),
     /** Track ids of the favourite songs. */
     private val favourites: Set<String> = emptySet(),
+    /** Normalized song keys of the favourite songs (for cross-source matching). */
+    private val favouriteKeys: Set<String> = emptySet(),
     /** Songs mixes may include (the sources switched on); the rest of [tracks] only shows the taste. */
     private val pickable: (Track) -> Boolean = { true },
     private val historicalDates: Map<String, Long> = emptyMap(),
@@ -58,11 +60,15 @@ class Recommender(
     private val stats = ListeningStats(history, now, historicalDates, inAppPlayDates)
     private val day = now / ListeningStats.DAY_MS
 
+    /** Cross-source check whether a track is a favourite by ID or normalized song key. */
+    private fun isFavourite(t: Track): Boolean =
+        t.id in favourites || (favouriteKeys.isNotEmpty() && t.songKey.isNotEmpty() && t.songKey in favouriteKeys)
+
     /** Something to go on: plays or favourites. */
-    private val hasTaste = stats.hasHistory || favourites.isNotEmpty()
+    private val hasTaste = stats.hasHistory || favourites.isNotEmpty() || favouriteKeys.isNotEmpty()
 
     /** Every known song not disliked: played and favourite songs of any source tell the taste. */
-    private val all = tracks.filter { it.durationMs >= 0 && (it.id in favourites || !stats.isDisliked(it.id)) }
+    private val all = tracks.filter { it.durationMs >= 0 && (isFavourite(it) || !stats.isDisliked(it.id)) }
     /**
      * What mixes are made of. A server song the user also has (same artist and title on the phone
      * or Drive, among the picked sources) is left out: their own copy plays offline and has its cover.
@@ -78,7 +84,7 @@ class Recommender(
 
     /** How much a song counts towards its artist, genre and decade: recent plays, all plays, favourite. */
     private fun weight(t: Track) =
-        (stats.recentWeight[t.id] ?: 0.0) + 0.1 * (stats.plays[t.id] ?: 0) + if (t.id in favourites) FAVOURITE_WEIGHT else 0.0
+        (stats.recentWeight[t.id] ?: 0.0) + 0.1 * (stats.plays[t.id] ?: 0) + if (isFavourite(t)) FAVOURITE_WEIGHT else 0.0
     private val byArtist: Map<String, List<Track>> = usable.groupBy { artistKey(it) }
     private val allByArtist: Map<String, List<Track>> = all.groupBy { artistKey(it) }
 
@@ -241,7 +247,7 @@ class Recommender(
     /** Favourite songs not played for half a year (or never, here). */
     private fun forgottenFavourites(): Mix? {
         val forgotten = usable.filter { t ->
-            t.id in favourites && (stats.daysSincePlayed(t.id) ?: Double.MAX_VALUE) > FORGOTTEN_AFTER_DAYS
+            isFavourite(t) && (stats.daysSincePlayed(t.id) ?: Double.MAX_VALUE) > FORGOTTEN_AFTER_DAYS
         }
         if (forgotten.size < MIN_MIX_SIZE) return null
         val random = random("forgotten")
@@ -324,17 +330,17 @@ class Recommender(
         score: (Track) -> Double,
     ): List<Track> {
         val ranked = candidates.distinctBy { it.id }
-            .map { it to score(it) + (if (it.id in favourites) FAVOURITE_BONUS else 0.0) + random.nextDouble() * JITTER }
+            .map { it to score(it) + (if (isFavourite(it)) FAVOURITE_BONUS else 0.0) + random.nextDouble() * JITTER }
             .sortedByDescending { it.second }
             .map { it.first }
         val perArtistCount = HashMap<String, Int>()
         val picked = ArrayList<Track>(n)
         fun take(maxFavourites: Int) {
-            var favouritesTaken = picked.count { it.id in favourites }
+            var favouritesTaken = picked.count { isFavourite(it) }
             for (t in ranked) {
                 if (picked.size >= n) return
                 if (t in picked) continue
-                val favourite = t.id in favourites
+                val favourite = isFavourite(t)
                 if (favourite && favouritesTaken >= maxFavourites) continue
                 if ((perArtistCount[artistKey(t)] ?: 0) >= perArtist) continue
                 perArtistCount.merge(artistKey(t), 1, Int::plus)

@@ -154,4 +154,15 @@ class TrackMatcherTest {
         val matcher = TrackMatcher(listOf(streamTrack))
         assertNull(matcher.match("Queen", "Stone Cold Crazy", "Sheer Heart Attack", null))
     }
+
+    @Test
+    fun `songKey matches across casing and accent differences for cross-source favourites`() {
+        val driveKey = TrackMatcher.songKey("Manowar", null, "Sign of the Hammer")
+        val navidromeKey = TrackMatcher.songKey("Manowar", null, "Sign Of The Hammer")
+        assertEquals(driveKey, navidromeKey)
+
+        val t1 = track("drive:1", "Manowar", "Sign of the Hammer")
+        val t2 = track("subsonic:2", "Manowar", "Sign Of The Hammer")
+        assertEquals(t1.songKey, t2.songKey)
+    }
 }
