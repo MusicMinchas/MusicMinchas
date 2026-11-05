@@ -50,7 +50,9 @@ class AddonClient(
      * Searches catalog via `/search?q={query}`.
      */
     fun search(baseUrl: String, query: String): Result<AddonSearchResponse> = runCatching {
-        val encoded = URLEncoder.encode(query.trim(), "UTF-8")
+        val clean = sanitizeForSearch(query).trim()
+        if (clean.isEmpty()) return Result.success(AddonSearchResponse())
+        val encoded = URLEncoder.encode(clean, "UTF-8")
         val url = "${baseUrl.trimEnd('/')}/search?q=$encoded"
         val req = Request.Builder().url(url).header("User-Agent", USER_AGENT).build()
         http.newCall(req).execute().use { resp ->

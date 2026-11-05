@@ -159,7 +159,7 @@ class AppContainer(app: Application) {
     /** Signed URLs for server songs and covers, made when they're opened. */
     val subsonicUrls = SubsonicUrls(subsonic)
     /** Plays reported to the server, as the user chose (off by default). */
-    private val serverMatch = ServerMatch(database)
+    val serverMatch = ServerMatch(database)
     val serverPlays = ServerPlays(subsonic, database, serverMatch, appScope).also { it.flush() }
 
     /** Music add-ons (Nullbeat, Nebula, etc.) for lossless streaming. */

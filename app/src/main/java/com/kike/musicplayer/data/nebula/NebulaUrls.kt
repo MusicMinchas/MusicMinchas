@@ -71,8 +71,8 @@ class NebulaUrls(
 
             for (addon in addons) {
                 val baseUrl = addon.baseUrl ?: continue
-                var result = if (!trackId.isNullOrBlank() && (trackId.startsWith("tidal:track:") || trackId.all { it.isDigit() })) {
-                    val idForProvider = if (addon.id == "nebula" && !trackId.startsWith("tidal:track:")) {
+                var result = if (!trackId.isNullOrBlank() && (trackId.startsWith("tidal:track:") || trackId.contains(":") || trackId.all { it.isDigit() })) {
+                    val idForProvider = if (addon.id == "nebula" && !trackId.startsWith("tidal:track:") && !trackId.contains(":")) {
                         "tidal:track:$trackId"
                     } else trackId
                     addonClient.stream(baseUrl, idForProvider)
@@ -139,6 +139,31 @@ class NebulaUrls(
             val albumIdParam = if (!albumId.isNullOrBlank()) "&albumId=${URLEncoder.encode(albumId.trim(), "UTF-8")}" else ""
             return "nebula:stream?artist=$encArtist&title=$encTitle$albumParam$idParam$albumIdParam"
         }
+
+        fun trackFor(addonTrack: com.kike.musicplayer.data.addon.AddonTrack): Track = Track(
+            id = "nebula:${addonTrack.id}",
+            source = Track.SOURCE_NEBULA,
+            uri = uriFor(addonTrack.artist, addonTrack.album, addonTrack.title, addonTrack.id),
+            fileName = "${addonTrack.title}.flac",
+            mimeType = "audio/flac",
+            sizeBytes = null,
+            title = addonTrack.title,
+            artist = addonTrack.artist,
+            album = addonTrack.album,
+            albumArtist = addonTrack.artist,
+            trackNumber = null,
+            discNumber = null,
+            year = null,
+            genre = if (addonTrack.isHiRes == true) "Hi-Res" else "Lossless",
+            durationMs = (addonTrack.duration ?: 0) * 1000L,
+            artworkUri = addonTrack.artworkURL,
+            mbReleaseId = null,
+            scope = Track.SCOPE_STREAM,
+            metadataState = Track.META_DONE,
+            indexAlbum = Track.albumKeyOf(addonTrack.album, addonTrack.artist),
+            indexArtist = addonTrack.artist,
+            indexTitle = "",
+        )
 
         fun trackFor(catalogTrack: CatalogTrack): Track = Track(
             id = "nebula:${catalogTrack.id}",

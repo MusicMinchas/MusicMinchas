@@ -276,24 +276,63 @@ class PlayerViewModel(private val app: Application) : AndroidViewModel(app) {
 
     private val favouriteDao = app.container.database.favourites()
 
+    private val favouriteMetas = favouriteDao.observeFavouriteMetas()
+        .stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
+
     /** Track ids of the favourite songs. */
-    val favourites: StateFlow<Set<String>> = favouriteDao.observeAll()
+    val favourites: StateFlow<Set<String>> = favouriteMetas
         .map { list -> list.mapTo(HashSet()) { it.trackId } }
         .stateIn(viewModelScope, SharingStarted.Eagerly, emptySet())
 
-    fun toggleFavourite(trackId: String, track: Track? = null) {
-        val add = trackId !in favourites.value
-        viewModelScope.launch(Dispatchers.IO) {
-            if (add) {
-                val t = track ?: app.container.database.tracks().get(trackId) ?: transientTrackFor(trackId, trackId)
-                if (t != null && (t.source == Track.SOURCE_NEBULA || t.scope == Track.SCOPE_STREAM)) {
-                    app.container.database.tracks().upsert(t.copy(scope = Track.SCOPE_STREAM, metadataState = Track.META_DONE))
-                }
-                favouriteDao.insert(Favourite(trackId, System.currentTimeMillis()))
-            } else {
-                favouriteDao.delete(trackId)
+    /** Normalized matching keys (looseArtist + looseTitle) of all favourite songs across sources. */
+    val favouriteSongKeys: StateFlow<Set<String>> = favouriteMetas
+        .map { list ->
+            list.mapNotNullTo(HashSet()) { m ->
+                val k = com.kike.musicplayer.data.lastfm.TrackMatcher.songKey(m.artist, m.albumArtist, m.title)
+                k.ifEmpty { null }
             }
-            getApplication<Application>().container.scrobbler.love(trackId, add)
+        }
+        .stateIn(viewModelScope, SharingStarted.Eagerly, emptySet())
+
+    /** Maps each favourite song key to its canonical favourite trackId (Own copy wins). */
+    val favouriteKeyToId: StateFlow<Map<String, String>> = favouriteMetas
+        .map { list ->
+            val map = HashMap<String, String>()
+            for (m in list) {
+                val k = com.kike.musicplayer.data.lastfm.TrackMatcher.songKey(m.artist, m.albumArtist, m.title)
+                if (k.isNotEmpty()) {
+                    val existing = map[k]
+                    if (existing == null || (!existing.startsWith("drive:") && !existing.startsWith("local:") && (m.trackId.startsWith("drive:") || m.trackId.startsWith("local:")))) {
+                        map[k] = m.trackId
+                    }
+                }
+            }
+            map
+        }
+        .stateIn(viewModelScope, SharingStarted.Eagerly, emptyMap())
+
+    fun toggleFavourite(trackId: String, track: Track? = null) {
+        viewModelScope.launch(Dispatchers.IO) {
+            val t = track ?: app.container.database.tracks().get(trackId) ?: transientTrackFor(trackId, trackId)
+            val sKey = t?.songKey ?: ""
+            val isFav = trackId in favourites.value || (sKey.isNotEmpty() && sKey in favouriteSongKeys.value)
+            if (isFav) {
+                val canonicalId = if (trackId in favourites.value) trackId else (if (sKey.isNotEmpty()) favouriteKeyToId.value[sKey] else null) ?: trackId
+                favouriteDao.delete(canonicalId)
+                if (canonicalId != trackId) favouriteDao.delete(trackId)
+                getApplication<Application>().container.scrobbler.love(canonicalId, false)
+            } else {
+                val ownCopy = if (t != null && t.source == Track.SOURCE_SUBSONIC) {
+                    app.container.serverMatch.ownCopy(t)
+                } else null
+                val chosenTrack = ownCopy ?: t
+                val targetId = chosenTrack?.id ?: trackId
+                if (chosenTrack != null && (chosenTrack.source == Track.SOURCE_NEBULA || chosenTrack.scope == Track.SCOPE_STREAM)) {
+                    app.container.database.tracks().upsert(chosenTrack.copy(scope = Track.SCOPE_STREAM, metadataState = Track.META_DONE))
+                }
+                favouriteDao.insert(Favourite(targetId, System.currentTimeMillis()))
+                getApplication<Application>().container.scrobbler.love(targetId, true)
+            }
         }
     }
 

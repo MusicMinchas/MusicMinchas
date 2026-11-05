@@ -123,6 +123,14 @@ class TrackMatcher(tracks: List<Track>) {
 
         private fun key(artist: String, title: String) = "$artist\u0001$title"
 
+        /** Canonical matching key across sources: artist (or albumArtist) and title, normalized. */
+        fun songKey(artist: String?, albumArtist: String?, title: String?): String {
+            val a = albumArtist?.takeIf { it.isNotBlank() } ?: artist.orEmpty()
+            val t = title.orEmpty()
+            if (a.isBlank() && t.isBlank()) return ""
+            return looseArtist(a) + "\u0001" + looseTitle(t)
+        }
+
         /** Lower case, no accents, "&" as "and", punctuation as single spaces, no leading "the". */
         fun basic(s: String): String =
             Normalizer.normalize(s.lowercase(), Normalizer.Form.NFD)

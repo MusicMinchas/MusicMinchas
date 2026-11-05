@@ -72,6 +72,7 @@ data class Track(
 ) {
     val displayArtist: String get() = artist ?: albumArtist ?: "Unknown artist"
     val albumKey: String get() = albumKeyOf(album, albumArtist ?: artist)
+    val songKey: String get() = com.kike.musicplayer.data.lastfm.TrackMatcher.songKey(artist, albumArtist, title)
 
     companion object {
         /** Device-wide MediaStore scan of earlier versions; such rows are deleted on start. */

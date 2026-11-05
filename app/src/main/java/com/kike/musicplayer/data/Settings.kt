@@ -95,6 +95,17 @@ class Settings(private val context: Context, name: String = "settings") {
 
     fun toggleCatalogShown() = setCatalogShown(!_catalogShown.value)
 
+    private val _addonSearchShown = MutableStateFlow(prefs.getBoolean(KEY_ADDON_SEARCH_SHOWN, true))
+    /** Whether streaming add-on search results are ticked in the top-bar source selector. */
+    val addonSearchShown: StateFlow<Boolean> = _addonSearchShown.asStateFlow()
+
+    fun setAddonSearchShown(shown: Boolean) {
+        prefs.edit { putBoolean(KEY_ADDON_SEARCH_SHOWN, shown) }
+        _addonSearchShown.value = shown
+    }
+
+    fun toggleAddonSearchShown() = setAddonSearchShown(!_addonSearchShown.value)
+
     private val _deezerHomeEnrichment = MutableStateFlow(prefs.getBoolean(KEY_DEEZER_HOME_ENRICHMENT, false))
     /** Whether public Deezer charts and curated playlists enrich the Home tab. */
     val deezerHomeEnrichment: StateFlow<Boolean> = _deezerHomeEnrichment.asStateFlow()
@@ -369,6 +380,7 @@ class Settings(private val context: Context, name: String = "settings") {
         const val KEY_META_MB = "meta_musicbrainz"
         const val KEY_CATALOG_ENABLED = "catalog_enabled"
         const val KEY_CATALOG_SHOWN = "catalog_shown"
+        const val KEY_ADDON_SEARCH_SHOWN = "addon_search_shown"
         const val KEY_DEEZER_HOME_ENRICHMENT = "deezer_home_enrichment"
         const val KEY_DARK_MODE = "dark_mode"
 

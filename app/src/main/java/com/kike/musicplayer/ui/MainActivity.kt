@@ -223,6 +223,7 @@ class MainActivity : ComponentActivity() {
         }
 
         val favouriteIds by playerVm.favourites.collectAsState()
+        val favouriteKeys by playerVm.favouriteSongKeys.collectAsState()
         val downloadProgress by libraryVm.downloadProgress.collectAsState()
         // The playing song and the queue, looked up in the library for Now Playing and the queue.
         val player by playerVm.state.collectAsState()
@@ -327,7 +328,7 @@ class MainActivity : ComponentActivity() {
                 nextName = libraryVm::nextPlaylistName,
             ),
             LocalNavigation provides navigation,
-            LocalFavourites provides Favourites(favouriteIds, playerVm::toggleFavourite),
+            LocalFavourites provides Favourites(favouriteIds, favouriteKeys, playerVm::toggleFavourite),
             LocalDownloads provides Downloads(downloadProgress, libraryVm::download, libraryVm::removeDownload),
         ) {
             Scaffold(bottomBar = { if (showMini) MiniPlayer(playerVm) { push(Screen.NowPlaying) } }) { padding: PaddingValues ->

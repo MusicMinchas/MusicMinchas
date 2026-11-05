@@ -431,9 +431,11 @@ private fun ColumnScope.NowPlayingDetails(
 ) {
     val castTo by playerVm.castActive.collectAsState()
     val favourites by playerVm.favourites.collectAsState()
+    val favouriteSongKeys by playerVm.favouriteSongKeys.collectAsState()
     val infiniteQueue by playerVm.infiniteQueue.collectAsState()
     val meta = s.current?.mediaMetadata
     val trackId = s.current?.mediaId?.let(PlaybackService::trackIdOf)
+    val track = trackId?.let(LocalNavigation.current.track) ?: s.current?.toTransientTrack()
     // Title centred; the heart sits at the cover's right edge.
     Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
         Text(
@@ -442,9 +444,10 @@ private fun ColumnScope.NowPlayingDetails(
             modifier = Modifier.padding(horizontal = 40.dp),
         )
         if (trackId != null) {
-            val favourite = trackId in favourites
+            val sKey = track?.songKey ?: com.kike.musicplayer.data.lastfm.TrackMatcher.songKey(meta?.artist?.toString(), meta?.albumArtist?.toString(), meta?.title?.toString())
+            val favourite = trackId in favourites || (sKey.isNotEmpty() && sKey in favouriteSongKeys)
             IconButton(
-                onClick = { playerVm.toggleFavourite(trackId) },
+                onClick = { playerVm.toggleFavourite(trackId, track) },
                 // The icon's edge, not the touch target's, lines up with the cover.
                 modifier = Modifier.align(Alignment.CenterEnd).offset(x = heartOffset),
             ) {
@@ -456,7 +459,6 @@ private fun ColumnScope.NowPlayingDetails(
             }
         }
     }
-    val track = trackId?.let(LocalNavigation.current.track) ?: s.current?.toTransientTrack()
     val albumKey = track?.albumKey ?: meta?.albumTitle?.toString()?.let { com.kike.musicplayer.data.db.Track.albumKeyOf(it, meta.albumArtist?.toString() ?: meta.artist?.toString() ?: "") }
     ArtistAlbumText(
         meta?.artist?.toString(), listOf(track?.artist, track?.albumArtist),

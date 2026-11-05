@@ -464,6 +464,19 @@ interface FavouriteDao {
     /** Favourites that are songs on the Subsonic server. */
     @Query("SELECT trackId FROM favourites WHERE trackId LIKE 'subsonic:%'")
     suspend fun serverTrackIds(): List<String>
+
+    @Query("SELECT f.trackId, t.artist, t.albumArtist, t.title FROM favourites f LEFT JOIN tracks t ON f.trackId = t.id")
+    fun observeFavouriteMetas(): Flow<List<FavouriteSongMeta>>
+}
+
+data class FavouriteSongMeta(
+    val trackId: String,
+    val artist: String?,
+    val albumArtist: String?,
+    val title: String?,
+) {
+    val songKey: String
+        get() = com.kike.musicplayer.data.lastfm.TrackMatcher.songKey(artist, albumArtist, title)
 }
 
 @Dao

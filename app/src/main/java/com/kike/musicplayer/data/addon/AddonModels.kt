@@ -20,6 +20,14 @@ data class AddonSearchResponse(
     @Json(name = "playlists") val playlists: List<AddonPlaylist>? = null,
 )
 
+data class AddonSearchResults(
+    val tracks: List<AddonTrack> = emptyList(),
+    val albums: List<AddonAlbum> = emptyList(),
+    val artists: List<AddonArtist> = emptyList(),
+    val addonName: String = "Add-on",
+    val loading: Boolean = false,
+)
+
 data class AddonTrack(
     @Json(name = "id") val id: String,
     @Json(name = "title") val title: String,

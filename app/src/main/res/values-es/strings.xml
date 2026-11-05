@@ -209,6 +209,10 @@
     <string name="search_cat_artists">Artistas en Deezer y Apple Music</string>
     <string name="search_cat_playlists">Listas de Deezer</string>
     <string name="search_cat_songs">Canciones en Deezer y Apple Music</string>
+    <string name="search_addon_songs">Canciones en %1$s</string>
+    <string name="search_addon_albums">Álbumes en %1$s</string>
+    <string name="search_addon_artists">Artistas en %1$s</string>
+    <string name="search_addon_loading">Buscando en %1$s…</string>
     <string name="search_filter_albums">Álbumes</string>
     <string name="search_filter_artists">Artistas</string>
     <string name="search_filter_playlists">Listas</string>
