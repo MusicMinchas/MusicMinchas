@@ -5,6 +5,7 @@ import com.kike.musicplayer.data.discover.Names
 import com.squareup.moshi.Moshi
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.sync.Mutex
@@ -462,14 +463,17 @@ class CatalogClient(
             .getOrNull()
     }
 
-    suspend fun cachedDeezerHomeContent(): DeezerHomeContent? = withContext(Dispatchers.IO) {
+    fun isDeezerHomeFresh(content: DeezerHomeContent, now: Long = System.currentTimeMillis()): Boolean =
+        (now - content.fetchedAt) < HOME_CACHE_TTL_MS
+
+    suspend fun cachedDeezerHomeContent(allowExpired: Boolean = false): DeezerHomeContent? = withContext(Dispatchers.IO) {
         val cacheFile = cacheDir?.resolve("deezer_home_v4.json") ?: return@withContext null
         if (!cacheFile.exists()) return@withContext null
         val now = System.currentTimeMillis()
         runCatching {
             val json = cacheFile.readText()
             val cached = moshi.adapter(DeezerHomeContent::class.java).fromJson(json)
-            if (cached != null && (now - cached.fetchedAt) < HOME_CACHE_TTL_MS && cached.sections.isNotEmpty()) {
+            if (cached != null && (allowExpired || (now - cached.fetchedAt) < HOME_CACHE_TTL_MS) && cached.sections.isNotEmpty()) {
                 cached
             } else null
         }.getOrNull()
@@ -485,13 +489,7 @@ class CatalogClient(
         val now = System.currentTimeMillis()
 
         if (!forceRefresh && cacheFile != null && cacheFile.exists()) {
-            runCatching {
-                val json = cacheFile.readText()
-                val cached = moshi.adapter(DeezerHomeContent::class.java).fromJson(json)
-                if (cached != null && (now - cached.fetchedAt) < HOME_CACHE_TTL_MS && cached.sections.isNotEmpty()) {
-                    return@withContext cached
-                }
-            }.onFailure { Log.w(TAG, "Failed reading cached Deezer home content", it) }
+            cachedDeezerHomeContent(allowExpired = false)?.let { return@withContext it }
         }
 
         runCatching {
@@ -617,14 +615,18 @@ class CatalogClient(
                 if (rotatingGenre != null) add(rotatingGenre)
             }
 
-            val genreSections = genreSectionsToFetch.mapNotNull { spec ->
-                val url = "https://api.deezer.com/chart/${spec.genreId}/playlists?limit=30"
-                val raw = runCatching { deezerJson(url) }.getOrNull() ?: return@mapNotNull null
-                val data = (raw["data"] as? List<*>)?.mapNotNull { it as? Map<*, *> }.orEmpty()
-                val playlists = data.mapNotNull { parseDeezerCatalogPlaylist(it) }
-                if (playlists.isNotEmpty()) {
-                    DeezerHomeSection(id = spec.id, title = spec.title, subtitle = spec.subtitle, playlists = playlists)
-                } else null
+            val genreSections = coroutineScope {
+                genreSectionsToFetch.map { spec ->
+                    async {
+                        val url = "https://api.deezer.com/chart/${spec.genreId}/playlists?limit=30"
+                        val raw = runCatching { deezerJson(url) }.getOrNull() ?: return@async null
+                        val data = (raw["data"] as? List<*>)?.mapNotNull { it as? Map<*, *> }.orEmpty()
+                        val playlists = data.mapNotNull { parseDeezerCatalogPlaylist(it) }
+                        if (playlists.isNotEmpty()) {
+                            DeezerHomeSection(id = spec.id, title = spec.title, subtitle = spec.subtitle, playlists = playlists)
+                        } else null
+                    }
+                }.awaitAll().filterNotNull()
             }
 
             // 6. Fetch mood section via curated playlist search
@@ -642,8 +644,10 @@ class CatalogClient(
             // 7. Official 100% Artist playlists for discovery and favorite artists
             val artistEssentialsSection = if (targetArtists.isNotEmpty()) {
                 runCatching {
-                    val found = targetArtists.mapNotNull { artist ->
-                        fetchOfficialArtistPlaylist(artist)
+                    val found = coroutineScope {
+                        targetArtists.map { artist ->
+                            async { fetchOfficialArtistPlaylist(artist) }
+                        }.awaitAll().filterNotNull()
                     }.distinctBy { it.id }
                     if (found.isNotEmpty()) {
                         DeezerHomeSection(

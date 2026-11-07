@@ -321,8 +321,8 @@ private fun DeezerPlaylistRow(
     playlists: List<CatalogPlaylist>,
     onOpenCatalogPlaylist: (CatalogPlaylist) -> Unit,
 ) {
-    val playlistCovers = remember(playlists) { playlists.mapNotNull { it.coverUrl } }
-    PrefetchArtworkUrls(playlistCovers, limit = 15)
+
+
 
     LazyRow(
         contentPadding = PaddingValues(horizontal = 16.dp),

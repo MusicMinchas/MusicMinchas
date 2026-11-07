@@ -106,7 +106,10 @@ interface TrackDao {
     suspend fun artistNames(): List<String>
 
     /** Tracks whose tags were read before the genre tag was: they need a genre-only read. */
-    @Query("SELECT id FROM tracks WHERE genreRead = 0 AND durationMs >= 0 AND metadataState != ${Track.META_NEW}")
+    @Query(
+        "SELECT id FROM tracks WHERE genreRead = 0 AND durationMs >= 0 " +
+            "AND metadataState != ${Track.META_NEW} AND scope <> ${Track.SCOPE_SERVER} AND scope <> ${Track.SCOPE_STREAM}"
+    )
     suspend fun idsMissingGenre(): List<String>
 
     @Query("UPDATE tracks SET genre = :genre, genreRead = 1 WHERE id = :id")
@@ -851,6 +854,15 @@ interface BrowseDao {
             "WHERE tracks.indexArtist = :artistName AND play_history.counted = 1"
     )
     suspend fun artistPlayCount(artistName: String): Int
+
+    /** Recently played artists whose total counted plays are between 1 and [maxPlays], newest play first. */
+    @Query(
+        "SELECT tracks.indexArtist FROM play_history JOIN tracks ON tracks.id = play_history.trackId " +
+            "WHERE play_history.counted = 1 AND tracks.indexArtist <> '' " +
+            "GROUP BY tracks.indexArtist HAVING COUNT(*) BETWEEN 1 AND :maxPlays " +
+            "ORDER BY MAX(play_history.playedAt) DESC LIMIT :limit"
+    )
+    suspend fun recentDiscoveryArtists(maxPlays: Int = 8, limit: Int = 4): List<String>
 
     /** Counted plays per genre across listening history, most played first. */
     @Query(

@@ -7,7 +7,7 @@ Parent workspace notes: @[Shared Android Dev Workspace](../AGENTS.md)
 
 - **Path:** `C:\Users\kike\dev\MusicPlayer` (local git repo, repo-local identity `kike` / `kikeprojo@gmail.com`, nothing pushed).
 - **Package:** `com.kike.musicplayer`
-- **Current Release:** `1.48.0` (`versionCode = 101`, Room DB `v27`, `minSdk = 30`, `targetSdk = 36`, `compileSdk = 37`). Merged to `master`, tag `v1.48.0`.
+- **Current Release:** `1.49.0` (`versionCode = 102`, Room DB `v27`, `minSdk = 30`, `targetSdk = 36`, `compileSdk = 37`). Merged to `master`, tag `v1.49.0`.
 - **Stack:** Kotlin 2.4.20, Jetpack Compose, Media3 1.11.1 `MediaLibraryService` (Android Auto browse tree), Room 2.8.5 via KSP 2.3.12 + Paging 3 (`paging-compose 3.3.6`, `room-paging`), Retrofit 3 + Moshi (reflection), Coil 3, `play-services-auth` 22 `AuthorizationClient` (`drive.readonly` + `email`), `reorderable` 3.1.0, AGP 9.4.1, Gradle 9.8.
 - **Shared Toolchain & Environment:**
   - `JAVA_HOME`: Android Studio's bundled `jbr`
@@ -440,3 +440,14 @@ Started 2026-10-08 from user-pasted spec. NEW app, explicitly independent of Son
     - Added `testAeroDirectStreamResolution` and `testCanStreamDirectlyRules` in `AddonFallbackTest.kt`.
     - Added `testAddonSourceNames` in `AudioQualityTest.kt` verifying label resolution for explicit, inferred, and fallback tracks. All 157 unit tests pass.
   - Verified on OnePlus 12, merged to `master`, tagged `v1.48.0`, release APK `MusicMinchas-1.48.0.apk` installed.
+- 2026-11-07 Release 1.49.0 (`versionCode = 102`, Room DB `v27`, GitHub issue #31):
+  - Home Screen Cold-Start Performance Fixes (`Settings.kt`, `LibraryViewModel.kt`, `Recommender.kt`, `CatalogClient.kt`, `Daos.kt`, `LibraryRepository.kt`, `HomeScreens.kt`, `SourcesScreen.kt`):
+    - Persisted `availableScopes` in `SharedPreferences` (`KEY_AVAILABLE_SCOPES`) so `availableScopes` and `viewScopes` initialize immediately with the user's active scopes (`[2, 1]`) at `0 ms`, eliminating the `[0, 2, 1] -> [2, 1]` emission bounce that invalidated `savedMixesWithTracks` (`<5 ms`) and forced a full `makeMixes()` recomputation on every cold start.
+    - Pre-computed `effectiveFavourites: Set<String>` once in `Recommender.init` so `isFavourite(t)` is an $O(1)$ `HashSet` lookup instead of recomputing `t.songKey` ~234,000 times per mix pass (5x speedup).
+    - Seeded `songCount` initial value with `1` when any music source is configured so `LibraryScreen` renders `HomeTab` on Frame 1 without blocking on `SELECT COUNT(*) FROM tracks` across 322k rows.
+    - Eliminated Room 4-thread query pool saturation on startup by sharing `rawSourceCounts`, `history`, and `favouriteRows` via `shareIn`, switching 11 non-Home `StateFlow`s to `SharingStarted.WhileSubscribed(5000)`, deferring `refreshStorageStats()` until Settings -> Data & Storage is opened, and excluding `SCOPE_SERVER` / `SCOPE_STREAM` from `TrackDao.idsMissingGenre()` (skipping `MetadataEnricher.run()` when no local/Drive tracks need enrichment).
+    - Updated `loadDeezerHome` to use stale-while-revalidate (`cachedDeezerHomeContent(allowExpired = true)` + `isDeezerHomeFresh`), parallelized genre and artist playlist fetches (`async`/`awaitAll`), and replaced the 21-query N+1 discovery artist loop with a single SQL query (`BrowseDao.recentDiscoveryArtists`).
+    - Removed redundant `PrefetchArtworkUrls` from `DeezerPlaylistRow` so above-the-fold Home tile artwork decodes first without Coil queue contention.
+  - Unit Tests:
+    - Added cross-source `favouriteKeys` matching test in `RecommenderTest.kt`. All 154 unit tests pass.
+  - Verified on OnePlus 12 (cold start including tile images reduced from 4–5s to `<1s`), merged to `master`, tagged `v1.49.0`, release APK `MusicMinchas-1.49.0.apk` installed.

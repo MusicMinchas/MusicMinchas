@@ -149,6 +149,19 @@ class Settings(private val context: Context, name: String = "settings") {
     /** Sources (Track scopes) switched off in the library; a source added later starts switched on. */
     val hiddenScopes: StateFlow<Set<Int>> = _hiddenScopes.asStateFlow()
 
+    /** Last known non-empty Track scopes present in the library, persisted so cold start doesn't mismatch saved mixes. */
+    var availableScopes: List<Int>
+        get() {
+            val raw = prefs.getString(KEY_AVAILABLE_SCOPES, null) ?: return com.kike.musicplayer.data.db.Track.SCOPES
+            val parsed = raw.split(',').mapNotNull { it.trim().toIntOrNull() }.toSet()
+            return com.kike.musicplayer.data.db.Track.SCOPES.filter { it in parsed }.ifEmpty { com.kike.musicplayer.data.db.Track.SCOPES }
+        }
+        set(value) {
+            if (value.isNotEmpty()) {
+                prefs.edit { putString(KEY_AVAILABLE_SCOPES, value.joinToString(",")) }
+            }
+        }
+
     fun setHiddenScopes(scopes: Set<Int>) {
         prefs.edit { putStringSet(KEY_HIDDEN_SCOPES, scopes.mapTo(HashSet()) { it.toString() }) }
         _hiddenScopes.value = scopes
@@ -378,6 +391,7 @@ class Settings(private val context: Context, name: String = "settings") {
         const val KEY_LANGUAGE = "app_language"
         const val KEY_SAF = "saf_folders"
         const val KEY_HIDDEN_SCOPES = "hidden_scopes"
+        const val KEY_AVAILABLE_SCOPES = "available_scopes"
         const val KEY_INDEX_VERSION = "index_version"
         const val KEY_SERVER_SYNC_MODE = "server_sync_mode"
         const val KEY_LAST_SERVER_SYNC = "server_last_sync"

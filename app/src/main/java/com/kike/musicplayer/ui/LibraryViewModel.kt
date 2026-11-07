@@ -69,6 +69,7 @@ import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.flow.shareIn
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -149,14 +150,25 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
     private val settings = container.settings
     private val driveAuth = container.driveAuth
 
+    private val rawSourceCounts = container.database.browse().observeSourceCounts()
+        .shareIn(viewModelScope, SharingStarted.WhileSubscribed(5000), replay = 1)
+
+    private val initialAvailableScopes = settings.availableScopes
+    private val initialViewScopes = initialAvailableScopes
+        .filter { it !in settings.hiddenScopes.value }
+        .ifEmpty { initialAvailableScopes }
+        .ifEmpty { Track.SCOPES }
+
     /** The sources (Track scopes) that have songs in the library, in menu order. */
-    val availableScopes: StateFlow<List<Int>> = container.database.browse().observeSourceCounts()
+    val availableScopes: StateFlow<List<Int>> = rawSourceCounts
         .map { counts ->
             val present = counts.filter { it.count > 0 }.mapTo(HashSet()) { Track.scopeOf(it.source) }
-            Track.SCOPES.filter { it in present }
+            Track.SCOPES.filter { it in present }.also { scopes ->
+                if (scopes.isNotEmpty()) settings.availableScopes = scopes
+            }
         }
         .distinctUntilChanged()
-        .stateIn(viewModelScope, SharingStarted.Eagerly, Track.SCOPES)
+        .stateIn(viewModelScope, SharingStarted.Eagerly, initialAvailableScopes)
 
     /** Sources switched off in the library menu. */
     val hiddenScopes: StateFlow<Set<Int>> = settings.hiddenScopes
@@ -171,7 +183,7 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
     /** The sources the library lists: those with songs, minus the switched-off ones (never none). */
     private val viewScopes: StateFlow<List<Int>> = combine(availableScopes, settings.hiddenScopes) { available, hidden ->
         available.filter { it !in hidden }.ifEmpty { available }.ifEmpty { Track.SCOPES }
-    }.distinctUntilChanged().stateIn(viewModelScope, SharingStarted.Eagerly, Track.SCOPES)
+    }.distinctUntilChanged().stateIn(viewModelScope, SharingStarted.Eagerly, initialViewScopes)
 
     private val _query = MutableStateFlow("")
     val query: StateFlow<String> = _query.asStateFlow()
@@ -225,11 +237,13 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
 
 
     private val history = container.database.history().observeAll()
+        .shareIn(viewModelScope, SharingStarted.Eagerly, replay = 1)
 
     private val artistTags = container.database.artistInfo().observeAll().map(::artistTagMap)
 
     private val database = container.database
     private val favouriteRows = database.favourites().observeAll()
+        .shareIn(viewModelScope, SharingStarted.Eagerly, replay = 1)
 
     /**
      * Once at start and again whenever songs or their summaries change (debounced, so a sync
@@ -338,7 +352,11 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
             runCatching {
                 val saved = savedMixes.load()
                 val asked = requests > mixRequestsDone
-                val fresh = saved != null && saved.scopes == scopes && System.currentTimeMillis() - saved.madeAt < MIX_LIFETIME_MS
+                val scopesMatch = saved != null && (
+                    saved.scopes == scopes ||
+                        (scopes == Track.SCOPES && saved.scopes.isNotEmpty() && saved.scopes.all { it !in settings.hiddenScopes.value })
+                    )
+                val fresh = saved != null && scopesMatch && System.currentTimeMillis() - saved.madeAt < MIX_LIFETIME_MS
                 if (!asked && fresh) return@runCatching savedMixesWithTracks(saved)
                 val made = makeMixes(scopes)
                 // Nothing made yet (e.g. the library is still loading): try again on the next change.
@@ -743,8 +761,8 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
         SongSearch.find(database.browse(), text, PICKER_LIMIT, viewScopes.value, bySong, byArtist, byAlbum)
 
     /** Listed songs per source, for the Sources screen. */
-    val sourceCounts: StateFlow<Map<String, Int>> = database.browse().observeSourceCounts().map { list -> list.associate { it.source to it.count } }
-        .stateIn(viewModelScope, SharingStarted.Eagerly, emptyMap())
+    val sourceCounts: StateFlow<Map<String, Int>> = rawSourceCounts.map { list -> list.associate { it.source to it.count } }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyMap())
 
     fun setReplayPeriod(period: ReplayPeriod) {
         replayPeriod.value = period
@@ -758,8 +776,8 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
     val scanStatus = repo.status
     val lastError = repo.lastError
     val metadataProgress = repo.metadataProgress
-    val pendingMetadata = repo.pendingMetadata.stateIn(viewModelScope, SharingStarted.Eagerly, 0)
-    val unplayableCount = repo.unplayableCount.stateIn(viewModelScope, SharingStarted.Eagerly, 0)
+    val pendingMetadata = repo.pendingMetadata.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0)
+    val unplayableCount = repo.unplayableCount.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0)
     val safFolders = settings.safFolders
     val onlineMetadata = settings.onlineMetadata
     val metaDeezer = settings.metaDeezer
@@ -785,10 +803,12 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
     fun loadDeezerHome(forceRefresh: Boolean = false) {
         viewModelScope.launch(Dispatchers.IO) {
             if (!forceRefresh) {
-                val cached = container.catalog.cachedDeezerHomeContent()
+                val cached = container.catalog.cachedDeezerHomeContent(allowExpired = true)
                 if (cached != null) {
                     _deezerHomeContent.value = cached
-                    return@launch
+                    if (container.catalog.isDeezerHomeFresh(cached)) {
+                        return@launch
+                    }
                 }
             }
             val playCounts = runCatching { database.browse().topGenresByPlayHistory() }.getOrDefault(emptyList())
@@ -819,15 +839,7 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
             val targetArtists = runCatching {
                 val browse = database.browse()
                 // 1. Fresh discoveries: recently played artists with 1..8 total counted plays
-                val recent = browse.recentPlayedArtists(100)
-                val discoveries = mutableListOf<String>()
-                for (artist in recent) {
-                    val count = browse.artistPlayCount(artist)
-                    if (count in 1..8) {
-                        discoveries.add(artist)
-                        if (discoveries.size >= 4) break
-                    }
-                }
+                val discoveries = browse.recentDiscoveryArtists(maxPlays = 8, limit = 4)
 
                 // 2. Followed artists (rotated daily)
                 val followed = followedArtists.value
@@ -933,10 +945,12 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
     fun start() {
         if (started) return
         started = true
-        viewModelScope.launch(Dispatchers.IO) {
-            val inApp = container.database.history().inAppLastPlayed()
-            if (inApp.isNotEmpty()) {
-                container.historicalDates.initializeInAppPlays(inApp.associate { it.trackId to it.timestamp })
+        if (container.historicalDates.inAppDates.value.isEmpty()) {
+            viewModelScope.launch(Dispatchers.IO) {
+                val inApp = container.database.history().inAppLastPlayed()
+                if (inApp.isNotEmpty()) {
+                    container.historicalDates.initializeInAppPlays(inApp.associate { it.trackId to it.timestamp })
+                }
             }
         }
         repo.refreshAll()
@@ -1069,7 +1083,7 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
     /** Counted plays (half listened) per track id, for the artist page's top songs. */
     val playCounts: StateFlow<Map<String, Int>> = history
         .map { list -> list.filter { it.counted }.groupingBy { it.trackId }.eachCount() }
-        .flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.Eagerly, emptyMap())
+        .flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyMap())
 
     /** Artist photo URLs by lower-cased name, for the Artists tab thumbnails. */
     val artistImageUrls: StateFlow<Map<String, String>> = container.artistImages.urls
@@ -1157,7 +1171,7 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
         downloader.download(tracks)
     }
     fun removeDownload(track: Track) = downloader.remove(track)
-    val downloadTotals = downloader.totals.stateIn(viewModelScope, SharingStarted.Eagerly, null)
+    val downloadTotals = downloader.totals.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
     fun removeAllDownloads() = downloader.removeAll()
 
     // ---- Storage & Cache Management ----
@@ -1307,15 +1321,21 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
     @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
     private fun <T> inView(block: (List<Int>) -> Flow<T>): Flow<T> = viewScopes.flatMapLatest(block)
 
-    val songJumps: StateFlow<List<Jump>> = inView { browse.songFirstChars(it) }.map(::jumps).stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
-    val albumJumps: StateFlow<List<Jump>> = inView { browse.albumFirstChars(it) }.map(::jumps).stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
-    val artistJumps: StateFlow<List<Jump>> = inView { browse.artistFirstChars(it) }.map(::jumps).stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
+    val songJumps: StateFlow<List<Jump>> = inView { browse.songFirstChars(it) }.map(::jumps).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+    val albumJumps: StateFlow<List<Jump>> = inView { browse.albumFirstChars(it) }.map(::jumps).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+    val artistJumps: StateFlow<List<Jump>> = inView { browse.artistFirstChars(it) }.map(::jumps).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     /** True while the album, artist and genre summaries are being brought up to date. */
     val indexing: StateFlow<Boolean> = container.indexer.busy
 
-    val songCount: StateFlow<Int> = inView { browse.observeSongCount(it) }.stateIn(viewModelScope, SharingStarted.Eagerly, 0)
-    val genreList: StateFlow<List<GenreIndex>> = inView { browse.observeGenres(it) }.stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
+    private val initialSongCount = if (
+        settings.safFolders.value.isNotEmpty() ||
+            settings.driveFolders.value.isNotEmpty() ||
+            container.subsonic.state.value.address != null
+    ) 1 else 0
+
+    val songCount: StateFlow<Int> = inView { browse.observeSongCount(it) }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), initialSongCount)
+    val genreList: StateFlow<List<GenreIndex>> = inView { browse.observeGenres(it) }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     /**
      * The scopes a detail page shows: the library view's, or, when the album, artist or genre has
@@ -1560,7 +1580,7 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
 
     /** Navidrome songs downloaded to the phone (offered for deletion when disconnecting). */
     val serverDownloads: StateFlow<Int> = database.tracks().observeDownloadedCount(Track.SOURCE_SUBSONIC)
-        .stateIn(viewModelScope, SharingStarted.Eagerly, 0)
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0)
 
     fun disconnectSubsonic(deleteDownloads: Boolean) = viewModelScope.launch {
         if (deleteDownloads) downloader.deleteAll(Track.SOURCE_SUBSONIC)
@@ -1602,7 +1622,7 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
     @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
     val scrobbleCounts = lastFm.state.map { it.user }.distinctUntilChanged()
         .flatMapLatest { user -> if (user == null) flowOf(null) else importer.counts(user) }
-        .stateIn(viewModelScope, SharingStarted.Eagerly, null)
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
 
     val autoSync = container.autoSync.state
     fun setAutoSync(on: Boolean) = container.autoSync.setEnabled(on)
@@ -1612,7 +1632,6 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
     fun importLoved() = importer.importLoved()
 
     init {
-        refreshStorageStats()
         viewModelScope.launch {
             settings.deezerHomeEnrichment.collect { enabled ->
                 if (enabled && _deezerHomeContent.value == null) {
@@ -1624,7 +1643,7 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
         // Songs added to the library may be ones Last.fm scrobbles are waiting for.
         @OptIn(kotlinx.coroutines.FlowPreview::class)
         viewModelScope.launch {
-            songCount.drop(1).distinctUntilChanged().debounce(30_000).collect { importer.rematch() }
+            tracksChanged.drop(1).debounce(30_000).collect { importer.rematch() }
         }
 
         // Whenever songs change in Local, Drive or Navidrome, update matches for saved Deezer playlists

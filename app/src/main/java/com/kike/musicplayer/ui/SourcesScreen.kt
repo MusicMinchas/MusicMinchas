@@ -78,6 +78,7 @@ import androidx.compose.material3.SegmentedButton
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
@@ -226,6 +227,9 @@ private fun IntegrationsEntry(vm: LibraryViewModel, onOpen: () -> Unit) {
 private fun DataStorageEntry(vm: LibraryViewModel, onOpen: () -> Unit) {
     val downloads by vm.downloadTotals.collectAsState()
     val stats by vm.storageStats.collectAsState()
+    LaunchedEffect(Unit) {
+        vm.refreshStorageStats()
+    }
     val cacheLimitMb by vm.imageCacheLimitMb.collectAsState()
 
     val summary = buildString {
@@ -451,6 +455,9 @@ fun DataStorageScreen(
     val downloads by vm.downloadTotals.collectAsState()
     var confirmDeleteDownloads by remember { mutableStateOf(false) }
     val stats by vm.storageStats.collectAsState()
+    LaunchedEffect(Unit) {
+        vm.refreshStorageStats()
+    }
     val cacheLimitMb by vm.imageCacheLimitMb.collectAsState()
     var actionMessage by remember { mutableStateOf<String?>(null) }
 

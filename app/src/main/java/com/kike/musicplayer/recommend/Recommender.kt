@@ -61,8 +61,22 @@ class Recommender(
     private val day = now / ListeningStats.DAY_MS
 
     /** Cross-source check whether a track is a favourite by ID or normalized song key. */
-    private fun isFavourite(t: Track): Boolean =
-        t.id in favourites || (favouriteKeys.isNotEmpty() && t.songKey.isNotEmpty() && t.songKey in favouriteKeys)
+    private val effectiveFavourites: Set<String> = if (favouriteKeys.isEmpty()) {
+        favourites
+    } else {
+        HashSet<String>(favourites.size * 2).apply {
+            addAll(favourites)
+            for (t in tracks) {
+                if (t.id !in this) {
+                    val key = t.songKey
+                    if (key.isNotEmpty() && key in favouriteKeys) add(t.id)
+                }
+            }
+        }
+    }
+
+    private fun isFavourite(t: Track): Boolean = t.id in effectiveFavourites
+
 
     /** Something to go on: plays or favourites. */
     private val hasTaste = stats.hasHistory || favourites.isNotEmpty() || favouriteKeys.isNotEmpty()

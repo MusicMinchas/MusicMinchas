@@ -181,5 +181,10 @@ class RecommenderTest {
         assertTrue(mixes.any { it.id.startsWith("genre:") })
         assertTrue(mixes.any { it.id == "fresh" && it.title == "Discover Your Library" })
         assertTrue(mixes.none { it.id.startsWith("because:") || it.id == "rediscover" })
+        val favIds = (1..4).flatMap { a -> (1..3).map { s -> "j$a-1-$s" } }.toSet()
+        val favKeys = tracks.filter { it.id in favIds }.map { it.songKey }.toSet()
+        val favMixes = Recommender(tracks, emptyList(), tags, now, favourites = emptySet(), favouriteKeys = favKeys).mixes()
+        val forgotten = favMixes.first { it.id == "forgotten" }
+        assertTrue(forgotten.tracks.all { it.songKey in favKeys })
     }
 }

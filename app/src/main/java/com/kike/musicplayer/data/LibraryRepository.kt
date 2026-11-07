@@ -52,10 +52,14 @@ class LibraryRepository(
     private val scanMutex = Mutex()
     private var enrichJob: Job? = null
 
-    fun refreshAll() = scope.launch {
+    fun refreshAll() = scope.launch(Dispatchers.IO) {
         // Earlier versions scanned the whole device through MediaStore; only picked folders count now.
-        dao.deleteSource(Track.SOURCE_MEDIASTORE)
-        refreshFolders()
+        if (dao.countSource(Track.SOURCE_MEDIASTORE) > 0) dao.deleteSource(Track.SOURCE_MEDIASTORE)
+        if (settings.safFolders.value.isNotEmpty() || dao.countSource(Track.SOURCE_SAF) > 0) {
+            refreshFolders()
+        } else if (dao.idsWithState(Track.META_NEW).isNotEmpty()) {
+            enrich()
+        }
         // With no Drive folders chosen yet, leave existing Drive rows alone (they keep their scanned
         // tags); the first folder the user picks prunes everything outside it.
         if (!isCasting() && driveAuth.account.value != null && settings.driveFolders.value.isNotEmpty() && driveSyncDue()) refreshDrive()
@@ -145,6 +149,7 @@ class LibraryRepository(
      */
     private suspend fun scan(label: String, source: String, block: suspend () -> List<Track>): Boolean {
         var ok = false
+        var hasChanges = false
         scanMutex.withLock {
             _status.value = "$label…"
             try {
@@ -187,6 +192,7 @@ class LibraryRepository(
                     if (toUpsert.isNotEmpty()) dao.upsertAll(toUpsert)
                     if (removedIds.isNotEmpty()) dao.delete(removedIds)
                     if (redownload) downloader.resume()
+                    hasChanges = toUpsert.isNotEmpty() || removedIds.isNotEmpty()
                 }
                 _lastError.value = null
                 ok = true
@@ -197,7 +203,9 @@ class LibraryRepository(
                 _status.value = null
             }
         }
-        enrich()
+        if (hasChanges || withContext(Dispatchers.IO) { dao.idsWithState(Track.META_NEW).isNotEmpty() }) {
+            enrich()
+        }
         return ok
     }
 
