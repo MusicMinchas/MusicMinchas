@@ -32,6 +32,9 @@ interface TrackDao {
     @Query("SELECT * FROM tracks WHERE id = :id")
     suspend fun get(id: String): Track?
 
+    @Query("SELECT * FROM tracks WHERE id = :id")
+    fun observeTrack(id: String): Flow<Track?>
+
     @Query("UPDATE tracks SET downloadState = :state WHERE id IN (:ids)")
     suspend fun setDownloadState(ids: List<String>, state: Int)
 

@@ -7,7 +7,7 @@ Parent workspace notes: @[Shared Android Dev Workspace](../AGENTS.md)
 
 - **Path:** `C:\Users\kike\dev\MusicPlayer` (local git repo, repo-local identity `kike` / `kikeprojo@gmail.com`, nothing pushed).
 - **Package:** `com.kike.musicplayer`
-- **Current Release:** `1.49.0` (`versionCode = 102`, Room DB `v27`, `minSdk = 30`, `targetSdk = 36`, `compileSdk = 37`). Merged to `master`, tag `v1.49.0`.
+- **Current Release:** `1.50.0` (`versionCode = 103`, Room DB `v27`, `minSdk = 30`, `targetSdk = 36`, `compileSdk = 37`). Merged to `master`, tag `v1.50.0`.
 - **Stack:** Kotlin 2.4.20, Jetpack Compose, Media3 1.11.1 `MediaLibraryService` (Android Auto browse tree), Room 2.8.5 via KSP 2.3.12 + Paging 3 (`paging-compose 3.3.6`, `room-paging`), Retrofit 3 + Moshi (reflection), Coil 3, `play-services-auth` 22 `AuthorizationClient` (`drive.readonly` + `email`), `reorderable` 3.1.0, AGP 9.4.1, Gradle 9.8.
 - **Shared Toolchain & Environment:**
   - `JAVA_HOME`: Android Studio's bundled `jbr`
@@ -451,3 +451,11 @@ Started 2026-10-08 from user-pasted spec. NEW app, explicitly independent of Son
   - Unit Tests:
     - Added cross-source `favouriteKeys` matching test in `RecommenderTest.kt`. All 154 unit tests pass.
   - Verified on OnePlus 12 (cold start including tile images reduced from 4–5s to `<1s`), merged to `master`, tagged `v1.49.0`, release APK `MusicMinchas-1.49.0.apk` installed.
+- 2026-11-08 Release 1.50.0 (`versionCode = 103`, Room DB `v27`, GitHub issue #32):
+  - Signal Path Audit & Truthful Hardware Reporting (`AudioQuality.kt`, `PlayerViewModel.kt`, `PlayerScreens.kt`, `TrackServer.kt`, `Daos.kt`, `AndroidManifest.xml`):
+    - **Phone Speaker & Wired Analog Mixer Resampling:** Queried Android's native `AudioFlinger` system mixer rate (`AudioManager.PROPERTY_OUTPUT_SAMPLE_RATE`, 48 kHz on OnePlus 12) and stopped falsely claiming hardware "Bit-Perfect" on shared-mixer outputs (`PHONE_SPEAKER` / `WIRED_HEADPHONES`). When playing non-48 kHz audio (e.g. 44.1 kHz or 96 kHz), Signal Path now accurately reports `"Android AudioMixer (32-bit Float · Resampled to 48 kHz)"` and `"OS Mixer Resampled (44.1 kHz → 48 kHz — Not Bit-Perfect)"`; for 48 kHz tracks it reports `"Android AudioMixer (32-bit Float · Native 48 kHz)"` and `"Lossless In-App Decode · Shared OS Mixer (48 kHz)"`.
+    - **Sonos Downsampling Indicator Fix:** Fixed `detectAudioOutput` and `resolveAudioQuality` unconditionally displaying `"Downsampled to 48 kHz"` whenever the Sonos downsampling setting was enabled, even for 44.1 kHz and 48 kHz tracks. Now computes `ResamplePlan.forStream(sampleRateHz, channels)` per track so `<= 48 kHz` tracks accurately show `"Bit-Perfect UPnP Lossless HTTP Relay"`, while `> 48 kHz` tracks show their true integer-decimated target rate (`44.1 kHz` for 88.2/176.4 kHz, `48 kHz` for 96/192 kHz). Added reactive `TrackDao.observeTrack(trackId)` in `PlayerViewModel` and background header probing in `TrackServer` when downsampling is off so on-the-fly probed sample rates update the Signal Path immediately.
+    - **Bluetooth Codec & Format Inspection:** Connected to Android's `BluetoothA2dp` profile proxy (`getCodecStatus` / `BluetoothCodecConfig`) with `BLUETOOTH_CONNECT` permission handling and `ACTION_CODEC_CONFIG_CHANGED` broadcast listening (plus `AudioDeviceInfo` fallback and LE Audio `LC3` detection) to display active Bluetooth codec (`LDAC`, `aptX HD`, `aptX Adaptive`, `aptX`, `AAC`, `SBC`, `LHDC`, `LC3`), bitrate mode (e.g. `990 kbps` / `Adaptive Bitrate`), negotiated sample rate & bit depth (e.g. `24-bit / 96 kHz`), and channel mode in the Signal Path and Output Device cards.
+  - Unit Tests:
+    - Added `testPhoneSpeakerMixerResamplingTruthfulness`, `testSonosCastDownsampleVsBitPerfectRelay`, and `testParseBluetoothCodecConfig` in `AudioQualityTest.kt`. All 156 unit tests pass.
+  - Merged to `master`, tagged `v1.50.0`, release APK `MusicMinchas-1.50.0.apk` built.

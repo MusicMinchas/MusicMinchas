@@ -1,7 +1,21 @@
 package com.kike.musicplayer.ui
 
 import android.app.Application
+import android.bluetooth.BluetoothA2dp
+import android.bluetooth.BluetoothManager
+import android.bluetooth.BluetoothProfile
+import android.content.BroadcastReceiver
 import android.content.ComponentName
+import android.content.Context
+import android.content.Intent
+import android.content.IntentFilter
+import android.media.AudioDeviceCallback
+import android.media.AudioDeviceInfo
+import android.media.AudioManager
+import android.os.Build
+import android.os.Handler
+import android.os.Looper
+import androidx.core.content.ContextCompat
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import androidx.media3.common.C
@@ -17,31 +31,25 @@ import com.google.common.util.concurrent.MoreExecutors
 import com.kike.musicplayer.container
 import com.kike.musicplayer.data.db.Favourite
 import com.kike.musicplayer.data.db.Track
-import com.kike.musicplayer.sonos.SonosGroup
-import android.content.Context
-import android.media.AudioDeviceCallback
-import android.media.AudioDeviceInfo
-import android.media.AudioManager
-import android.os.Handler
-import android.os.Looper
 import com.kike.musicplayer.playback.AudioOutputInfo
 import com.kike.musicplayer.playback.AudioQualityDetails
-import com.kike.musicplayer.playback.detectAudioOutput
-import com.kike.musicplayer.playback.resolveAudioQuality
-import com.kike.musicplayer.playback.inferAddonName
 import com.kike.musicplayer.playback.PlaybackService
+import com.kike.musicplayer.playback.detectAudioOutput
+import com.kike.musicplayer.playback.inferAddonName
+import com.kike.musicplayer.playback.resolveAudioQuality
 import com.kike.musicplayer.playback.toMediaItem
 import com.kike.musicplayer.playback.toTransientTrack
+import com.kike.musicplayer.sonos.SonosGroup
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.flow.update
-import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.map
-import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 
@@ -94,7 +102,31 @@ class PlayerViewModel(private val app: Application) : AndroidViewModel(app) {
     val sleepTimerStatus = app.container.sleepTimer.status
 
     private val audioManager = app.getSystemService(Context.AUDIO_SERVICE) as? AudioManager
-    private val _audioOutput = MutableStateFlow(detectAudioOutput(app, cast.active.value, sonosDownsample.value))
+    private val bluetoothAdapter = (app.getSystemService(Context.BLUETOOTH_SERVICE) as? BluetoothManager)?.adapter
+    private var a2dpProxy: BluetoothA2dp? = null
+
+    private val a2dpProfileListener = object : BluetoothProfile.ServiceListener {
+        override fun onServiceConnected(profile: Int, proxy: BluetoothProfile?) {
+            if (profile == BluetoothProfile.A2DP) {
+                a2dpProxy = proxy as? BluetoothA2dp
+                refreshAudioOutput()
+            }
+        }
+        override fun onServiceDisconnected(profile: Int) {
+            if (profile == BluetoothProfile.A2DP) {
+                a2dpProxy = null
+                refreshAudioOutput()
+            }
+        }
+    }
+
+    private val btCodecReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context?, intent: Intent?) {
+            refreshAudioOutput()
+        }
+    }
+
+    private val _audioOutput = MutableStateFlow(detectAudioOutput(app, cast.active.value, a2dpProxy))
     val audioOutput: StateFlow<AudioOutputInfo> = _audioOutput.asStateFlow()
 
     private val audioDeviceCallback = object : AudioDeviceCallback() {
@@ -106,8 +138,8 @@ class PlayerViewModel(private val app: Application) : AndroidViewModel(app) {
         }
     }
 
-    private fun refreshAudioOutput() {
-        _audioOutput.value = detectAudioOutput(app, cast.active.value, sonosDownsample.value)
+    fun refreshAudioOutput() {
+        _audioOutput.value = detectAudioOutput(app, cast.active.value, a2dpProxy)
         controller?.let(::refresh)
     }
 
@@ -118,6 +150,9 @@ class PlayerViewModel(private val app: Application) : AndroidViewModel(app) {
     val progress: StateFlow<PlayerProgress> = _progress.asStateFlow()
 
     private var ticker: Job? = null
+    private var trackObserverJob: Job? = null
+    private var observedTrackId: String? = null
+    private var observedDbTrack: Track? = null
 
     private val listener = object : Player.Listener {
         override fun onEvents(player: Player, events: Player.Events) = refresh(player)
@@ -125,6 +160,16 @@ class PlayerViewModel(private val app: Application) : AndroidViewModel(app) {
 
     init {
         audioManager?.registerAudioDeviceCallback(audioDeviceCallback, Handler(Looper.getMainLooper()))
+        runCatching {
+            bluetoothAdapter?.getProfileProxy(app, a2dpProfileListener, BluetoothProfile.A2DP)
+        }
+        runCatching {
+            val filter = IntentFilter().apply {
+                addAction("android.bluetooth.a2dp.profile.action.CODEC_CONFIG_CHANGED")
+                addAction(BluetoothA2dp.ACTION_CONNECTION_STATE_CHANGED)
+            }
+            ContextCompat.registerReceiver(app, btCodecReceiver, filter, ContextCompat.RECEIVER_EXPORTED)
+        }
         viewModelScope.launch {
             cast.active.collect { refreshAudioOutput() }
         }
@@ -168,10 +213,12 @@ class PlayerViewModel(private val app: Application) : AndroidViewModel(app) {
 
     private fun refresh(p: Player) {
         val format = selectedAudioFormat(p)
-        val transientTrack = p.currentMediaItem?.toTransientTrack()
+        val trackId = p.currentMediaItem?.mediaId?.let(PlaybackService::trackIdOf)
+        val cachedDbTrack = observedDbTrack?.takeIf { it.id == trackId }
+        val baseTrack = cachedDbTrack ?: p.currentMediaItem?.toTransientTrack()
         val isDsp = app.container.settings.loudnessNormalization.value || app.container.settings.crossfade.value
         val initialQuality = if (p.currentMediaItem != null) {
-            resolveAudioQuality(format, transientTrack, _audioOutput.value, sonosDownsample.value, isDsp, resolveAddonDisplayName(transientTrack))
+            resolveAudioQuality(format, baseTrack, _audioOutput.value, sonosDownsample.value, isDsp, resolveAddonDisplayName(baseTrack))
         } else null
 
         _state.value = PlayerUiState(
@@ -195,15 +242,41 @@ class PlayerViewModel(private val app: Application) : AndroidViewModel(app) {
         _progress.value = PlayerProgress(p.currentPosition, p.bufferedPosition)
         if (p.isPlaying) startTicker() else ticker?.cancel()
 
-        val trackId = p.currentMediaItem?.mediaId?.let(PlaybackService::trackIdOf)
         if (trackId != null) {
-            viewModelScope.launch(Dispatchers.IO) {
-                val dbTrack = app.container.database.tracks().get(trackId)
+            if (observedTrackId != trackId || trackObserverJob?.isActive != true) {
+                observeCurrentTrackQuality(trackId, format)
+            }
+        } else {
+            trackObserverJob?.cancel()
+            observedTrackId = null
+            observedDbTrack = null
+        }
+    }
+
+    private fun observeCurrentTrackQuality(trackId: String, format: Format?) {
+        trackObserverJob?.cancel()
+        observedTrackId = trackId
+        observedDbTrack = null
+        trackObserverJob = viewModelScope.launch {
+            app.container.database.tracks().observeTrack(trackId).collect { dbTrack ->
                 if (dbTrack != null) {
-                    val refinedQuality = resolveAudioQuality(format, dbTrack, _audioOutput.value, sonosDownsample.value, isDsp, resolveAddonDisplayName(dbTrack))
+                    observedDbTrack = dbTrack
+                    val liveFormat = controller?.let(::selectedAudioFormat) ?: format
+                    val liveDsp = app.container.settings.loudnessNormalization.value || app.container.settings.crossfade.value
+                    val refinedQuality = resolveAudioQuality(
+                        liveFormat,
+                        dbTrack,
+                        _audioOutput.value,
+                        sonosDownsample.value,
+                        liveDsp,
+                        resolveAddonDisplayName(dbTrack),
+                    )
                     _state.update { curr ->
                         if (curr.current?.mediaId?.let(PlaybackService::trackIdOf) == trackId) {
-                            curr.copy(audioQuality = refinedQuality)
+                            curr.copy(
+                                sampleRate = liveFormat?.sampleRate?.takeIf { it > 0 } ?: refinedQuality.sampleRateHz,
+                                audioQuality = refinedQuality,
+                            )
                         } else curr
                     }
                 }
@@ -334,8 +407,9 @@ class PlayerViewModel(private val app: Application) : AndroidViewModel(app) {
         .stateIn(viewModelScope, SharingStarted.Eagerly, emptyMap())
 
     fun toggleFavourite(trackId: String, track: Track? = null) {
+        val fallbackTrack = track ?: transientTrackFor(trackId, trackId)
         viewModelScope.launch(Dispatchers.IO) {
-            val t = track ?: app.container.database.tracks().get(trackId) ?: transientTrackFor(trackId, trackId)
+            val t = track ?: app.container.database.tracks().get(trackId) ?: fallbackTrack
             val sKey = t?.songKey ?: ""
             val isFav = trackId in favourites.value || (sKey.isNotEmpty() && sKey in favouriteSongKeys.value)
             if (isFav) {
@@ -365,21 +439,13 @@ class PlayerViewModel(private val app: Application) : AndroidViewModel(app) {
     val lyrics: StateFlow<LyricsState> = _lyrics.asStateFlow()
     private var lyricsFor: String? = null
 
-        private fun transientTrackFor(mediaId: String, trackId: String): Track? {
-
+    private fun transientTrackFor(mediaId: String, trackId: String): Track? {
         val c = controller ?: return null
-
         val item = c.currentMediaItem?.takeIf { it.mediaId == mediaId || PlaybackService.trackIdOf(it.mediaId) == trackId }
-
             ?: (0 until c.mediaItemCount).map { c.getMediaItemAt(it) }.firstOrNull { it.mediaId == mediaId || PlaybackService.trackIdOf(it.mediaId) == trackId }
-
             ?: return null
-
         return item.toTransientTrack()
-
     }
-
-
 
     /** Looks up the lyrics of the song with this media id (cached after the first time). */
     fun loadLyrics(mediaId: String) {
@@ -443,7 +509,13 @@ class PlayerViewModel(private val app: Application) : AndroidViewModel(app) {
     }
 
     override fun onCleared() {
+        trackObserverJob?.cancel()
         audioManager?.unregisterAudioDeviceCallback(audioDeviceCallback)
+        runCatching { app.unregisterReceiver(btCodecReceiver) }
+        a2dpProxy?.let { proxy ->
+            runCatching { bluetoothAdapter?.closeProfileProxy(BluetoothProfile.A2DP, proxy) }
+        }
+        a2dpProxy = null
         controller?.removeListener(listener)
         MediaController.releaseFuture(controllerFuture)
     }

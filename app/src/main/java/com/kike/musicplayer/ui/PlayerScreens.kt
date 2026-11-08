@@ -1,6 +1,12 @@
 package com.kike.musicplayer.ui
 
 import com.kike.musicplayer.playback.toTransientTrack
+import android.Manifest
+import android.content.pm.PackageManager
+import android.os.Build
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.core.content.ContextCompat
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -102,6 +108,7 @@ import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material.icons.automirrored.filled.VolumeDown
 import androidx.compose.material.icons.automirrored.filled.VolumeUp
 import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.rememberModalBottomSheetState
 import kotlin.math.roundToInt
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.ui.draw.blur
@@ -467,13 +474,30 @@ private fun ColumnScope.NowPlayingDetails(
         style = MaterialTheme.typography.bodyLarge, textAlign = TextAlign.Center,
     )
     var showAudioDetails by remember { mutableStateOf(false) }
+    val context = LocalContext.current
+    val btPermissionLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { granted ->
+        if (granted) playerVm.refreshAudioOutput()
+    }
     val group = castTo
     AudioQualityBadge(
         quality = s.audioQuality,
         formatInfo = s.formatInfo,
         isCasting = group != null,
         castGroupName = group?.name,
-        onClick = { showAudioDetails = true },
+        onClick = {
+            if (
+                Build.VERSION.SDK_INT >= Build.VERSION_CODES.S &&
+                s.audioQuality?.outputInfo?.routeType == OutputRouteType.BLUETOOTH &&
+                ContextCompat.checkSelfPermission(context, Manifest.permission.BLUETOOTH_CONNECT) != PackageManager.PERMISSION_GRANTED
+            ) {
+                btPermissionLauncher.launch(Manifest.permission.BLUETOOTH_CONNECT)
+            } else {
+                playerVm.refreshAudioOutput()
+            }
+            showAudioDetails = true
+        },
     )
     if (showAudioDetails) {
         AudioDetailsSheet(
@@ -668,7 +692,11 @@ private fun AudioDetailsSheet(
     onDismiss: () -> Unit,
 ) {
     if (quality == null) return
-    ModalBottomSheet(onDismissRequest = onDismiss) {
+    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        sheetState = sheetState,
+    ) {
         Column(
             Modifier
                 .fillMaxWidth()
@@ -726,8 +754,10 @@ private fun AudioDetailsSheet(
                 AudioDetailRow("Decoder", quality.decoderDescription)
                 AudioDetailRow("Processing", quality.signalPathDescription)
                 if (quality.isDownsampledForSonos) {
-                    AudioDetailRow("Sonos Compatibility", "Downsampled 48 kHz FLAC")
-                } else if (quality.integrityDescription != null) {
+                    val targetRateStr = quality.sonosTargetSampleRateHz?.let(::formatSampleRate) ?: "48 kHz"
+                    AudioDetailRow("Sonos Compatibility", "Downsampled 24-bit / $targetRateStr FLAC")
+                }
+                if (quality.integrityDescription != null) {
                     AudioDetailRow("Integrity", quality.integrityDescription)
                 }
             }
@@ -746,8 +776,27 @@ private fun AudioDetailsSheet(
             ) {
                 AudioDetailRow("Destination", quality.outputInfo.displayName)
                 AudioDetailRow("Route Type", quality.outputInfo.description)
-                quality.outputInfo.maxHardwareRateHz?.let {
-                    AudioDetailRow("DAC Max Rate", formatSampleRate(it))
+                val btCodec = quality.outputInfo.bluetoothCodec
+                if (btCodec != null) {
+                    AudioDetailRow("Bluetooth Codec", btCodec.codecSummary)
+                    btCodec.formatSummary?.let { fmt ->
+                        AudioDetailRow("Bluetooth Audio", fmt)
+                    }
+                    btCodec.channelMode?.let { ch ->
+                        AudioDetailRow("Channel Mode", ch)
+                    }
+                } else {
+                    quality.outputInfo.maxHardwareRateHz?.let {
+                        AudioDetailRow("DAC Max Rate", formatSampleRate(it))
+                    }
+                }
+                if (
+                    quality.outputInfo.routeType == OutputRouteType.PHONE_SPEAKER ||
+                    quality.outputInfo.routeType == OutputRouteType.WIRED_HEADPHONES
+                ) {
+                    quality.outputInfo.nativeMixerRateHz?.let { mixerRate ->
+                        AudioDetailRow("Android Mixer Rate", formatSampleRate(mixerRate))
+                    }
                 }
             }
 
