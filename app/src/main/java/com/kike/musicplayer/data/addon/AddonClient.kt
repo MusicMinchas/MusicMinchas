@@ -91,13 +91,40 @@ class AddonClient(
     }
 
     /**
+     * Performs a fast 1-byte Range probe to verify that a resolved CDN stream URL actually exists
+     * (returns HTTP 200 or 206 rather than 404/403/5xx) and pre-warms the OkHttp TLS connection pool.
+     */
+    fun isStreamReachable(streamUrl: String): Boolean = runCatching {
+        val req = Request.Builder()
+            .url(streamUrl)
+            .header("User-Agent", USER_AGENT)
+            .header("Range", "bytes=0-0")
+            .build()
+        http.newCall(req).execute().use { resp ->
+            val ok = resp.code == 200 || resp.code == 206
+            if (!ok) {
+                Log.w(TAG, "isStreamReachable() HTTP ${resp.code} for $streamUrl")
+            }
+            ok
+        }
+    }.onFailure {
+        Log.w(TAG, "isStreamReachable() failed for $streamUrl: $it")
+    }.getOrDefault(false)
+
+    /**
      * Finds and resolves a stream for a song given its artist, album, and title.
      * Uses 2-stage resolution:
      * 1. Query `/search?q={artist} {title}` for high recall without over-filtering.
-     * 2. Scans returned candidate tracks for matching album name; falls back to top hit.
-     * 3. Resolves the selected track ID via `/stream/{id}`.
+     * 2. Scans returned candidate tracks for matching album name; falls back to top hits.
+     * 3. Resolves the selected track ID via `/stream/{id}` (trying up to 3 candidates if a candidate fails or 404s).
      */
-    fun findStream(baseUrl: String, artist: String, album: String?, title: String): Result<AddonStream> {
+    fun findStream(
+        baseUrl: String,
+        artist: String,
+        album: String?,
+        title: String,
+        verifyReachability: Boolean = false,
+    ): Result<AddonStream> {
         val cleanArtist = sanitizeForSearch(artist)
         val cleanTitle = sanitizeForSearch(title)
         val query = "$cleanArtist $cleanTitle".trim()
@@ -109,18 +136,33 @@ class AddonClient(
             return Result.failure(IOException("No matching track found for '$query'"))
         }
 
-        val selectedTrack = if (!album.isNullOrBlank()) {
+        val orderedCandidates = if (!album.isNullOrBlank()) {
             val targetAlbum = sanitizeForSearch(album).lowercase()
-            tracks.firstOrNull { candidate ->
+            val (matching, rest) = tracks.partition { candidate ->
                 val candAlbum = sanitizeForSearch(candidate.album ?: "").lowercase()
                 candAlbum.isNotEmpty() && (candAlbum in targetAlbum || targetAlbum in candAlbum)
-            } ?: tracks.first()
+            }
+            matching + rest
         } else {
-            tracks.first()
+            tracks
         }
 
-        AppLog.log(TAG, "findStream() selected '${selectedTrack.title}' (id=${selectedTrack.id}) for '$query'")
-        return stream(baseUrl, selectedTrack.id)
+        var lastFailure: Result<AddonStream>? = null
+        for (candidate in orderedCandidates.take(3)) {
+            AppLog.log(TAG, "findStream() trying '${candidate.title}' (id=${candidate.id}) for '$query'")
+            val res = stream(baseUrl, candidate.id)
+            val url = res.getOrNull()?.url
+            if (!url.isNullOrBlank()) {
+                if (!verifyReachability || isStreamReachable(url)) {
+                    return res
+                }
+                Log.w(TAG, "findStream() candidate '${candidate.title}' (${candidate.id}) returned unreachable URL, trying next")
+                lastFailure = Result.failure(IOException("Stream URL returned 404/unreachable for ${candidate.id}"))
+            } else {
+                lastFailure = res
+            }
+        }
+        return lastFailure ?: Result.failure(IOException("No playable stream found for '$query'"))
     }
 
     companion object {

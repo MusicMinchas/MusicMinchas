@@ -25,12 +25,14 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.async
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.guava.future
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.coroutines.yield
 import java.io.IOException
 
@@ -180,15 +182,29 @@ class SonosPlayer(
     /** Fills the Sonos queue: tracks from [start] on first (and starts playing), then the ones before it. */
     private suspend fun loadQueue(snapshot: List<Entry>, start: Int, startPositionMs: Long, onStarted: () -> Unit) {
         val base = server.baseUrl() ?: throw IOException("the phone has no Wi-Fi address")
-        // The first two songs' first pieces, before Sonos asks for them one by one.
-        server.prefetch(snapshot.drop(start).take(2).map { trackIdOf(it.item) })
         val tracks = withContext(Dispatchers.IO) { dao.getByIds(snapshot.map { trackIdOf(it.item) }).associateBy { it.id } }
+        val firstTracks = snapshot.drop(start).take(2).mapNotNull { trackFor(it.item, tracks) }
+        server.cacheTracks(firstTracks)
+        val firstWarmup = firstTracks.firstOrNull()?.let { first ->
+            scope.async(Dispatchers.IO) { runCatching { server.warmUpTrack(first) } }
+        }
+        if (firstTracks.size > 1) {
+            server.prefetch(firstTracks.drop(1).map { it.id })
+        }
         fun item(e: Entry) = trackFor(e.item, tracks)?.let { queueItem(base, e.id, it) }
 
         withContext(sonosThread) {
+            if (snapshot.isEmpty()) {
+                sonosOrder.clear()
+                Sonos.clearQueue(ip)
+                return@withContext
+            }
+            // Wait for the first track warm-up (stream resolution + probe) BEFORE clearing the
+            // Sonos queue so the speaker doesn't sit in STOPPED state while resolving add-on URLs.
+            withTimeoutOrNull(8_000) { firstWarmup?.await() }
+            withContext(Dispatchers.Main) { hold(10_000) }
             sonosOrder.clear()
             Sonos.clearQueue(ip)
-            if (snapshot.isEmpty()) return@withContext
             val after = snapshot.subList(start, snapshot.size)
             val before = snapshot.subList(0, start)
             var started = false
@@ -210,18 +226,23 @@ class SonosPlayer(
                     // Before picking the track: leaving a Sonos shuffle mode reorders the queue and jumps.
                     applyPlayMode()
                     Sonos.seekTrack(ip, 1)
-                    if (startPositionMs > 1000) seekTimeVerified(startPositionMs)
-                    val play = withContext(Dispatchers.Main) {
+                    val play = withContext(Dispatchers.Main) { playWhenReady }
+                    if (play) {
+                        Sonos.play(ip)
+                        if (startPositionMs > 1000) seekTimeVerified(startPositionMs)
+                    } else if (startPositionMs > 1000) {
+                        seekTimeVerified(startPositionMs)
+                    }
+                    withContext(Dispatchers.Main) {
                         playbackState = Player.STATE_READY
+                        positionAt = SystemClock.elapsedRealtime()
                         // Adding tracks to the queue resets a stopped track to 0:00, so while
                         // paused the position is restored once loading is done (or when play is
                         // pressed); until then the poll mustn't copy Sonos' 0:00 into the app.
                         pendingResume = !playWhenReady
-                        hold(if (playWhenReady) 2_000 else HOLD_WHILE_LOADING_MS)
+                        hold(if (playWhenReady) 3_000 else HOLD_WHILE_LOADING_MS)
                         invalidateState()
-                        playWhenReady
                     }
-                    if (play) Sonos.play(ip)
                     onStarted()
                 }
                 yield() // let transport commands (pause, volume...) through between batches
@@ -308,12 +329,27 @@ class SonosPlayer(
         currentIndex = target
         this.positionMs = position
         positionAt = SystemClock.elapsedRealtime()
-        hold()
-        val entryId = entries[target].id
+        hold(if (changeTrack) 8_000 else 2_000)
+        val entry = entries[target]
+        val entryId = entry.id
         return command {
             if (changeTrack) {
                 val track = sonosPosition(entryId) ?: return@command
+                withTimeoutOrNull(6_000) {
+                    withContext(Dispatchers.IO) {
+                        val tracks = dao.getByIds(listOf(trackIdOf(entry.item))).associateBy { it.id }
+                        trackFor(entry.item, tracks)?.let { t ->
+                            server.cacheTracks(listOf(t))
+                            server.warmUpTrack(t)
+                        }
+                    }
+                }
+                withContext(Dispatchers.Main) { hold(3_000) }
                 Sonos.seekTrack(ip, track)
+                val shouldPlay = withContext(Dispatchers.Main) { playWhenReady }
+                if (shouldPlay) {
+                    Sonos.play(ip)
+                }
             }
             if (!changeTrack || position > 0) Sonos.seekTime(ip, position)
         }
@@ -560,7 +596,13 @@ class SonosPlayer(
         repeat(SEEK_ATTEMPTS) {
             Sonos.seekTime(ip, positionMs)
             delay(SEEK_RETRY_MS)
-            if (kotlin.math.abs(Sonos.position(ip).relTimeMs - positionMs) < 3_000) return
+            var pos = Sonos.position(ip)
+            var waitCount = 0
+            while (pos.transportState == "TRANSITIONING" && waitCount++ < 10) {
+                delay(SEEK_RETRY_MS)
+                pos = Sonos.position(ip)
+            }
+            if (kotlin.math.abs(pos.relTimeMs - positionMs) < 3_000) return
         }
         Log.w(TAG, "Sonos didn't take the seek to $positionMs ms")
     }
@@ -646,7 +688,12 @@ class SonosPlayer(
             positionAt = SystemClock.elapsedRealtime()
             when (p.transportState) {
                 "PLAYING" -> { playWhenReady = true; playbackState = Player.STATE_READY }
-                "PAUSED_PLAYBACK", "STOPPED" -> { playWhenReady = false; playbackState = Player.STATE_READY }
+                "PAUSED_PLAYBACK", "STOPPED" -> {
+                    if (loadJob?.isActive != true) {
+                        playWhenReady = false
+                        playbackState = Player.STATE_READY
+                    }
+                }
                 "TRANSITIONING" -> playbackState = Player.STATE_BUFFERING
             }
             invalidateState()

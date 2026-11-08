@@ -15,6 +15,7 @@ import android.media.AudioManager
 import android.os.Build
 import android.os.Handler
 import android.os.Looper
+import android.util.Log
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
@@ -36,6 +37,7 @@ import com.kike.musicplayer.playback.AudioQualityDetails
 import com.kike.musicplayer.playback.PlaybackService
 import com.kike.musicplayer.playback.detectAudioOutput
 import com.kike.musicplayer.playback.inferAddonName
+import com.kike.musicplayer.playback.parseBluetoothCodecConfig
 import com.kike.musicplayer.playback.resolveAudioQuality
 import com.kike.musicplayer.playback.toMediaItem
 import com.kike.musicplayer.playback.toTransientTrack
@@ -120,13 +122,50 @@ class PlayerViewModel(private val app: Application) : AndroidViewModel(app) {
         }
     }
 
+    private var lastBroadcastCodecConfig: android.bluetooth.BluetoothCodecConfig? = null
+
     private val btCodecReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
+            Log.i("AudioQuality", "btCodecReceiver onReceive: action=${intent?.action}, extras=${intent?.extras?.keySet()?.joinToString()}")
+            val codecStatus: android.bluetooth.BluetoothCodecStatus? = intent?.let {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                    it.getParcelableExtra("android.bluetooth.extra.CODEC_STATUS", android.bluetooth.BluetoothCodecStatus::class.java)
+                        ?: it.getParcelableExtra("android.bluetooth.a2dp.extra.CODEC_STATUS", android.bluetooth.BluetoothCodecStatus::class.java)
+                } else {
+                    @Suppress("DEPRECATION")
+                    (it.getParcelableExtra<android.os.Parcelable>("android.bluetooth.extra.CODEC_STATUS")
+                        ?: it.getParcelableExtra<android.os.Parcelable>("android.bluetooth.a2dp.extra.CODEC_STATUS")) as? android.bluetooth.BluetoothCodecStatus
+                }
+            }
+            if (codecStatus != null) {
+                val config = codecStatus.codecConfig
+                Log.i("AudioQuality", "Extracted codecConfig from broadcast: $config")
+                lastBroadcastCodecConfig = config
+                if (config != null) {
+                    val parsed = parseBluetoothCodecConfig(
+                        codecType = config.codecType,
+                        sampleRateFlag = config.sampleRate,
+                        bitsPerSampleFlag = config.bitsPerSample,
+                        channelModeFlag = config.channelMode,
+                        codecSpecific1 = config.codecSpecific1,
+                    )
+                    val dev = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                        intent.getParcelableExtra(android.bluetooth.BluetoothDevice.EXTRA_DEVICE, android.bluetooth.BluetoothDevice::class.java)
+                    } else {
+                        @Suppress("DEPRECATION")
+                        intent.getParcelableExtra(android.bluetooth.BluetoothDevice.EXTRA_DEVICE) as? android.bluetooth.BluetoothDevice
+                    }
+                    val entry = "${parsed.codecName}|${parsed.sampleRateHz ?: 48000}|${parsed.bitDepth ?: 16}|${parsed.channelMode.orEmpty()}|${parsed.bitrateInfo.orEmpty()}"
+                    val prefs = app.getSharedPreferences("bt_codec_cache", Context.MODE_PRIVATE)
+                    dev?.address?.takeIf { it.isNotBlank() }?.let { addr -> prefs.edit().putString(addr, entry).apply() }
+                    dev?.name?.takeIf { it.isNotBlank() }?.let { name -> prefs.edit().putString(name, entry).apply() }
+                }
+            }
             refreshAudioOutput()
         }
     }
 
-    private val _audioOutput = MutableStateFlow(detectAudioOutput(app, cast.active.value, a2dpProxy))
+    private val _audioOutput = MutableStateFlow(detectAudioOutput(app, cast.active.value, a2dpProxy, lastBroadcastCodecConfig))
     val audioOutput: StateFlow<AudioOutputInfo> = _audioOutput.asStateFlow()
 
     private val audioDeviceCallback = object : AudioDeviceCallback() {
@@ -139,8 +178,39 @@ class PlayerViewModel(private val app: Application) : AndroidViewModel(app) {
     }
 
     fun refreshAudioOutput() {
-        _audioOutput.value = detectAudioOutput(app, cast.active.value, a2dpProxy)
-        controller?.let(::refresh)
+        if (a2dpProxy == null) {
+            runCatching {
+                bluetoothAdapter?.getProfileProxy(app, a2dpProfileListener, BluetoothProfile.A2DP)
+            }
+        }
+        val newOutput = detectAudioOutput(app, cast.active.value, a2dpProxy, lastBroadcastCodecConfig)
+        _audioOutput.value = newOutput
+        _audioOutput.value = newOutput
+        val p = controller
+        if (p != null) {
+            refresh(p)
+        }
+        val dbTrack = observedDbTrack
+        if (dbTrack != null) {
+            val liveFormat = p?.let(::selectedAudioFormat)
+            val liveDsp = app.container.settings.loudnessNormalization.value || app.container.settings.crossfade.value
+            val refinedQuality = resolveAudioQuality(
+                liveFormat,
+                dbTrack,
+                newOutput,
+                sonosDownsample.value,
+                liveDsp,
+                resolveAddonDisplayName(dbTrack),
+            )
+            _state.update { curr ->
+                if (curr.current?.mediaId?.let(PlaybackService::trackIdOf) == dbTrack.id) {
+                    curr.copy(
+                        sampleRate = liveFormat?.sampleRate?.takeIf { it > 0 } ?: refinedQuality.sampleRateHz,
+                        audioQuality = refinedQuality,
+                    )
+                } else curr
+            }
+        }
     }
 
     private val _state = MutableStateFlow(PlayerUiState())

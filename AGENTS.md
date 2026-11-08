@@ -7,7 +7,7 @@ Parent workspace notes: @[Shared Android Dev Workspace](../AGENTS.md)
 
 - **Path:** `C:\Users\kike\dev\MusicPlayer` (local git repo, repo-local identity `kike` / `kikeprojo@gmail.com`, nothing pushed).
 - **Package:** `com.kike.musicplayer`
-- **Current Release:** `1.50.0` (`versionCode = 103`, Room DB `v27`, `minSdk = 30`, `targetSdk = 36`, `compileSdk = 37`). Merged to `master`, tag `v1.50.0`.
+- **Current Release:** `1.50.1` (`versionCode = 104`, Room DB `v27`, `minSdk = 30`, `targetSdk = 36`, `compileSdk = 37`). Merged to `master`, tag `v1.50.1`.
 - **Stack:** Kotlin 2.4.20, Jetpack Compose, Media3 1.11.1 `MediaLibraryService` (Android Auto browse tree), Room 2.8.5 via KSP 2.3.12 + Paging 3 (`paging-compose 3.3.6`, `room-paging`), Retrofit 3 + Moshi (reflection), Coil 3, `play-services-auth` 22 `AuthorizationClient` (`drive.readonly` + `email`), `reorderable` 3.1.0, AGP 9.4.1, Gradle 9.8.
 - **Shared Toolchain & Environment:**
   - `JAVA_HOME`: Android Studio's bundled `jbr`
@@ -459,3 +459,19 @@ Started 2026-10-08 from user-pasted spec. NEW app, explicitly independent of Son
   - Unit Tests:
     - Added `testPhoneSpeakerMixerResamplingTruthfulness`, `testSonosCastDownsampleVsBitPerfectRelay`, and `testParseBluetoothCodecConfig` in `AudioQualityTest.kt`. All 156 unit tests pass.
   - Merged to `master`, tagged `v1.50.0`, release APK `MusicMinchas-1.50.0.apk` built.
+- 2026-11-08 Release 1.50.1 (`versionCode = 104`, Room DB `v27`, GitHub issue #32):
+  - Signal Path Sheet & UI Stability (`PlayerScreens.kt`):
+    - Fixed bottom sheet height oscillation / auto-raising loop when expanding the Audio Quality & Signal Path sheet by removing conflicting animated layout constraints on dynamic text.
+  - Sonos Streaming & Track Switching Resiliency (`SonosPlayer.kt`, `TrackServer.kt`, `PlaybackService.kt`, `AddonClient.kt`, `NebulaUrls.kt`):
+    - Fixed stream stalls and premature track cuts when casting add-on / HiRes streams to Sonos: pre-warmed track audio and headers in `loadQueue()` before executing `Sonos.clearQueue(ip)`, preventing a race where Sonos attempts to fetch from the relay before the stream is ready.
+    - Updated `RemoteRandomAccessSource` in `TrackServer` to support continuous HTTP chunked streaming instead of strict byte-range polling, ensuring large add-on flac streams buffer smoothly.
+    - Added reachability probe (HTTP range 0-0) and multi-candidate retry in `AddonClient.findStream` to reject stale or 403/404 CDN links immediately.
+    - Handled Deezer `"dz:"` prefix stripping when routing catalog queries to `nullbeat`.
+    - Restored `player.playWhenReady = wasPlaying` in `PlaybackService.endCast` when handoff from Sonos back to phone completes.
+  - Bluetooth Output Selection & Android 14+ CDM Bypass (`AudioQuality.kt`, `PlayerViewModel.kt`):
+    - Prioritized `TYPE_BLUETOOTH_A2DP` over the phone's internal SCO voice endpoint (`CPH2581`) in `detectAudioOutput`, preventing false hands-free voice (16 kHz mono) detection when Bluetooth media earbuds are active.
+    - Bypassed Android 14+ Companion Device Manager (CDM) `SecurityException` when invoking hidden `BluetoothA2dp.getCodecStatus(device)`: `PlayerViewModel` now captures `BluetoothCodecStatus` directly from the `android.bluetooth.a2dp.profile.action.CODEC_CONFIG_CHANGED` system broadcast's `intent.extras`, parses `BluetoothCodecConfig`, and persists it into `SharedPreferences("bt_codec_cache")` keyed by device address and product name.
+    - Signal Path now truthfully displays LDAC (e.g. `LDAC (Adaptive Bitrate) · 32-bit / 96 kHz · Stereo`) on Sony WF-1000XM5 and other LDAC-capable headphones.
+  - Unit Tests:
+    - Updated and added regression tests in `AudioQualityTest.kt` and `AddonFallbackTest.kt`. All 157 unit tests pass.
+  - Verified on OnePlus 12 with Sony WF-1000XM5 and Sonos Beam, merged to `master`, tagged `v1.50.1`, release APK `MusicMinchas-1.50.1.apk` installed.

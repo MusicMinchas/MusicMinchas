@@ -392,7 +392,7 @@ class PlaybackService : MediaLibraryService(), CastHost {
         return QueueSnapshot((0 until p.mediaItemCount).map(p::getMediaItemAt), p.currentMediaItemIndex, p.currentPosition, playOrder)
     }
 
-    /** Hands the queue back to the phone, paused where Sonos was, and stops the speaker. */
+    /** Hands the queue back to the phone, continuing where Sonos was, and stops the speaker. */
     private fun endCast(message: String?) {
         val sonos = sonosPlayer ?: return
         Log.i(TAG, "Ending cast: ${message ?: "stopped by user"}")
@@ -401,6 +401,7 @@ class PlaybackService : MediaLibraryService(), CastHost {
         val (items, index, position, playOrder) = sonos.snapshot()
         val repeat = sonos.repeatMode
         val shuffle = sonos.shuffleModeEnabled
+        val wasPlaying = sonos.playWhenReady
         sonosPlayer = null
         session.player = player
         sonos.release()
@@ -414,6 +415,7 @@ class PlaybackService : MediaLibraryService(), CastHost {
                 player.setShuffleOrder(ShuffleOrder.DefaultShuffleOrder(playOrder.toIntArray(), System.nanoTime()))
             }
             player.prepare()
+            player.playWhenReady = wasPlaying && message == null
         }
         container.trackServer.stop()
         releaseCastLocks()
@@ -674,7 +676,19 @@ class PlaybackService : MediaLibraryService(), CastHost {
 
     private suspend fun resolve(items: List<MediaItem>): List<MediaItem> {
         val byId = dao.getByIds(items.map { trackIdOf(it.mediaId) }).associateBy { it.id }
-        return items.mapNotNull { item -> byId[trackIdOf(item.mediaId)]?.toMediaItem() ?: item.takeIf { it.localConfiguration != null } }
+        return items.mapNotNull { item ->
+            val id = trackIdOf(item.mediaId)
+            val dbTrack = byId[id]
+            if (dbTrack != null) {
+                dbTrack.toMediaItem(item.mediaId)
+            } else {
+                val transient = item.toTransientTrack()
+                if (transient != null && (transient.source == Track.SOURCE_NEBULA || transient.scope == Track.SCOPE_STREAM)) {
+                    runCatching { dao.upsert(transient) }
+                }
+                item.takeIf { it.localConfiguration != null } ?: transient?.toMediaItem(item.mediaId)
+            }
+        }
     }
 
     private fun pageResult(items: List<MediaItem>, params: LibraryParams?) =

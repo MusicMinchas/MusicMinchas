@@ -23,6 +23,7 @@ import com.kike.musicplayer.sonos.resample.VerbatimFlacWriter
 import kotlinx.coroutines.runBlocking
 import okhttp3.OkHttpClient
 import okhttp3.Request
+import java.io.BufferedInputStream
 import java.io.BufferedOutputStream
 import java.io.File
 import java.io.FileInputStream
@@ -194,11 +195,21 @@ class TrackServer(
             // Sonos probes a file in many small pieces before playing (start, then the index at the
             // end); fetching each from Drive would cost about a second. Serve those from blocks.
             if (method == "GET" && serveFromBlocks(out, track, remote, mime, range)) return
-            val builder = Request.Builder().url(remote)
-            // HEAD: ask Drive for one byte, which still reports the total size in Content-Range.
-            if (method == "HEAD") builder.header("Range", "bytes=0-0") else range?.let { builder.header("Range", it) }
-            val request = builder.build()
-            val response = executeRemote(request, ok200 = true) ?: return respondStatus(out, 502)
+            fun buildRemoteRequest(url: String): Request {
+                val builder = Request.Builder().url(url)
+                // HEAD: ask Drive for one byte, which still reports the total size in Content-Range.
+                if (method == "HEAD") builder.header("Range", "bytes=0-0") else range?.let { builder.header("Range", it) }
+                return builder.build()
+            }
+            var response = executeRemote(buildRemoteRequest(remote), ok200 = true)
+            if (response == null && track.source == Track.SOURCE_NEBULA) {
+                nebulaUrls?.invalidate(track.uri)
+                val freshRemote = nebulaUrls?.resolve(track.uri)
+                if (freshRemote != null && freshRemote != remote) {
+                    response = executeRemote(buildRemoteRequest(freshRemote), ok200 = true)
+                }
+            }
+            if (response == null) return respondStatus(out, 502)
             response.use { res ->
                 val total = res.header("Content-Range")?.substringAfter('/')?.toLongOrNull()
                     ?: res.body.contentLength().takeIf { it > 0 }
@@ -258,9 +269,42 @@ class TrackServer(
         return true
     }
 
+    /** Caches transient or library tracks so [prefetch] and [warmUpTrack] can find them before queue URLs are built. */
+    fun cacheTracks(tracks: List<Track>) {
+        for (t in tracks) {
+            cachedTracks[t.id] = t
+        }
+    }
+
     /**
-     * Fetches, in parallel and before Sonos asks, the blocks it reads first from a Drive or Navidrome
-     * song: the start, and the end where many files keep their index. Each Drive fetch takes about a
+     * Pre-resolves the remote URL, fetches Block 0, and probes the audio header for [track] so that
+     * when Sonos issues its initial HTTP GET on Play, the stream URL, format, and initial audio
+     * bytes are already warm in memory.
+     */
+    fun warmUpTrack(track: Track) {
+        cachedTracks[track.id] = track
+        if (track.localUri != null) return
+        val remote = when (track.source) {
+            Track.SOURCE_DRIVE -> track.uri
+            Track.SOURCE_SUBSONIC -> serverUrls.resolve(track.uri)
+            Track.SOURCE_NEBULA -> nebulaUrls?.resolve(track.uri)
+            else -> null
+        } ?: return
+        getOrFetchBlock(track, remote, 0L)
+        val current = cachedTracks[track.id] ?: track
+        if (downsampleEnabled() && extensionOf(current) in RESAMPLE_CANDIDATE_EXTS && !probedFormats.containsKey(current.id)) {
+            val fmt = probeTrackFormat(current, remote)
+            if (fmt is ProbedTrackFormat.FlacHiRes || fmt is ProbedTrackFormat.AlacHiRes) {
+                Thread {
+                    runCatching { getOrFetchBlock(cachedTracks[current.id] ?: current, remote, 1L) }
+                }.start()
+            }
+        }
+    }
+
+    /**
+     * Fetches, in parallel and before Sonos asks, the blocks it reads first from a remote
+     * song: the start, and the end where many files keep their index. Each remote fetch takes about a
      * second, and Sonos asks for them one after the other.
      */
     fun prefetch(trackIds: List<String>) {
@@ -275,11 +319,24 @@ class TrackServer(
                 val remote = when (track.source) {
                     Track.SOURCE_DRIVE -> track.uri
                     Track.SOURCE_SUBSONIC -> serverUrls.resolve(track.uri)
+                    Track.SOURCE_NEBULA -> nebulaUrls?.resolve(track.uri)
                     else -> null
                 } ?: continue
-                val size = track.sizeBytes ?: continue
+                val firstPair = runCatching { getOrFetchBlock(track, remote, 0L) }.getOrNull()
+                val totalSize = firstPair?.second?.takeIf { it > 0 } ?: track.sizeBytes
+                val updatedTrack = cachedTracks[track.id] ?: track
+                if (downsampleEnabled() && extensionOf(updatedTrack) in RESAMPLE_CANDIDATE_EXTS && !probedFormats.containsKey(updatedTrack.id)) {
+                    val fmt = runCatching { probeTrackFormat(updatedTrack, remote) }.getOrNull()
+                    if (fmt is ProbedTrackFormat.FlacHiRes || fmt is ProbedTrackFormat.AlacHiRes) {
+                        Thread {
+                            runCatching { getOrFetchBlock(updatedTrack, remote, 1L) }
+                        }.start()
+                        continue
+                    }
+                }
+                val size = totalSize ?: continue
                 val last = (size - 1) / BLOCK
-                for (index in listOf(0L, last, last - 1).filter { it >= 0 }.distinct()) {
+                for (index in listOf(last, last - 1).filter { it > 0 }.distinct()) {
                     Thread {
                         val key = "${track.id}#$index"
                         runCatching {
@@ -486,7 +543,8 @@ class TrackServer(
         // Fast-path: When Sonos seeks, it first sends a quick range=null probe to read the 1.8 KB FLAC header,
         // and immediately closes the socket after ~24 ms. Serving the header without locking a downsampler
         // prevents contention when the actual seek range request arrives 9 ms later.
-        if (end < headerBytes.size.toLong()) {
+        val headerSize = headerBytes.size.toLong()
+        if (end < headerSize) {
             writeHead(out, if (partial) 206 else 200, "audio/flac", end - start + 1, if (partial) "bytes $start-$end/$size" else null)
             out.write(headerBytes, start.toInt(), (end - start + 1).toInt())
             out.flush()
@@ -494,21 +552,34 @@ class TrackServer(
             return true
         }
 
-        val session = acquireDownsampler(track, remote, format) ?: return false
+        // Write the HTTP status and any leading FLAC header bytes immediately BEFORE acquiring a downsampler:
+        // when Sonos opens a range=null connection just to inspect the 1.8 KB SEEKTABLE before seeking,
+        // it gets the header in <1 ms instead of waiting on decoder setup.
+        writeHead(
+            out = out,
+            code = if (partial) 206 else 200,
+            mime = "audio/flac",
+            length = end - start + 1,
+            contentRange = if (partial) "bytes $start-$end/$size" else null,
+        )
+        val bodyStart = if (start < headerSize) {
+            val hOff = start.toInt()
+            val hLen = headerBytes.size - hOff
+            out.write(headerBytes, hOff, hLen)
+            out.flush()
+            headerSize
+        } else {
+            start
+        }
+
+        val session = acquireDownsampler(track, remote, format) ?: return true
         try {
             val stream = session.stream
-            writeHead(
-                out = out,
-                code = if (partial) 206 else 200,
-                mime = "audio/flac",
-                length = end - start + 1,
-                contentRange = if (partial) "bytes $start-$end/$size" else null,
-            )
             val t0 = android.os.SystemClock.elapsedRealtime()
             Log.i(TAG, "Downsampling '${track.title}' (${plan.inputRate} Hz -> ${plan.outputRate} Hz / 24-bit FLAC, range=$start-$end/$size)")
             traceLog("DS START '${track.title}' ${plan.inputRate}->${plan.outputRate} range=$start-$end/$size")
             try {
-                stream.writeRange(start, end, out, shouldCancel = { session.isCancelled })
+                stream.writeRange(bodyStart, end, out, shouldCancel = { session.isCancelled })
                 if (session.isCancelled) {
                     traceLog("DS CANCEL '${track.title}' range=$start-$end after ${android.os.SystemClock.elapsedRealtime() - t0} ms")
                 } else {
@@ -604,10 +675,9 @@ class TrackServer(
                 return null
             }
         }
-        for (old in activeDownsamplers) {
-            if (old.trackId == track.id) {
-                old.isCancelled = true
-            }
+        val sameTrackActive = activeDownsamplers.filter { it.trackId == track.id && !it.isCancelled }
+        if (sameTrackActive.size >= MAX_DOWNSAMPLERS) {
+            sameTrackActive.firstOrNull()?.isCancelled = true
         }
         val session = CachedDownsampler(track.id, source, stream).also { it.lock.lock() }
         activeDownsamplers.add(session)
@@ -723,6 +793,9 @@ class TrackServer(
         private val remote: String,
     ) : RandomAccessSource {
         private var knownLength: Long = track.sizeBytes ?: -1L
+        private var activeResponse: okhttp3.Response? = null
+        private var activeStream: InputStream? = null
+        private var streamOffset: Long = -1L
 
         override val length: Long
             get() {
@@ -744,23 +817,137 @@ class TrackServer(
                 val curOffset = offset + totalRead
                 if (knownLength in 0L..curOffset) break
                 val blockIdx = curOffset / BLOCK
-                val pair = getOrFetchBlock(track, remote, blockIdx) ?: break
-                val (bData, total) = pair
-                if (total > 0L && knownLength < 0L) {
-                    knownLength = total
-                    if (track.sizeBytes == null) cachedTracks[track.id] = track.copy(sizeBytes = total)
+                val key = "${track.id}#$blockIdx"
+
+                // Serve from the RAM block cache when already cached, or fetch Block 0 once for fast header probes.
+                val cachedPair = blocks.get(key)
+                    ?: if (blockIdx == 0L && activeStream == null) getOrFetchBlock(track, remote, 0L) else null
+                if (cachedPair != null) {
+                    val (bData, total) = cachedPair
+                    if (total > 0L && knownLength < 0L) {
+                        knownLength = total
+                        if (track.sizeBytes == null) cachedTracks[track.id] = track.copy(sizeBytes = total)
+                    }
+                    val rel = (curOffset - blockIdx * BLOCK).toInt()
+                    if (rel in 0 until bData.size) {
+                        val avail = minOf(len - totalRead, bData.size - rel)
+                        System.arraycopy(bData, rel, buf, off + totalRead, avail)
+                        totalRead += avail
+                        continue
+                    }
                 }
-                val rel = (curOffset - blockIdx * BLOCK).toInt()
-                if (rel !in 0 until bData.size) break
-                val avail = minOf(len - totalRead, bData.size - rel)
-                System.arraycopy(bData, rel, buf, off + totalRead, avail)
-                totalRead += avail
+
+                // Beyond cached blocks: use a continuous HTTP stream instead of synchronous 512 KB range requests,
+                // avoiding per-block CDN TTFB stalls during hi-res FLAC/ALAC decoding.
+                val needed = if (knownLength > 0L) {
+                    minOf((len - totalRead).toLong(), knownLength - curOffset).toInt()
+                } else {
+                    len - totalRead
+                }
+                if (needed <= 0) break
+                val n = readFromContinuousStream(curOffset, buf, off + totalRead, needed)
+                if (n <= 0) break
+                totalRead += n
             }
             return if (totalRead == 0) -1 else totalRead
         }
 
+        private fun readFromContinuousStream(targetOffset: Long, buf: ByteArray, off: Int, len: Int): Int {
+            for (attempt in 0 until 2) {
+                try {
+                    if (!ensureStreamAt(targetOffset)) break
+                    val stream = activeStream ?: break
+                    val n = stream.read(buf, off, len)
+                    if (n > 0) {
+                        streamOffset += n
+                        return n
+                    }
+                    if (n < 0) {
+                        closeStream()
+                        return -1
+                    }
+                } catch (_: IOException) {
+                    closeStream()
+                }
+            }
+            // Fallback to a single block fetch if streaming failed.
+            val blockIdx = targetOffset / BLOCK
+            val (bData, total) = getOrFetchBlock(track, remote, blockIdx) ?: return -1
+            if (total > 0L && knownLength < 0L) {
+                knownLength = total
+                if (track.sizeBytes == null) cachedTracks[track.id] = track.copy(sizeBytes = total)
+            }
+            val rel = (targetOffset - blockIdx * BLOCK).toInt()
+            if (rel !in 0 until bData.size) return -1
+            val avail = minOf(len, bData.size - rel)
+            System.arraycopy(bData, rel, buf, off, avail)
+            return avail
+        }
+
+        private fun ensureStreamAt(targetOffset: Long): Boolean {
+            val current = activeStream
+            if (current != null) {
+                if (targetOffset == streamOffset) return true
+                if (targetOffset > streamOffset && targetOffset - streamOffset <= MAX_STREAM_SKIP_BYTES) {
+                    val toSkip = targetOffset - streamOffset
+                    if (skipFully(current, toSkip)) {
+                        streamOffset = targetOffset
+                        return true
+                    }
+                }
+                closeStream()
+            }
+            val request = Request.Builder()
+                .url(remote)
+                .header("Range", "bytes=$targetOffset-")
+                .build()
+            val res = executeRemote(request, ok200 = true) ?: return false
+            val total = res.header("Content-Range")?.substringAfter('/')?.toLongOrNull()
+                ?: res.body.contentLength().takeIf { res.code == 200 && it > 0 }
+            if (total != null && total > 0L && knownLength < 0L) {
+                knownLength = total
+                if (track.sizeBytes == null) cachedTracks[track.id] = track.copy(sizeBytes = total)
+            }
+            val buffered = BufferedInputStream(res.body.byteStream(), 256 * 1024)
+            if (res.code == 200 && targetOffset > 0L) {
+                if (!skipFully(buffered, targetOffset)) {
+                    runCatching { res.close() }
+                    return false
+                }
+            }
+            activeResponse = res
+            activeStream = buffered
+            streamOffset = targetOffset
+            return true
+        }
+
+        private fun skipFully(stream: InputStream, bytesToSkip: Long): Boolean {
+            var remaining = bytesToSkip
+            val discard = ByteArray(16 * 1024)
+            while (remaining > 0L) {
+                val s = stream.skip(remaining)
+                if (s > 0L) {
+                    remaining -= s
+                } else {
+                    val n = stream.read(discard, 0, minOf(remaining, discard.size.toLong()).toInt())
+                    if (n < 0) return false
+                    remaining -= n
+                }
+            }
+            return true
+        }
+
+        private fun closeStream() {
+            runCatching { activeStream?.close() }
+            runCatching { activeResponse?.close() }
+            activeStream = null
+            activeResponse = null
+            streamOffset = -1L
+        }
+
+        @Synchronized
         override fun close() {
-            // Blocks are held in TrackServer's LRU cache; no persistent stream to abort.
+            closeStream()
         }
     }
 

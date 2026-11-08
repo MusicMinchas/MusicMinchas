@@ -261,6 +261,20 @@ class AudioQualityTest {
         assertEquals(16, aac.bitDepth)
         assertEquals("AAC (~256 kbps)", aac.codecSummary)
         assertEquals("16-bit / 44.1 kHz", aac.formatSummary)
+
+        // OxygenOS / OnePlus 12 WF-1000XM5 LDAC Adaptive Bitrate (mCodecSpecific1 = 3, 32-bit / 96 kHz)
+        val ldacAbr = parseBluetoothCodecConfig(
+            codecType = 4, // LDAC
+            sampleRateFlag = BluetoothCodecConfig.SAMPLE_RATE_96000,
+            bitsPerSampleFlag = BluetoothCodecConfig.BITS_PER_SAMPLE_32,
+            channelModeFlag = BluetoothCodecConfig.CHANNEL_MODE_STEREO,
+            codecSpecific1 = 3L,
+        )
+        assertEquals("LDAC", ldacAbr.codecName)
+        assertEquals(96000, ldacAbr.sampleRateHz)
+        assertEquals(32, ldacAbr.bitDepth)
+        assertEquals("LDAC (Adaptive Bitrate)", ldacAbr.codecSummary)
+        assertEquals("32-bit / 96 kHz", ldacAbr.formatSummary)
     }
 
     @Test

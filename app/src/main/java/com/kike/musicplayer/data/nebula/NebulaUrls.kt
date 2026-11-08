@@ -57,6 +57,11 @@ class NebulaUrls(
         return resolvedAddon[cacheKey]
     }
 
+    fun invalidate(uriStr: String) {
+        val cacheKey = uriStr.removePrefix(PREFIX).removePrefix(ADDON_PREFIX)
+        cache.remove(cacheKey)
+    }
+
     fun resolve(uriStr: String): String? {
         if (!uriStr.startsWith(PREFIX) && !uriStr.startsWith(ADDON_PREFIX)) return null
 
@@ -88,35 +93,48 @@ class NebulaUrls(
                 return null
             }
 
-            for (addon in addons) {
+            val orderedAddons = orderAddonsForResolution(addons, provider)
+
+            for (addon in orderedAddons) {
                 val baseUrl = addon.baseUrl ?: continue
                 val canDirect = !trackId.isNullOrBlank() && canStreamDirectly(addon, trackId, provider)
-                AppLog.log(TAG, "Checking addon '${addon.name}' (${addon.id}): canStreamDirectly=$canDirect")
+                Log.i(TAG, "Checking addon '${addon.name}' (${addon.id}): canStreamDirectly=$canDirect, trackId=$trackId, provider=$provider")
                 var result = if (canDirect) {
-                    val idForProvider = if (addon.id == "nebula" && !trackId.startsWith("tidal:track:") && !trackId.contains(":")) {
-                        "tidal:track:$trackId"
-                    } else trackId
-                    AppLog.log(TAG, "Calling direct stream() on '${addon.name}' with id=$idForProvider")
-                    addonClient.stream(baseUrl, idForProvider)
+                    val idForProvider = when {
+                        addon.id == "nebula" && !trackId.startsWith("tidal:track:") && !trackId.contains(":") -> "tidal:track:$trackId"
+                        addon.id == "nullbeat" && trackId.startsWith("dz:") -> trackId.removePrefix("dz:")
+                        else -> trackId
+                    }
+                    Log.i(TAG, "Calling direct stream() on '${addon.name}' with id=$idForProvider")
+                    val directRes = addonClient.stream(baseUrl, idForProvider)
+                    val directUrl = directRes.getOrNull()?.url
+                    if (!directUrl.isNullOrBlank() && addonClient.isStreamReachable(directUrl)) {
+                        directRes
+                    } else {
+                        if (!directUrl.isNullOrBlank()) {
+                            Log.w(TAG, "Direct stream URL from '${addon.name}' was unreachable (404), falling back")
+                        }
+                        null
+                    }
                 } else null
 
                 // Fall back to catalog search if direct ID resolution was skipped or failed
                 if ((result == null || result.isFailure) && artist.isNotBlank() && title.isNotBlank()) {
-                    AppLog.log(TAG, "Direct stream skipped or failed on '${addon.name}'; falling back to findStream(artist='$artist', title='$title')")
-                    result = addonClient.findStream(baseUrl, artist, album, title)
+                    Log.i(TAG, "Direct stream skipped or failed on '${addon.name}'; falling back to findStream(artist='$artist', title='$title')")
+                    result = addonClient.findStream(baseUrl, artist, album, title, verifyReachability = true)
                 }
 
                 val streamUrl = result?.getOrNull()?.url
                 if (!streamUrl.isNullOrBlank()) {
-                    AppLog.log(TAG, "Successfully resolved stream via addon '${addon.name}': $streamUrl")
+                    Log.i(TAG, "Successfully resolved stream via addon '${addon.name}': $streamUrl")
                     cache[cacheKey] = streamUrl to (now + CACHE_TTL_MS)
                     resolvedAddon[cacheKey] = addon.name
                     return streamUrl
                 } else {
-                    AppLog.log(TAG, "Addon '${addon.name}' failed to resolve stream (${result?.exceptionOrNull()?.message}), trying next provider...")
+                    Log.w(TAG, "Addon '${addon.name}' failed to resolve stream (${result?.exceptionOrNull()?.message}), trying next provider...")
                 }
             }
-            AppLog.log(TAG, "All configured add-ons failed to resolve stream for: $artist - $title")
+            Log.w(TAG, "All configured add-ons failed to resolve stream for: $artist - $title")
             return null
         }
 
@@ -215,6 +233,17 @@ class NebulaUrls(
             indexArtist = catalogTrack.albumArtist ?: catalogTrack.artist.orEmpty(),
             indexTitle = "",
         )
+        fun orderAddonsForResolution(
+            addons: List<com.kike.musicplayer.data.addon.AddonInstance>,
+            provider: String?,
+        ): List<com.kike.musicplayer.data.addon.AddonInstance> {
+            if (provider.isNullOrBlank()) return addons
+            val (matching, rest) = addons.partition {
+                it.id.equals(provider, ignoreCase = true) || it.name.equals(provider, ignoreCase = true)
+            }
+            return matching + rest
+        }
+
         fun canStreamDirectly(addon: com.kike.musicplayer.data.addon.AddonInstance, trackId: String, provider: String?): Boolean {
             if (!provider.isNullOrBlank() && (provider == addon.id || provider.equals(addon.name, ignoreCase = true))) {
                 return true

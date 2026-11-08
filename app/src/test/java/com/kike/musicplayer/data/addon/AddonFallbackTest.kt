@@ -230,6 +230,25 @@ class AddonFallbackTest {
         org.junit.Assert.assertFalse(NebulaUrls.canStreamDirectly(aero, deezerId, null))
     }
 
+    @Test
+    fun testOrderAddonsForResolutionPrioritizesExplicitProvider() {
+        val aero = AddonInstance(id = "comtorboxapplemusicaddon", name = "Aero", manifestUrl = "https://aero/manifest.json")
+        val nebula = AddonInstance(id = "nebula", name = "Nebula", manifestUrl = "https://nebula/manifest.json")
+        val nullbeat = AddonInstance(id = "nullbeat", name = "NullBeat", manifestUrl = "https://nullbeat/manifest.json")
+        val configured = listOf(aero, nebula, nullbeat)
+
+        assertEquals(
+            listOf(nullbeat, aero, nebula),
+            NebulaUrls.orderAddonsForResolution(configured, "nullbeat"),
+        )
+        assertEquals(
+            listOf(nebula, aero, nullbeat),
+            NebulaUrls.orderAddonsForResolution(configured, "nebula"),
+        )
+        assertEquals(configured, NebulaUrls.orderAddonsForResolution(configured, null))
+        assertEquals(configured, NebulaUrls.orderAddonsForResolution(configured, ""))
+    }
+
     private fun mockAddonClient(handler: (okhttp3.Request) -> Response): AddonClient {
         val okHttp = OkHttpClient.Builder()
             .addInterceptor { chain -> handler(chain.request()) }
