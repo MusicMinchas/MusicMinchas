@@ -486,3 +486,13 @@ Started 2026-10-08 from user-pasted spec. NEW app, explicitly independent of Son
   - Unit Tests:
     - Added regression tests in `HistoricalPlayImporterTest.kt` and `TrackMatcherTest.kt`. All 164 unit tests pass.
   - Verified on OnePlus 12 (live DB backups in `C:\Users\kike\dev\db-backup\2026-11-17-{pre,post}-unified-apple-music*`: `33,728` plays preserved, `0` remaining Nov 2026 `:00` bulk plays, `2,279` timestamps aligned, `687` Nov bulk rows cleared), merged to `master`, tagged `v1.50.2`, release APK `MusicMinchas-1.50.2.apk` installed.
+
+---
+
+## Pending / Future Improvements
+
+- **Generalize Play History Import for New Users (`HistoricalPlayImporter.kt`, `ScrobbleImporter.kt`, `LibraryViewModel.kt`, `SourcesScreen.kt`):**
+  - **Play-count mode option:** Currently `LibraryViewModel.importPlayHistory` hardcodes `addPlayCounts = false`, so users without Last.fm get `historical_dates` (`Time Machine` / `Forgotten Favourites`) but empty `play_history` (`Replay`, `Most Played`, `Rediscover`). Add a user-facing choice (e.g., *"Add imported plays to play history (no Last.fm)"* vs *"Align timestamps only (keep Last.fm counts)"*), inserting one timestamped `PlayHistory` row per play (deduped by track/second) when adding plays.
+  - **Broader native export formats:** Beyond the custom 5-column `Unified Apple Music History.csv`, legacy 2-column `Artist - Track,epochMs`, and positional 4-column headerless `iTunes` CSV, add parsers for raw Apple Music Privacy ZIP exports (`Apple Music Play Activity.csv` / ISO-8601), Spotify Privacy JSON (`StreamingHistory_music_*.json` / `endsong_*.json`), Last.fm CSV exports, and flexible header-mapped CSVs.
+  - **Dynamic bulk-import detection:** Replace the personal Nov 2026 cutoffs (`HistoricalPlayImporter.NOV_2026_START_MS`, `IN_APP_LAUNCH_MS`, and `ScrobbleImporter.BULK_IMPORT_CUTOFF_MS`) with a user-supplied Last.fm bulk-upload date range (or automatic `:00`-second burst detection) so future Last.fm bulk migrations work cleanly in any year.
+  - **UI discovery & localization:** Surface Play History Import under Sources / Last.fm & History alongside Library Health, move hardcoded English strings in `PlayHistoryArchiveCard` into `strings.xml` (`en`/`es`), and drop `"2005–2026"` from the subtitle.
