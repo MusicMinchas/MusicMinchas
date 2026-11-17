@@ -250,7 +250,9 @@ class ScrobbleImporter(
         history.insertAll(plays)
         val dates = historicalDates?.csvDates?.value.orEmpty()
         if (dates.isNotEmpty()) {
-            val newlyAddedTrackIds = plays.mapTo(HashSet()) { it.trackId }.filter { it in dates }
+            val newlyAddedTrackIds = plays
+                .filter { it.trackId in dates && it.playedAt <= BULK_IMPORT_CUTOFF_MS && (it.playedAt / 1000L) % 60L == 0L }
+                .mapTo(HashSet()) { it.trackId }
             if (newlyAddedTrackIds.isNotEmpty()) {
                 val targets = HashMap<String, Long>()
                 val targetPlays = HashMap<String, List<Long>>()
@@ -260,7 +262,13 @@ class ScrobbleImporter(
                     targetPlays[tid] = listOf(ts)
                 }
                 if (targets.isNotEmpty()) {
-                    com.kike.musicplayer.data.history.HistoricalPlayImporter.alignPlayHistoryTimestamps(history, targetPlays, targets)
+                    com.kike.musicplayer.data.history.HistoricalPlayImporter.alignPlayHistoryTimestamps(
+                        historyDao = history,
+                        trackMatchedPlays = targetPlays,
+                        latestTrackDates = targets,
+                        inAppDates = historicalDates?.inAppDates?.value.orEmpty(),
+                        historicalCsvDates = dates,
+                    )
                 }
             }
         }
@@ -317,5 +325,7 @@ class ScrobbleImporter(
         const val REQUEST_INTERVAL_MS = 250L
         const val RETRIES = 4
         const val RETRY_DELAY_MS = 3_000L
+        /** Bulk historical scrobbles ended 2026-11-17 UTC; later real scrobbles must keep their actual timestamps. */
+        const val BULK_IMPORT_CUTOFF_MS = 1_794_960_000_000L // 2026-11-18T00:00:00Z
     }
 }

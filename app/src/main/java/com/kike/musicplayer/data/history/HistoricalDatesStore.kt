@@ -43,14 +43,16 @@ class HistoricalDatesStore(context: Context) : HistoricalDatesRegistry {
     }
 
     override fun setCsvDates(dates: Map<String, Long>) {
-        prefs.edit {
-            dates.forEach { (trackId, ts) ->
-                putLong(trackId, ts)
+        val current = _csvDates.value
+        val updated = mergeUpdates(current, dates)
+        if (updated.isNotEmpty()) {
+            prefs.edit {
+                updated.forEach { (trackId, ts) ->
+                    putLong(trackId, ts)
+                }
             }
+            _csvDates.value = current + updated
         }
-        val current = _csvDates.value.toMutableMap()
-        current.putAll(dates)
-        _csvDates.value = current
     }
 
     override fun initializeInAppPlays(plays: Map<String, Long>) {
@@ -81,5 +83,17 @@ class HistoricalDatesStore(context: Context) : HistoricalDatesRegistry {
             }
         }
         return map
+    }
+
+    companion object {
+        /** Returns only incoming entries that strictly advance [existing] timestamps. */
+        internal fun mergeUpdates(existing: Map<String, Long>, incoming: Map<String, Long>): Map<String, Long> {
+            val updated = HashMap<String, Long>()
+            for ((trackId, ts) in incoming) {
+                val prev = existing[trackId] ?: 0L
+                if (ts > prev) updated[trackId] = ts
+            }
+            return updated
+        }
     }
 }

@@ -171,19 +171,22 @@ object Names {
     fun comparable(s: String): String =
         Normalizer.normalize(s.lowercase(Locale.ROOT), Normalizer.Form.NFD).replace(Regex("[^\\p{L}\\p{N}]"), "")
 
-    /**
-     * A release title without its edition notes, to tell that two services list the same release:
-     * "Album (Live)", "Album [Deluxe]" and "Album - Remastered" all become "album".
-     */
-    fun releaseKey(title: String): String {
+    /** Strips trailing edition/remaster notes while preserving the core title (including symbols like "÷"). */
+    fun stripEditions(title: String): String {
         var t = title.trim()
         while (true) {
             val stripped = t.replace(EDITION_NOTE, "").replace(DASH_NOTE, "").trim()
             if (stripped == t || stripped.isEmpty()) break
             t = stripped
         }
-        return comparable(t)
+        return t
     }
+
+    /**
+     * A release title without its edition notes, to tell that two services list the same release:
+     * "Album (Live)", "Album [Deluxe]" and "Album - Remastered" all become "album".
+     */
+    fun releaseKey(title: String): String = comparable(stripEditions(title))
 
     private val EDITION_NOTE = Regex("""\s*[(\[][^()\[\]]*[)\]]\s*$""")
     private val DASH_NOTE = Regex("""\s+-\s+[^-]+$""")

@@ -165,4 +165,23 @@ class TrackMatcherTest {
         val t2 = track("subsonic:2", "Manowar", "Sign Of The Hammer")
         assertEquals(t1.songKey, t2.songKey)
     }
+
+    @Test
+    fun `symbol-only album names do not collide on empty releaseKey`() {
+        val tDiv = track("s-div", "Ed Sheeran", "Shape of You", album = "÷")
+            .copy(source = Track.SOURCE_SUBSONIC, scope = Track.SCOPE_SERVER)
+        val tEq = track("s-eq", "Ed Sheeran", "Shape of You", album = "=")
+            .copy(source = Track.SOURCE_SUBSONIC, scope = Track.SCOPE_SERVER)
+        val matcher = TrackMatcher(listOf(tEq, tDiv))
+        // ÷ matches ÷ (and ÷ Deluxe), never =
+        assertEquals("s-div", matcher.match("Ed Sheeran", "Shape of You", album = "÷", mbid = null, exactAlbumOnly = true)?.id)
+        assertEquals("s-div", matcher.match("Ed Sheeran", "Shape of You", album = "÷ (Deluxe)", mbid = null, exactAlbumOnly = true)?.id)
+        val exactMatch = TrackMatcher(listOf(
+            tEq,
+            track("s-tour", "Ed Sheeran", "Shape of You", album = "+-=÷× (Tour Collection)")
+                .copy(source = Track.SOURCE_SUBSONIC, scope = Track.SCOPE_SERVER),
+        ))
+        // Different symbol titles should not wrongly satisfy exactAlbumOnly on empty releaseKey
+        assertNull(exactMatch.match("Ed Sheeran", "Shape of You", album = "÷", mbid = null, exactAlbumOnly = true))
+    }
 }

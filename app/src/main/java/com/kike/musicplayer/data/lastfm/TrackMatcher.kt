@@ -39,18 +39,24 @@ class TrackMatcher(tracks: List<Track>) {
 
     fun match(artist: String, title: String, album: String?, mbid: String?, exactAlbumOnly: Boolean = false): Track? {
         mbid?.let { byMbid[it] }?.let { return it }
-        val wanted = album?.let(::basic)
-        val wantedRelease = album?.let { Names.releaseKey(it) }
+        val release = album?.let(Names::stripEditions)
+        val wantedRelease = release?.let(Names::comparable)?.takeIf { it.isNotEmpty() }
+        val wanted = if (wantedRelease != null) album.let(::basic).takeIf { it.isNotEmpty() } else null
+        val wantedRaw = if (wantedRelease == null && !release.isNullOrBlank()) release.lowercase() else null
         val exactHits = exact[key(basic(artist), basic(title))].orEmpty()
         val looseHits = loose[key(looseArtist(artist), looseTitle(title))].orEmpty()
         val onAlbum = { t: Track ->
             val alb = t.album
-            alb != null && (alb.let(::basic) == wanted || (wantedRelease != null && Names.releaseKey(alb) == wantedRelease))
+            alb != null && (
+                (wanted != null && basic(alb) == wanted) ||
+                (wantedRelease != null && Names.releaseKey(alb) == wantedRelease) ||
+                (wantedRaw != null && Names.stripEditions(alb).lowercase() == wantedRaw)
+            )
         }
 
         // 1. If an album is specified, an on-album copy across ANY source takes priority (own copy first, then server).
         // An off-album copy (e.g. from a Greatest Hits compilation) must never hijack an actual album track.
-        if (wanted != null) {
+        if (!album.isNullOrBlank()) {
             val onAlbumExactOwn = exactHits.filter { !it.fromServer && onAlbum(it) }
             val onAlbumLooseOwn = looseHits.filter { !it.fromServer && onAlbum(it) }
             val onAlbumExactServer = exactHits.filter { it.fromServer && onAlbum(it) }

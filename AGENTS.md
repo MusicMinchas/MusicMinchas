@@ -7,7 +7,7 @@ Parent workspace notes: @[Shared Android Dev Workspace](../AGENTS.md)
 
 - **Path:** `C:\Users\kike\dev\MusicPlayer` (local git repo, repo-local identity `kike` / `kikeprojo@gmail.com`, nothing pushed).
 - **Package:** `com.kike.musicplayer`
-- **Current Release:** `1.50.1` (`versionCode = 104`, Room DB `v27`, `minSdk = 30`, `targetSdk = 36`, `compileSdk = 37`). Merged to `master`, tag `v1.50.1`.
+- **Current Release:** `1.50.2` (`versionCode = 105`, Room DB `v27`, `minSdk = 30`, `targetSdk = 36`, `compileSdk = 37`). Merged to `master`, tag `v1.50.2`.
 - **Stack:** Kotlin 2.4.20, Jetpack Compose, Media3 1.11.1 `MediaLibraryService` (Android Auto browse tree), Room 2.8.5 via KSP 2.3.12 + Paging 3 (`paging-compose 3.3.6`, `room-paging`), Retrofit 3 + Moshi (reflection), Coil 3, `play-services-auth` 22 `AuthorizationClient` (`drive.readonly` + `email`), `reorderable` 3.1.0, AGP 9.4.1, Gradle 9.8.
 - **Shared Toolchain & Environment:**
   - `JAVA_HOME`: Android Studio's bundled `jbr`
@@ -475,3 +475,14 @@ Started 2026-10-08 from user-pasted spec. NEW app, explicitly independent of Son
   - Unit Tests:
     - Updated and added regression tests in `AudioQualityTest.kt` and `AddonFallbackTest.kt`. All 157 unit tests pass.
   - Verified on OnePlus 12 with Sony WF-1000XM5 and Sonos Beam, merged to `master`, tagged `v1.50.1`, release APK `MusicMinchas-1.50.1.apk` installed.
+- 2026-11-17 Release 1.50.2 (`versionCode = 105`, Room DB `v27`):
+  - Unified Apple Music History CSV Support & Safe Date Alignment (`HistoricalPlayImporter.kt`, `HistoricalDatesStore.kt`, `TrackMatcher.kt`, `Feeds.kt`, `ScrobbleImporter.kt`):
+    - Added support for 5-column Apple Music CSVs (`Album Artist,Track Name,Album Name,Timestamp,Artist`) using column 4 `Artist` as primary with safe collaboration/spelling fallback (`isSafeArtistFallback`), exact duplicate suppression, UTF-8 BOM handling, and explicit UTC timestamps for `Unified Apple Music History.csv` while preserving local wall-clock timezone (`TimeZone.getDefault()`) for headerless `iTunes Music Library.csv`.
+    - Enforced monotonic `maxOf` updates in `HistoricalDatesStore` (`mergeUpdates`) so older CSV history never overwrites newer timestamps.
+    - Extracted `Names.stripEditions` in `Feeds.kt` and added `wantedRaw` fallback in `TrackMatcher.match` so symbol-only album titles (e.g. `"÷"`, `"="`) no longer collide across albums.
+    - Replaced Pass-1 `off_album`/fuzzy short-circuiting in `HistoricalPlayImporter.importCsvFromDao` with `exactAlbumOnly = true` in Pass 1 + batched combined Own + Subsonic matching (`TrackDao.byArtistNames`) in Pass 2 + loading remaining `play_history` track IDs (`TrackDao.getByIds`) for sibling resolution, so on-album Subsonic tracks match directly without being hijacked by off-album Drive compilations.
+    - Reworked `alignPlayHistoryTimestamps` to un-collapse multi-year rows clustered on `historical_dates` / Nov 2026 bulk Last.fm scrobbles, resolve sibling edition plays, avoid duplicate fallback timestamps (`occupiedTs`), and protect genuine in-app (`in_app_plays`, non-`:00` ms) plays while keeping `play_history` row counts (`33,728`, `counted = 33,452`) strictly unchanged.
+    - Bounded `ScrobbleImporter` historical timestamp collapsing to `<= 2026-11-18T00:00:00Z` on `:00`-second scrobbles so future real scrobbles are never backdated.
+  - Unit Tests:
+    - Added regression tests in `HistoricalPlayImporterTest.kt` and `TrackMatcherTest.kt`. All 164 unit tests pass.
+  - Verified on OnePlus 12 (live DB backups in `C:\Users\kike\dev\db-backup\2026-11-17-{pre,post}-unified-apple-music*`: `33,728` plays preserved, `0` remaining Nov 2026 `:00` bulk plays, `2,279` timestamps aligned, `687` Nov bulk rows cleared), merged to `master`, tagged `v1.50.2`, release APK `MusicMinchas-1.50.2.apk` installed.
