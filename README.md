@@ -40,9 +40,9 @@ A native Android music player built with Kotlin, Jetpack Compose, Media3/ExoPlay
 - **Case-Sensitive Artist Grouping**: Preserves tag casing integrity across your library.
 
 ### Scrobbling & Imports
-- **Last.fm Scrobbling**: Real-time scrobbling with persistent offline outbox and automatic retry.
-- **Favourites & Loved Tracks**: Two-way synchronization between Loved tracks and in-app Favourites.
-- **Scrobble History Import**: Full Last.fm scrobble history importer with fuzzy track matching.
+- **ListenBrainz**: Free per-user token authentication, real-time Playing Now & listen submission with persistent offline outbox, loved-track feedback sync, and full listen history import with cross-service deduplication.
+- **Last.fm**: Optional scrobbling, loved-track sync, and history import using a user-provided Last.fm Pro API key and Keystore-encrypted shared secret (no bundled app keys).
+- **Favourites & Loved Tracks**: Two-way synchronization between Loved tracks (ListenBrainz / Last.fm), Navidrome stars, and in-app Favourites.
 
 ### Offline Downloads & File Upgrades
 - **Direct Downloads**: Download cloud/server tracks to local storage (`Music/MusicMinchas/`).

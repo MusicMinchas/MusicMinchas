@@ -487,6 +487,7 @@ class PlayerViewModel(private val app: Application) : AndroidViewModel(app) {
                 favouriteDao.delete(canonicalId)
                 if (canonicalId != trackId) favouriteDao.delete(trackId)
                 getApplication<Application>().container.scrobbler.love(canonicalId, false)
+                getApplication<Application>().container.listenBrainzScrobbler.love(canonicalId, false)
             } else {
                 val ownCopy = if (t != null && t.source == Track.SOURCE_SUBSONIC) {
                     app.container.serverMatch.ownCopy(t)
@@ -498,6 +499,7 @@ class PlayerViewModel(private val app: Application) : AndroidViewModel(app) {
                 }
                 favouriteDao.insert(Favourite(targetId, System.currentTimeMillis()))
                 getApplication<Application>().container.scrobbler.love(targetId, true)
+                getApplication<Application>().container.listenBrainzScrobbler.love(targetId, true)
             }
         }
     }

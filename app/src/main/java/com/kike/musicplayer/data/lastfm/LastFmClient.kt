@@ -15,44 +15,67 @@ class LastFmException(val code: Int, message: String) : IOException("Last.fm err
     /** Worth trying again later: the backend failed, or the service is offline, busy or rate limiting. */
     val isTemporary get() = code == OPERATION_FAILED || code == SERVICE_OFFLINE || code == TEMPORARILY_UNAVAILABLE || code == RATE_LIMITED
 
+    /** Last.fm rejected the API key itself (missing, invalid, non-Pro, or suspended). */
+    val isApiKeyError get() = code == INVALID_API_KEY || code == SUSPENDED_API_KEY
+
+    /** API key or shared-secret signature error; queued outbox items should be preserved, not dropped. */
+    val isAuthConfigError get() = isApiKeyError || code == INVALID_SIGNATURE
+
     companion object {
         /** "Operation failed - Most likely the backend service failed. Please try again." */
         const val OPERATION_FAILED = 8
         const val INVALID_SESSION = 9
+        const val INVALID_API_KEY = 10
         const val SERVICE_OFFLINE = 11
+        const val INVALID_SIGNATURE = 13
         const val TOKEN_NOT_AUTHORIZED = 14
         const val TOKEN_EXPIRED = 15
         const val TEMPORARILY_UNAVAILABLE = 16
+        const val SUSPENDED_API_KEY = 26
         const val RATE_LIMITED = 29
     }
 }
 
 /**
- * Last.fm web service calls (https://www.last.fm/api): JSON responses, signed with the shared
- * secret when a method needs it, and POSTed when it writes.
+ * Last.fm web service calls (https://www.last.fm/api): JSON responses, signed with the user's
+ * shared secret when a method needs it, and POSTed when it writes.
  */
-class LastFmClient(
+open class LastFmClient(
     private val http: OkHttpClient,
     val moshi: Moshi,
-    val apiKey: String,
-    private val secret: String,
+    private val apiKeyProvider: () -> String,
+    private val secretProvider: () -> String,
 ) {
-    val isConfigured get() = apiKey.isNotEmpty() && secret.isNotEmpty()
+    constructor(http: OkHttpClient, moshi: Moshi, apiKey: String, secret: String) : this(
+        http = http,
+        moshi = moshi,
+        apiKeyProvider = { apiKey },
+        secretProvider = { secret },
+    )
+
+    val apiKey: String get() = apiKeyProvider()
+    val isConfigured: Boolean get() = apiKeyProvider().isNotEmpty() && secretProvider().isNotEmpty()
 
     /** Calls [method] and returns the JSON body; throws [LastFmException] for an API error. */
-    suspend fun call(
+    open suspend fun call(
         method: String,
         params: Map<String, String> = emptyMap(),
         sessionKey: String? = null,
         signed: Boolean = sessionKey != null,
         post: Boolean = false,
     ): String = withContext(Dispatchers.IO) {
+        val currentKey = apiKeyProvider()
+        val currentSecret = secretProvider()
+        if (currentKey.isEmpty() || (signed && currentSecret.isEmpty())) {
+            throw LastFmException(LastFmException.INVALID_API_KEY, "Last.fm API key and shared secret are not configured")
+        }
+
         val all = buildMap {
             putAll(params)
             put("method", method)
-            put("api_key", apiKey)
+            put("api_key", currentKey)
             sessionKey?.let { put("sk", it) }
-        }.let { if (signed) it + ("api_sig" to sign(it, secret)) else it } + ("format" to "json")
+        }.let { if (signed) it + ("api_sig" to sign(it, currentSecret)) else it } + ("format" to "json")
 
         val request = if (post) {
             Request.Builder().url(BASE_URL).post(FormBody.Builder().apply { all.forEach { (k, v) -> add(k, v) } }.build())
@@ -78,6 +101,7 @@ class LastFmClient(
     companion object {
         const val BASE_URL = "https://ws.audioscrobbler.com/2.0/"
         const val AUTH_URL = "https://www.last.fm/api/auth/"
+        const val API_ACCOUNT_URL = "https://www.last.fm/api/account/create"
         private const val USER_AGENT = "MusicMinchas (personal Android app)"
 
         /**

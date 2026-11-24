@@ -6,6 +6,8 @@ import androidx.core.content.edit
 import com.kike.musicplayer.R
 import com.kike.musicplayer.data.lastfm.LastFm
 import com.kike.musicplayer.data.lastfm.ScrobbleImporter
+import com.kike.musicplayer.data.listenbrainz.ListenBrainz
+import com.kike.musicplayer.data.listenbrainz.ListenBrainzImporter
 import com.kike.musicplayer.data.subsonic.ServerCollections
 import com.kike.musicplayer.data.subsonic.SubsonicAccount
 import kotlinx.coroutines.CoroutineScope
@@ -28,14 +30,16 @@ data class AutoSyncState(
 /**
  * Brings listening history, favourites, playlists and loved tracks in step with the connected
  * services in one go, by itself every 24 hours when switched on (off by default), or when asked:
- * Last.fm "Import new" (plays), Last.fm loved tracks (favourites), then Navidrome's favourites and
- * playlists (last, so favourites just imported are starred there too). Services that aren't
- * connected are skipped. Checked at start and every hour while the app runs.
+ * Last.fm and ListenBrainz "Import new" (plays) and loved tracks (favourites), then Navidrome's
+ * favourites and playlists (last, so favourites just imported are starred there too). Services
+ * that aren't connected are skipped. Checked at start and every hour while the app runs.
  */
 class AutoSync(
     private val context: Context,
     private val lastFm: LastFm,
     private val importer: ScrobbleImporter,
+    private val listenBrainz: ListenBrainz,
+    private val listenBrainzImporter: ListenBrainzImporter,
     private val navidrome: SubsonicAccount,
     private val collections: ServerCollections,
     private val scope: CoroutineScope,
@@ -106,11 +110,17 @@ class AutoSync(
             _state.value = _state.value.copy(running = true)
             val parts = ArrayList<String>()
             val result = runCatching {
-                if (lastFm.state.value.user != null) {
+                if (lastFm.state.value.user != null && lastFm.client.isConfigured) {
                     importer.importAndWait(everything = false)
                     importer.status.value.text?.let { parts += "Last.fm history: $it" }
                     importer.importLovedAndWait()
                     importer.status.value.text?.let { parts += "Last.fm loved tracks: $it" }
+                }
+                if (listenBrainz.state.value.user != null) {
+                    listenBrainzImporter.importAndWait(everything = false)
+                    listenBrainzImporter.status.value.text?.let { parts += "ListenBrainz history: $it" }
+                    listenBrainzImporter.importLovedAndWait()
+                    listenBrainzImporter.status.value.text?.let { parts += "ListenBrainz loved tracks: $it" }
                 }
                 if (navidrome.login() != null) {
                     val before = collections.status.value.lastChangesAt

@@ -4,12 +4,15 @@ import android.content.Context
 import android.net.Uri
 import android.util.Log
 import androidx.core.content.edit
+import com.kike.musicplayer.data.Secrets
+import com.squareup.moshi.Moshi
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import okhttp3.OkHttpClient
 
 /** Whether plays are scrobbled, and when. */
 data class ScrobbleSettings(val enabled: Boolean = true, val rule: ScrobbleRule = ScrobbleRule())
@@ -20,21 +23,45 @@ data class LastFmState(
     val user: String? = null,
     /** Sent to Last.fm's approval page; waiting for the user to come back. */
     val awaitingApproval: Boolean = false,
+    /** User-provided Last.fm Pro API key (empty when none configured). */
+    val apiKey: String = "",
+    /** Whether both a user-provided API key and encrypted shared secret are saved. */
+    val hasCredentials: Boolean = false,
     val message: String? = null,
 )
 
 /**
- * The Last.fm account: connecting uses Last.fm's token flow (https://www.last.fm/api/desktopauth),
- * so the user signs in on Last.fm's own page and the app never sees the password. The session key
- * it gets doesn't expire unless the user revokes access on Last.fm.
+ * The Last.fm account: each user configures their own Last.fm Pro API key and shared secret
+ * (encrypted at rest via Android Keystore) and then connects via Last.fm's token flow
+ * (https://www.last.fm/api/desktopauth), so the app never sees the Last.fm password.
  */
-class LastFm(context: Context, val client: LastFmClient, prefsName: String = "lastfm") {
+class LastFm(
+    context: Context,
+    http: OkHttpClient,
+    moshi: Moshi,
+    prefsName: String = "lastfm",
+) {
     private val prefs = context.getSharedPreferences(prefsName, Context.MODE_PRIVATE)
     private val mutex = Mutex()
 
-    private val _state = MutableStateFlow(
-        LastFmState(user = prefs.getString(KEY_USER, null), awaitingApproval = prefs.getString(KEY_TOKEN, null) != null)
-    )
+    @Volatile
+    private var cachedSecret: String? = null
+
+    /** Saved user-provided Last.fm API key, or empty when not configured. */
+    val apiKey: String get() = prefs.getString(KEY_API_KEY, null).orEmpty()
+
+    /** Decrypted user-provided Last.fm shared secret, or empty when not configured/unreadable. */
+    val sharedSecret: String
+        get() = cachedSecret ?: prefs.getString(KEY_SECRET_ENC, null)
+            ?.let { Secrets.decrypt(it, Secrets.ALIAS_LASTFM_SECRET) }
+            ?.also { cachedSecret = it }
+            .orEmpty()
+
+    val hasCredentials: Boolean get() = apiKey.isNotEmpty() && sharedSecret.isNotEmpty()
+
+    val client: LastFmClient = LastFmClient(http, moshi, { apiKey }, { sharedSecret })
+
+    private val _state = MutableStateFlow(readState())
     val state: StateFlow<LastFmState> = _state.asStateFlow()
 
     private val _scrobbleSettings = MutableStateFlow(
@@ -65,10 +92,52 @@ class LastFm(context: Context, val client: LastFmClient, prefsName: String = "la
     /** Session key for signed calls, or null when not connected. */
     val sessionKey: String? get() = prefs.getString(KEY_SESSION, null)
 
+    /**
+     * Saves the user's Last.fm Pro API key and shared secret. If credentials change (or if the
+     * user previously signed in with an older bundled key), clears any stale session key so the
+     * user signs in cleanly against the new API key.
+     */
+    fun saveCredentials(rawApiKey: String, rawSecret: String): Boolean {
+        val key = rawApiKey.trim()
+        val secret = rawSecret.trim()
+        if (key.isEmpty() || secret.isEmpty()) {
+            _state.update { it.copy(message = "Enter both your Last.fm Pro API key and shared secret") }
+            return false
+        }
+        val changed = key != apiKey || secret != sharedSecret
+        val encrypted = Secrets.encrypt(secret, Secrets.ALIAS_LASTFM_SECRET)
+        prefs.edit {
+            putString(KEY_API_KEY, key)
+            putString(KEY_SECRET_ENC, encrypted)
+            if (changed) {
+                remove(KEY_USER)
+                remove(KEY_SESSION)
+                remove(KEY_TOKEN)
+            }
+        }
+        cachedSecret = secret
+        _state.value = readState()
+        return true
+    }
+
+    /** Removes the saved API key, shared secret, and active Last.fm session. */
+    fun clearCredentials() {
+        cachedSecret = null
+        prefs.edit {
+            remove(KEY_API_KEY)
+            remove(KEY_SECRET_ENC)
+            remove(KEY_IMPORTED_TOTAL)
+            remove(KEY_USER)
+            remove(KEY_SESSION)
+            remove(KEY_TOKEN)
+        }
+        _state.value = readState()
+    }
+
     /** Starts connecting: returns the Last.fm page where the user approves this app. */
     suspend fun startConnect(): Uri? = mutex.withLock {
         if (!client.isConfigured) {
-            _state.update { it.copy(message = "Last.fm isn't set up in this build (missing API key)") }
+            _state.update { it.copy(message = "Enter your Last.fm Pro API key and shared secret first") }
             return null
         }
         try {
@@ -80,6 +149,15 @@ class LastFm(context: Context, val client: LastFmClient, prefsName: String = "la
                 .appendQueryParameter("token", token)
                 .appendQueryParameter("cb", CALLBACK)
                 .build()
+        } catch (e: LastFmException) {
+            Log.w(TAG, "auth.getToken failed", e)
+            val msg = if (e.isAuthConfigError) {
+                "Last.fm rejected your API key or shared secret (Last.fm Pro required): ${e.message}"
+            } else {
+                "Couldn't reach Last.fm: ${e.message}"
+            }
+            _state.update { it.copy(message = msg) }
+            null
         } catch (e: Exception) {
             Log.w(TAG, "auth.getToken failed", e)
             _state.update { it.copy(message = "Couldn't reach Last.fm: ${e.message}") }
@@ -93,6 +171,7 @@ class LastFm(context: Context, val client: LastFmClient, prefsName: String = "la
      */
     suspend fun finishConnect(callbackToken: String? = null) = mutex.withLock {
         val token = callbackToken ?: prefs.getString(KEY_TOKEN, null) ?: return@withLock
+        if (!client.isConfigured) return@withLock
         try {
             val session = client.parse<SessionJson>(client.call("auth.getSession", mapOf("token" to token), signed = true)).session
             prefs.edit {
@@ -100,11 +179,20 @@ class LastFm(context: Context, val client: LastFmClient, prefsName: String = "la
                 putString(KEY_SESSION, session.key)
                 remove(KEY_TOKEN)
             }
-            _state.value = LastFmState(user = session.name)
+            _state.value = readState()
             onConnected?.invoke()
         } catch (e: LastFmException) {
-            when (e.code) {
-                LastFmException.TOKEN_NOT_AUTHORIZED -> Unit // not approved yet: keep waiting
+            when {
+                e.code == LastFmException.TOKEN_NOT_AUTHORIZED -> Unit // not approved yet: keep waiting
+                e.isAuthConfigError -> {
+                    prefs.edit { remove(KEY_TOKEN) }
+                    _state.update {
+                        it.copy(
+                            awaitingApproval = false,
+                            message = "Last.fm rejected your API key or shared secret (Last.fm Pro required): ${e.message}",
+                        )
+                    }
+                }
                 else -> {
                     // Expired (an hour) or otherwise unusable: start over.
                     prefs.edit { remove(KEY_TOKEN) }
@@ -130,6 +218,7 @@ class LastFm(context: Context, val client: LastFmClient, prefsName: String = "la
         get() = prefs.getInt(KEY_IMPORTED_TOTAL, -1)
         set(value) = prefs.edit { putInt(KEY_IMPORTED_TOTAL, value) }
 
+    /** Signs out of Last.fm while preserving the user's saved API key & secret (if any). */
     fun disconnect() {
         prefs.edit {
             remove(KEY_IMPORTED_TOTAL)
@@ -137,7 +226,7 @@ class LastFm(context: Context, val client: LastFmClient, prefsName: String = "la
             remove(KEY_SESSION)
             remove(KEY_TOKEN)
         }
-        _state.value = LastFmState()
+        _state.value = readState()
     }
 
     /** Last.fm rejected the session key (access revoked): forget it so the user can reconnect. */
@@ -145,6 +234,26 @@ class LastFm(context: Context, val client: LastFmClient, prefsName: String = "la
         disconnect()
         _state.update { it.copy(message = "Last.fm access was revoked. Connect again to keep scrobbling.") }
     }
+
+    /**
+     * Last.fm rejected the API key or signature (e.g. error 10/26 when Pro lapsed or key invalid).
+     * Keeps queued outbox items intact so nothing is lost while the user fixes their key/Pro status.
+     */
+    fun onApiKeyRejected(detail: String?) {
+        val reason = detail?.takeIf { it.isNotBlank() }?.let { " ($it)" }.orEmpty()
+        _state.update {
+            it.copy(
+                message = "Last.fm rejected your API key$reason. Pending scrobbles are kept until your Pro API key is valid again."
+            )
+        }
+    }
+
+    private fun readState() = LastFmState(
+        user = prefs.getString(KEY_USER, null),
+        awaitingApproval = prefs.getString(KEY_TOKEN, null) != null,
+        apiKey = apiKey,
+        hasCredentials = hasCredentials,
+    )
 
     private class TokenJson(val token: String)
     private class SessionJson(val session: Session)
@@ -157,6 +266,8 @@ class LastFm(context: Context, val client: LastFmClient, prefsName: String = "la
         private const val KEY_USER = "user"
         private const val KEY_SESSION = "session_key"
         private const val KEY_TOKEN = "pending_token"
+        private const val KEY_API_KEY = "api_key"
+        private const val KEY_SECRET_ENC = "secret_enc"
         private const val KEY_SCROBBLE = "scrobble"
         private const val KEY_PERCENT = "scrobble_percent"
         private const val KEY_CAP = "scrobble_cap_minutes"

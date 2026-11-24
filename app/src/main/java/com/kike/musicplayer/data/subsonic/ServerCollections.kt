@@ -9,6 +9,7 @@ import com.kike.musicplayer.data.db.getByIds
 import com.kike.musicplayer.R
 import com.kike.musicplayer.data.NetworkUtils
 import com.kike.musicplayer.data.lastfm.Scrobbler
+import com.kike.musicplayer.data.listenbrainz.ListenBrainzScrobbler
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.FlowPreview
@@ -56,6 +57,7 @@ class ServerCollections(
     private val db: AppDatabase,
     private val match: ServerMatch,
     private val scrobbler: Scrobbler,
+    private val listenBrainzScrobbler: ListenBrainzScrobbler? = null,
     /** Whether Navidrome's songs are in the library yet: favourites and playlists wait for them. */
     private val songsSynced: () -> Boolean,
     private val scope: CoroutineScope,
@@ -200,11 +202,17 @@ class ServerCollections(
             }
         }
         if (toInsert.isNotEmpty()) favourites.insertAll(toInsert.map { Favourite(it, now) })
-        if (love) toInsert.forEach { scrobbler.love(it, true) }
+        if (love) toInsert.forEach {
+            scrobbler.love(it, true)
+            listenBrainzScrobbler?.love(it, true)
+        }
         val unfavourited = toUnfavourite.flatMap { behind[it].orEmpty() }
         for (trackId in unfavourited) {
             favourites.delete(trackId)
-            if (love) scrobbler.love(trackId, false)
+            if (love) {
+                scrobbler.love(trackId, false)
+                listenBrainzScrobbler?.love(trackId, false)
+            }
         }
         client.star(login, toStar.toList())
         client.unstar(login, toUnstar.toList())

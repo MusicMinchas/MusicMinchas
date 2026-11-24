@@ -229,13 +229,24 @@ interface HistoryDao {
     @Query("SELECT playedAt FROM play_history")
     suspend fun allPlayedAt(): List<Long>
 
+    /** Track + timestamp pairs of every play, for per-track duplicate checks. */
+    @Query("SELECT trackId, playedAt AS timestamp FROM play_history")
+    suspend fun allTrackTimestamps(): List<TrackTimestamp>
+
     @Query("UPDATE play_history SET listenedMs = :listenedMs, counted = :counted WHERE id = :id")
     suspend fun updateListening(id: Long, listenedMs: Long, counted: Boolean)
 
     /** The whole history, newest first (kept forever: Replay looks back years). */
     data class TrackTimestamp(val trackId: String, val timestamp: Long)
 
-    @Query("SELECT trackId, MAX(playedAt) AS timestamp FROM play_history WHERE playedAt NOT IN (SELECT uts * 1000 FROM lastfm_scrobbles WHERE trackId IS NOT NULL) GROUP BY trackId")
+    @Query(
+        "SELECT trackId, MAX(playedAt) AS timestamp FROM play_history " +
+            "WHERE playedAt NOT IN (" +
+            "SELECT uts * 1000 FROM lastfm_scrobbles WHERE trackId IS NOT NULL " +
+            "UNION " +
+            "SELECT uts * 1000 FROM listenbrainz_listens WHERE trackId IS NOT NULL" +
+            ") GROUP BY trackId"
+    )
     suspend fun inAppLastPlayed(): List<TrackTimestamp>
 
     @Transaction
@@ -248,7 +259,11 @@ interface HistoryDao {
     @Query("SELECT * FROM play_history ORDER BY playedAt ASC")
     suspend fun allAscending(): List<PlayHistory>
 
-    @Query("SELECT uts * 1000 FROM lastfm_scrobbles WHERE trackId IS NOT NULL")
+    @Query(
+        "SELECT uts * 1000 FROM lastfm_scrobbles WHERE trackId IS NOT NULL " +
+            "UNION " +
+            "SELECT uts * 1000 FROM listenbrainz_listens WHERE trackId IS NOT NULL"
+    )
     suspend fun scrobbleUtsMillis(): List<Long>
 }
 
@@ -293,6 +308,10 @@ interface LastFmOutboxDao {
 
 data class ScrobbleCounts(val total: Int, val unmatched: Int)
 
+data class UtsTrackId(val uts: Long, val trackId: String)
+
+data class LastFmScrobbleKey(val uts: Long, val artist: String, val track: String, val trackId: String?)
+
 @Dao
 interface LastFmScrobbleDao {
     /** Row ids, -1 for scrobbles already stored. */
@@ -314,6 +333,65 @@ interface LastFmScrobbleDao {
 
     @Query("SELECT COUNT(*) FROM lastfm_scrobbles")
     suspend fun countAll(): Int
+
+    @Query("SELECT uts FROM lastfm_scrobbles")
+    suspend fun allUts(): List<Long>
+
+    @Query("SELECT uts, trackId FROM lastfm_scrobbles WHERE trackId IS NOT NULL")
+    suspend fun matchedPairs(): List<UtsTrackId>
+
+    @Query("SELECT uts, artist, track, trackId FROM lastfm_scrobbles")
+    suspend fun allKeys(): List<LastFmScrobbleKey>
+}
+
+@Dao
+interface ListenBrainzOutboxDao {
+    @Insert
+    suspend fun insert(item: ListenBrainzOutboxItem)
+
+    /** Oldest first. */
+    @Query("SELECT * FROM listenbrainz_outbox WHERE action = :action ORDER BY id LIMIT :limit")
+    suspend fun pending(action: String, limit: Int): List<ListenBrainzOutboxItem>
+
+    /** Loves and unloves, in the order they were asked for. */
+    @Query("SELECT * FROM listenbrainz_outbox WHERE action IN ('love', 'unlove') ORDER BY id LIMIT :limit")
+    suspend fun pendingLoves(limit: Int): List<ListenBrainzOutboxItem>
+
+    @Query("DELETE FROM listenbrainz_outbox WHERE id IN (:ids)")
+    suspend fun delete(ids: List<Long>)
+
+    @Query("SELECT COUNT(*) FROM listenbrainz_outbox WHERE action = :action")
+    fun observeCount(action: String): Flow<Int>
+}
+
+@Dao
+interface ListenBrainzListenDao {
+    /** Row ids, -1 for listens already stored. */
+    @Insert(onConflict = OnConflictStrategy.IGNORE)
+    suspend fun insertAll(listens: List<ListenBrainzListen>): List<Long>
+
+    /** Time of the newest imported listen, so the next import only fetches what came after. */
+    @Query("SELECT MAX(uts) FROM listenbrainz_listens WHERE user = :user")
+    suspend fun latest(user: String): Long?
+
+    @Query("SELECT * FROM listenbrainz_listens WHERE trackId IS NULL")
+    suspend fun unmatched(): List<ListenBrainzListen>
+
+    @Update
+    suspend fun setTrackIds(listens: List<ListenBrainzListen>)
+
+    @Query("SELECT COUNT(*) AS total, COALESCE(SUM(trackId IS NULL), 0) AS unmatched FROM listenbrainz_listens WHERE user = :user")
+    fun observeCounts(user: String): Flow<ScrobbleCounts>
+
+    @Query("SELECT COUNT(*) FROM listenbrainz_listens")
+    suspend fun countAll(): Int
+
+    @Query(
+        "SELECT COUNT(*) FROM listenbrainz_listens " +
+            "WHERE uts NOT IN (SELECT uts FROM lastfm_scrobbles) " +
+            "AND (uts % 60 != 0 OR (uts / 60) NOT IN (SELECT uts / 60 FROM lastfm_scrobbles))"
+    )
+    suspend fun countNotInLastFm(): Int
 }
 
 @Dao
@@ -346,6 +424,9 @@ interface ReplacementDao {
     @Query("UPDATE lastfm_scrobbles SET trackId = :newId WHERE trackId = :oldId")
     suspend fun moveScrobbles(oldId: String, newId: String)
 
+    @Query("UPDATE listenbrainz_listens SET trackId = :newId WHERE trackId = :oldId")
+    suspend fun moveListenBrainzListens(oldId: String, newId: String)
+
     @Query("UPDATE queue_items SET trackId = :newId WHERE trackId = :oldId")
     suspend fun moveQueue(oldId: String, newId: String)
 
@@ -359,6 +440,7 @@ interface ReplacementDao {
         copyFavourite(oldId, newId)
         deleteFavourite(oldId)
         moveScrobbles(oldId, newId)
+        moveListenBrainzListens(oldId, newId)
         moveQueue(oldId, newId)
         movePlaylistEntries(oldId, newId)
     }

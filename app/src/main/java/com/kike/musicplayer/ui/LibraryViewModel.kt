@@ -1219,7 +1219,9 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
             val trackCount = runCatching { database.tracks().countAll() }.getOrDefault(0)
             val albumCount = runCatching { database.browse().albumCount() }.getOrDefault(0)
             val artistCount = runCatching { database.browse().artistCount() }.getOrDefault(0)
-            val scrobbleCount = runCatching { database.lastFmScrobbles().countAll() }.getOrDefault(0)
+            val scrobbleCount = runCatching {
+                database.lastFmScrobbles().countAll() + database.listenBrainzListens().countNotInLastFm()
+            }.getOrDefault(0)
 
             val artworkDir = File(app.filesDir, "artwork")
             val (artBytes, artCount) = measureDir(artworkDir)
@@ -1607,9 +1609,19 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
         lastFm.startConnect()?.let(open)
     }
 
+    /** Saves user-provided Last.fm Pro API credentials (if changed/missing) and starts sign-in. */
+    fun saveAndConnectLastFm(apiKey: String, secret: String, open: (android.net.Uri) -> Unit) = viewModelScope.launch {
+        val trimmedKey = apiKey.trim()
+        val trimmedSecret = secret.trim()
+        val keepExisting = lastFm.hasCredentials && trimmedSecret.isEmpty() && trimmedKey == lastFm.apiKey
+        if (!keepExisting && !lastFm.saveCredentials(trimmedKey, trimmedSecret)) return@launch
+        lastFm.startConnect()?.let(open)
+    }
+
     fun finishLastFmConnect(token: String?) = viewModelScope.launch { lastFm.finishConnect(token) }
     fun cancelLastFmConnect() = lastFm.cancelConnect()
     fun disconnectLastFm() = lastFm.disconnect()
+    fun clearLastFmCredentials() = lastFm.clearCredentials()
 
     val scrobbleSettings = lastFm.scrobbleSettings
     val pendingScrobbles = container.scrobbler.pending.stateIn(viewModelScope, SharingStarted.Eagerly, 0)
@@ -1631,6 +1643,30 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
     fun importScrobbles(everything: Boolean) = importer.import(everything)
     fun importLoved() = importer.importLoved()
 
+    // ---- ListenBrainz ----
+
+    private val listenBrainz = container.listenBrainz
+    val listenBrainzState = listenBrainz.state
+
+    fun connectListenBrainz(token: String) = viewModelScope.launch { listenBrainz.connect(token) }
+    fun disconnectListenBrainz() = listenBrainz.disconnect()
+
+    val listenBrainzScrobbleSettings = listenBrainz.scrobbleSettings
+    val listenBrainzPendingScrobbles = container.listenBrainzScrobbler.pending.stateIn(viewModelScope, SharingStarted.Eagerly, 0)
+    fun setListenBrainzScrobbleSettings(settings: com.kike.musicplayer.data.lastfm.ScrobbleSettings) =
+        listenBrainz.setScrobbleSettings(settings)
+
+    private val listenBrainzImporter = container.listenBrainzImporter
+    val listenBrainzImportStatus = listenBrainzImporter.status
+
+    @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
+    val listenBrainzCounts = listenBrainz.state.map { it.user }.distinctUntilChanged()
+        .flatMapLatest { user -> if (user == null) flowOf(null) else listenBrainzImporter.counts(user) }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
+
+    fun importListenBrainzListens(everything: Boolean) = listenBrainzImporter.import(everything)
+    fun importListenBrainzLoved() = listenBrainzImporter.importLoved()
+
     init {
         viewModelScope.launch {
             settings.deezerHomeEnrichment.collect { enabled ->
@@ -1640,10 +1676,13 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
             }
         }
 
-        // Songs added to the library may be ones Last.fm scrobbles are waiting for.
+        // Songs added to the library may be ones Last.fm or ListenBrainz listens are waiting for.
         @OptIn(kotlinx.coroutines.FlowPreview::class)
         viewModelScope.launch {
-            tracksChanged.drop(1).debounce(30_000).collect { importer.rematch() }
+            tracksChanged.drop(1).debounce(30_000).collect {
+                importer.rematch()
+                listenBrainzImporter.rematch()
+            }
         }
 
         // Whenever songs change in Local, Drive or Navidrome, update matches for saved Deezer playlists

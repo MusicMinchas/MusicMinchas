@@ -18,9 +18,12 @@ import com.kike.musicplayer.data.discover.DiscoverRepository
 import com.kike.musicplayer.data.download.Downloader
 import com.kike.musicplayer.data.drive.DriveApi
 import com.kike.musicplayer.data.lastfm.LastFm
-import com.kike.musicplayer.data.lastfm.LastFmClient
 import com.kike.musicplayer.data.lastfm.ScrobbleImporter
 import com.kike.musicplayer.data.lastfm.Scrobbler
+import com.kike.musicplayer.data.listenbrainz.ListenBrainz
+import com.kike.musicplayer.data.listenbrainz.ListenBrainzClient
+import com.kike.musicplayer.data.listenbrainz.ListenBrainzImporter
+import com.kike.musicplayer.data.listenbrainz.ListenBrainzScrobbler
 import com.kike.musicplayer.data.drive.DriveAuth
 import com.kike.musicplayer.data.drive.DriveAuthInterceptor
 import com.kike.musicplayer.data.drive.DriveLibrary
@@ -198,15 +201,25 @@ class AppContainer(app: Application) {
     val downloader = Downloader(app, database.tracks(), driveHttp, subsonicUrls, nebulaUrls, appScope).also { it.verify() }
     val historicalDates = com.kike.musicplayer.data.history.HistoricalDatesStore(app)
 
-    val lastFm = LastFm(app, LastFmClient(baseHttp, moshi, BuildConfig.LASTFM_API_KEY, BuildConfig.LASTFM_SECRET), "lastfm$suffix")
+    val lastFm = LastFm(app, baseHttp, moshi, "lastfm$suffix")
 
     val scrobbler = Scrobbler(lastFm, database.lastFmOutbox(), database.tracks(), appScope).also { scrobbler ->
         lastFm.onConnected = scrobbler::flush
         scrobbler.flush() // whatever was left unsent last time
     }
+
+    val listenBrainz = ListenBrainz(app, ListenBrainzClient(baseHttp, moshi), "listenbrainz$suffix")
+
+    val listenBrainzScrobbler = ListenBrainzScrobbler(
+        listenBrainz, database.listenBrainzOutbox(), database.tracks(), appScope,
+    ).also { lbScrobbler ->
+        listenBrainz.onConnected = lbScrobbler::flush
+        lbScrobbler.flush()
+    }
+
     /** Favourites ↔ stars and playlists, both ways. */
     val serverCollections = ServerCollections(
-        app, subsonic, database, serverMatch, scrobbler, songsSynced = { settings.lastServerSync.value > 0 }, scope = appScope,
+        app, subsonic, database, serverMatch, scrobbler, listenBrainzScrobbler, songsSynced = { settings.lastServerSync.value > 0 }, scope = appScope,
         prefsName = "subsonic-sync$suffix",
     ).also { collections ->
         serverLibrary.onSynced = collections::syncNow
@@ -215,9 +228,14 @@ class AppContainer(app: Application) {
     val scrobbleImporter = ScrobbleImporter(
         lastFm, database.lastFmScrobbles(), database.history(), database.tracks(), database.favourites(), scrobbler, appScope, historicalDates,
     )
+    val listenBrainzImporter = ListenBrainzImporter(
+        listenBrainz, database.listenBrainzListens(), database.lastFmScrobbles(), database.history(), database.tracks(), database.favourites(), listenBrainzScrobbler, appScope,
+    )
 
     /** Listening history, favourites, playlists and loved tracks synced in one go, daily when switched on. */
-    val autoSync = AutoSync(app, lastFm, scrobbleImporter, subsonic, serverCollections, appScope, isCasting, "autosync$suffix").also { it.start() }
+    val autoSync = AutoSync(
+        app, lastFm, scrobbleImporter, listenBrainz, listenBrainzImporter, subsonic, serverCollections, appScope, isCasting, "autosync$suffix",
+    ).also { it.start() }
 
     val library = LibraryRepository(
         dao = database.tracks(),

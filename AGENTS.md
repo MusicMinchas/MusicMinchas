@@ -7,7 +7,7 @@ Parent workspace notes: @[Shared Android Dev Workspace](../AGENTS.md)
 
 - **Path:** `C:\Users\kike\dev\MusicPlayer` (local git repo, repo-local identity `kike` / `kikeprojo@gmail.com`, nothing pushed).
 - **Package:** `com.kike.musicplayer`
-- **Current Release:** `1.50.2` (`versionCode = 105`, Room DB `v27`, `minSdk = 30`, `targetSdk = 36`, `compileSdk = 37`). Merged to `master`, tag `v1.50.2`.
+- **Current Release:** `1.51.0` (`versionCode = 106`, Room DB `v28`, `minSdk = 30`, `targetSdk = 36`, `compileSdk = 37`). Merged to `master`, tag `v1.51.0`.
 - **Stack:** Kotlin 2.4.20, Jetpack Compose, Media3 1.11.1 `MediaLibraryService` (Android Auto browse tree), Room 2.8.5 via KSP 2.3.12 + Paging 3 (`paging-compose 3.3.6`, `room-paging`), Retrofit 3 + Moshi (reflection), Coil 3, `play-services-auth` 22 `AuthorizationClient` (`drive.readonly` + `email`), `reorderable` 3.1.0, AGP 9.4.1, Gradle 9.8.
 - **Shared Toolchain & Environment:**
   - `JAVA_HOME`: Android Studio's bundled `jbr`
@@ -486,6 +486,17 @@ Started 2026-10-08 from user-pasted spec. NEW app, explicitly independent of Son
   - Unit Tests:
     - Added regression tests in `HistoricalPlayImporterTest.kt` and `TrackMatcherTest.kt`. All 164 unit tests pass.
   - Verified on OnePlus 12 (live DB backups in `C:\Users\kike\dev\db-backup\2026-11-17-{pre,post}-unified-apple-music*`: `33,728` plays preserved, `0` remaining Nov 2026 `:00` bulk plays, `2,279` timestamps aligned, `687` Nov bulk rows cleared), merged to `master`, tagged `v1.50.2`, release APK `MusicMinchas-1.50.2.apk` installed.
+- 2026-11-24 Release 1.51.0 (`versionCode = 106`, Room DB `v28`, closes GitHub Issue #33):
+  - **Phase 1 — ListenBrainz Integration (`data/listenbrainz/`, `data/Secrets.kt`, `AppDatabase.kt`, `Entities.kt`, `Daos.kt`, `PlaybackService.kt`, `AutoSync.kt`, `SourcesScreen.kt`):**
+    - Extracted shared Android Keystore AES-GCM helper (`Secrets.kt`, aliases `musicminchas-server-password`, `musicminchas-listenbrainz-token`, `musicminchas-lastfm-secret`).
+    - Added Room `v27 -> v28` migration: `listenbrainz_outbox` and `listenbrainz_listens` (composite PK `(user, uts, msid)` to preserve same-minute migrated listens, indexed on `trackId`), updated `HistoryDao` queries to union `lastfm_scrobbles` + `listenbrainz_listens`, and wired `ReplacementDao.moveListenBrainzListens`.
+    - Implemented `ListenBrainzClient` (`validate-token`, `submit-listens`, `listen-count`, `listens`, `metadata/lookup/`, batch `metadata/recording/`, `recording-feedback`, `get-feedback`, rate-limit header handling), `ListenBrainz` account + independent `ScrobbleSettings`, `ListenBrainzScrobbler` (outbox batching, `playing_now`, MBID lookup fallback for loved tracks, outbox preservation on `401`/`429`/`5xx`/`IOException`), and `ListenBrainzImporter` (boundary-safe `max_ts` pagination, exact + minute-truncated `:00` 1-to-1 cross-dedupe against `lastfm_scrobbles`, per-`(trackId, second)` `play_history` dedupe, batch `metadata/recording` fallback for MBID-only loved tracks, and cross-source `songKey` dedupe for favourites).
+    - Wired ListenBrainz into `PlaybackService` (independent `scrobbledListenBrainz` flag), `PlayerViewModel`, `ServerCollections`, `AutoSync` (incremental history + loved tracks before Navidrome sync), and `LibraryViewModel` (auto-rematch on library size changes). Placed ListenBrainz above Last.fm in Settings → Integrations with full EN/ES localization.
+  - **Phase 2 — User-Provided Last.fm Pro API Key & Secret (`app/build.gradle.kts`, `LastFmClient.kt`, `LastFm.kt`, `Scrobbler.kt`, `ScrobbleImporter.kt`, `SourcesScreen.kt`):**
+    - Removed hardcoded `LASTFM_API_KEY` and `LASTFM_SECRET` from `BuildConfig` in response to Last.fm's Dec 1, 2026 Pro API key requirement.
+    - Added user-entered Last.fm Pro API Key + Keystore-encrypted Shared Secret in Settings → Integrations, including an upgrade banner for users previously signed in with the removed bundled key (`Disconnect` / `Clear API key`), and hardened `Scrobbler` to preserve `lastfm_outbox` items on API-key/signature errors (`10`, `13`, `26`).
+  - **Unit Tests:** Added `ListenBrainzClientTest`, `ListenBrainzScrobblerTest`, `ListenBrainzImporterTest`, `LastFmClientTest`, and `ScrobblerTest`. All 181 unit tests pass.
+  - **Verified on OnePlus 12:** Pre-`v28` and post-import DB backups saved in `C:\Users\kike\dev\db-backup\2026-11-23-*`; live ListenBrainz import (`37,802/37,802` listens, zero duplicate `play_history` rows), live Now Playing / Love / Scrobble / Import New verified, Last.fm upgrade prompt & disconnect verified, release APK `MusicMinchas-1.51.0.apk` built and installed, merged to `master`, tagged `v1.51.0`.
 
 ---
 

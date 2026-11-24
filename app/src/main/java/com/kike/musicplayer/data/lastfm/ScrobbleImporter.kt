@@ -66,6 +66,10 @@ class ScrobbleImporter(
      */
     fun import(everything: Boolean): Job? {
         val user = lastFm.state.value.user ?: return null
+        if (!lastFm.client.isConfigured) {
+            _status.value = ImportStatus(text = "Enter your Last.fm Pro API key and shared secret first")
+            return null
+        }
         if (mutex.isLocked) return null
         return scope.launch {
             mutex.withLock {
@@ -117,6 +121,10 @@ class ScrobbleImporter(
      */
     fun importLoved(): Job? {
         val user = lastFm.state.value.user ?: return null
+        if (!lastFm.client.isConfigured) {
+            _status.value = ImportStatus(loved = true, text = "Enter your Last.fm Pro API key and shared secret first")
+            return null
+        }
         if (mutex.isLocked) return null
         return scope.launch {
             mutex.withLock {

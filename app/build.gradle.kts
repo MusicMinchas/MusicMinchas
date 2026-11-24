@@ -13,12 +13,6 @@ val keystoreProps = Properties().apply {
     if (file.exists()) file.inputStream().use { load(it) }
 }
 
-// Last.fm API account (git-ignored). Without it the Last.fm section says it isn't set up.
-val lastFmProps = Properties().apply {
-    val file = rootProject.file("lastfm.properties")
-    if (file.exists()) file.inputStream().use { load(it) }
-}
-
 // Ticketmaster Discovery API key (git-ignored), for concerts in the Discover tab.
 val ticketmasterProps = Properties().apply {
     val file = rootProject.file("ticketmaster.properties")
@@ -33,11 +27,9 @@ android {
         applicationId = "com.kike.musicplayer"
         minSdk = 30
         targetSdk = 36
-        versionCode = 105
-        versionName = "1.50.2"
+        versionCode = 106
+        versionName = "1.51.0"
         resourceConfigurations += listOf("en", "es")
-        buildConfigField("String", "LASTFM_API_KEY", "\"${lastFmProps.getProperty("apiKey", "")}\"")
-        buildConfigField("String", "LASTFM_SECRET", "\"${lastFmProps.getProperty("sharedSecret", "")}\"")
         buildConfigField("String", "TICKETMASTER_KEY", "\"${ticketmasterProps.getProperty("apiKey", "")}\"")
     }
 

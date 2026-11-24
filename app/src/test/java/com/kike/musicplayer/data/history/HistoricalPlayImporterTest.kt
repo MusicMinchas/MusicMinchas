@@ -198,6 +198,9 @@ class HistoricalPlayImporterTest {
 
         override suspend fun allPlayedAt(): List<Long> = rows.map { it.playedAt }
 
+        override suspend fun allTrackTimestamps(): List<HistoryDao.TrackTimestamp> =
+            rows.map { HistoryDao.TrackTimestamp(it.trackId, it.playedAt) }
+
         override suspend fun updateListening(id: Long, listenedMs: Long, counted: Boolean) {
             val idx = rows.indexOfFirst { it.id == id }
             if (idx >= 0) rows[idx] = rows[idx].copy(listenedMs = listenedMs, counted = counted)

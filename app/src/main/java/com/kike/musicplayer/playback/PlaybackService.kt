@@ -97,7 +97,8 @@ class PlaybackService : MediaLibraryService(), CastHost {
         private var playingSince = 0L
         private var counted = false
         private var startedAt = 0L
-        private var scrobbled = false
+        private var scrobbledLastFm = false
+        private var scrobbledListenBrainz = false
         private var reportedToServer = false
 
         override fun onEvents(player: Player, events: Player.Events) {
@@ -124,15 +125,24 @@ class PlaybackService : MediaLibraryService(), CastHost {
             checkScrobble()
         }
 
-        /** Scrobbles the play once listened to long enough (the user's rule; Last.fm's at least). */
+        /** Scrobbles the play once listened to long enough (each service's rule; at least 50% / 4 min). */
         private fun checkScrobble() {
             val id = mediaId ?: return
-            if (scrobbled) return
-            val due = container.lastFm.scrobbleSettings.value.rule.thresholdMs(durationMs) ?: return
-            if (listened() >= due) {
-                scrobbled = true
-                // The play's own start time: importing from Last.fm later recognises it as the same play.
-                container.scrobbler.scrobble(trackIdOf(id), startedAt)
+            val elapsed = listened()
+            if (!scrobbledLastFm) {
+                val due = container.lastFm.scrobbleSettings.value.rule.thresholdMs(durationMs)
+                if (due != null && elapsed >= due) {
+                    scrobbledLastFm = true
+                    // The play's own start time: importing from Last.fm later recognises it as the same play.
+                    container.scrobbler.scrobble(trackIdOf(id), startedAt)
+                }
+            }
+            if (!scrobbledListenBrainz) {
+                val due = container.listenBrainz.scrobbleSettings.value.rule.thresholdMs(durationMs)
+                if (due != null && elapsed >= due) {
+                    scrobbledListenBrainz = true
+                    container.listenBrainzScrobbler.scrobble(trackIdOf(id), startedAt)
+                }
             }
         }
 
@@ -149,7 +159,8 @@ class PlaybackService : MediaLibraryService(), CastHost {
             durationMs = player.duration.takeIf { it > 0 } ?: player.currentMediaItem?.mediaMetadata?.durationMs ?: 0
             listenedMs = 0
             counted = false
-            scrobbled = false
+            scrobbledLastFm = false
+            scrobbledListenBrainz = false
             reportedToServer = false
             startedAt = System.currentTimeMillis()
             val entry = PlayHistory(trackId = trackIdOf(id), playedAt = startedAt)
@@ -164,6 +175,7 @@ class PlaybackService : MediaLibraryService(), CastHost {
                     }
                 }
                 container.scrobbler.nowPlaying(trackId)
+                container.listenBrainzScrobbler.nowPlaying(trackId)
             }
             rowId = scope.async(Dispatchers.IO) { historyDao.insert(entry) }
         }

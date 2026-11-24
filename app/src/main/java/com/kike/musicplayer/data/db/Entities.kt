@@ -218,6 +218,48 @@ data class LastFmScrobble(
 )
 
 /**
+ * Something waiting to be sent to ListenBrainz (a listen, love or unlove), kept until
+ * ListenBrainz accepts it so nothing is lost offline or across restarts. [timestamp] is Unix seconds.
+ */
+@Entity(tableName = "listenbrainz_outbox")
+data class ListenBrainzOutboxItem(
+    @PrimaryKey(autoGenerate = true) val id: Long = 0,
+    val action: String,
+    val artist: String,
+    val track: String,
+    val album: String?,
+    val albumArtist: String?,
+    val durationMs: Long?,
+    val trackNumber: Int?,
+    val mbRecordingId: String?,
+    val mbReleaseId: String?,
+    val timestamp: Long,
+) {
+    companion object {
+        const val SCROBBLE = "scrobble"
+        const val LOVE = "love"
+        const val UNLOVE = "unlove"
+    }
+}
+
+/**
+ * A listen imported from ListenBrainz, keyed by user, Unix second ([uts]) and MessyBrainz
+ * recording ID ([msid]) because bulk-imported listens can share the same minute-truncated [uts].
+ * [trackId] is the library song it matched, or null while not in the library.
+ */
+@Entity(tableName = "listenbrainz_listens", primaryKeys = ["user", "uts", "msid"], indices = [Index("trackId")])
+data class ListenBrainzListen(
+    val user: String,
+    val uts: Long,
+    val artist: String,
+    val track: String,
+    val album: String?,
+    val mbid: String?,
+    val msid: String = "",
+    val trackId: String? = null,
+)
+
+/**
  * A song a sync removed while adding others: once the new files' tags are read, it is paired with
  * the same song in a new file (e.g. an MP3 re-ripped as FLAC) so plays and favourites move over
  * ([com.kike.musicplayer.data.Replacements]). Forgotten after that pass.

@@ -20,27 +20,48 @@ import java.io.IOException
  * Last.fm asks (https://www.last.fm/api/scrobbling), loves one by one in the order they were made.
  */
 class Scrobbler(
-    private val lastFm: LastFm,
+    private val client: LastFmClient,
     private val outbox: LastFmOutboxDao,
     private val tracks: TrackDao,
     private val scope: CoroutineScope,
+    private val sessionKey: () -> String?,
+    private val isScrobblingEnabled: () -> Boolean,
+    private val onSessionInvalid: () -> Unit,
+    private val onApiKeyRejected: (String?) -> Unit,
 ) {
+    constructor(
+        lastFm: LastFm,
+        outbox: LastFmOutboxDao,
+        tracks: TrackDao,
+        scope: CoroutineScope,
+    ) : this(
+        client = lastFm.client,
+        outbox = outbox,
+        tracks = tracks,
+        scope = scope,
+        sessionKey = { lastFm.sessionKey },
+        isScrobblingEnabled = { lastFm.scrobbleSettings.value.enabled },
+        onSessionInvalid = lastFm::onSessionInvalid,
+        onApiKeyRejected = lastFm::onApiKeyRejected,
+    )
+
     private val mutex = Mutex()
     private var retryJob: Job? = null
 
     /** Scrobbles waiting to be sent. */
     val pending: Flow<Int> = outbox.observeCount(LastFmOutboxItem.SCROBBLE)
 
-    private val active get() = lastFm.sessionKey != null && lastFm.scrobbleSettings.value.enabled
+    private val active get() = client.isConfigured && sessionKey() != null && isScrobblingEnabled()
 
     /** Shows the song on the user's Last.fm profile as playing now. Best effort, never retried. */
     fun nowPlaying(trackId: String) {
-        val sk = lastFm.sessionKey ?: return
-        if (!lastFm.scrobbleSettings.value.enabled) return
+        if (!client.isConfigured) return
+        val sk = sessionKey() ?: return
+        if (!isScrobblingEnabled()) return
         scope.launch {
             val t = tracks.getByIds(listOf(trackId)).firstOrNull() ?: return@launch
             runCatching {
-                lastFm.client.call(
+                client.call(
                     "track.updateNowPlaying",
                     buildMap {
                         put("artist", t.artist ?: return@launch)
@@ -78,7 +99,7 @@ class Scrobbler(
 
     /** Loves (or unloves) [trackId] on Last.fm: a song was added to (removed from) the favourites. */
     fun love(trackId: String, loved: Boolean) {
-        if (lastFm.sessionKey == null) return
+        if (!client.isConfigured || sessionKey() == null) return
         scope.launch {
             val t = tracks.getByIds(listOf(trackId)).firstOrNull() ?: return@launch
             outbox.insert(
@@ -109,10 +130,11 @@ class Scrobbler(
 
     private suspend fun sendLoves() = mutex.withLock {
         while (true) {
-            val sk = lastFm.sessionKey ?: return@withLock
+            if (!client.isConfigured) return@withLock
+            val sk = sessionKey() ?: return@withLock
             val item = outbox.pendingLoves(1).firstOrNull() ?: return@withLock
             try {
-                lastFm.client.call(
+                client.call(
                     if (item.action == LastFmOutboxItem.LOVE) "track.love" else "track.unlove",
                     mapOf("artist" to item.artist, "track" to item.track),
                     sessionKey = sk, post = true,
@@ -121,7 +143,13 @@ class Scrobbler(
             } catch (e: LastFmException) {
                 when {
                     e.code == LastFmException.INVALID_SESSION -> {
-                        lastFm.onSessionInvalid()
+                        onSessionInvalid()
+                        return@withLock
+                    }
+                    e.isAuthConfigError -> {
+                        // API key invalid/suspended/non-Pro or bad secret: keep queued items!
+                        Log.w(TAG, "Last.fm API key rejected during ${item.action}; keeping outbox item", e)
+                        onApiKeyRejected(e.message)
                         return@withLock
                     }
                     e.isTemporary -> {
@@ -143,19 +171,26 @@ class Scrobbler(
 
     private suspend fun sendScrobbles() = mutex.withLock {
         while (true) {
-            val sk = lastFm.sessionKey ?: return@withLock
+            if (!client.isConfigured) return@withLock
+            val sk = sessionKey() ?: return@withLock
             val batch = outbox.pending(LastFmOutboxItem.SCROBBLE, BATCH)
             if (batch.isEmpty()) return@withLock
             try {
-                val json = lastFm.client.call("track.scrobble", batchParams(batch), sessionKey = sk, post = true)
-                val attr = runCatching { lastFm.client.parse<ScrobblesJson>(json).scrobbles.attr }.getOrNull()
+                val json = client.call("track.scrobble", batchParams(batch), sessionKey = sk, post = true)
+                val attr = runCatching { client.parse<ScrobblesJson>(json).scrobbles.attr }.getOrNull()
                 Log.i(TAG, "Scrobbled ${attr?.accepted ?: "?"} of ${batch.size} (${attr?.ignored ?: 0} ignored by Last.fm)")
                 outbox.delete(batch.map { it.id })
             } catch (e: LastFmException) {
                 when {
                     e.code == LastFmException.INVALID_SESSION -> {
                         // Kept for when the user connects again.
-                        lastFm.onSessionInvalid()
+                        onSessionInvalid()
+                        return@withLock
+                    }
+                    e.isAuthConfigError -> {
+                        // API key invalid/suspended/non-Pro or bad secret: keep queued scrobbles!
+                        Log.w(TAG, "Last.fm API key rejected; keeping ${batch.size} queued scrobbles", e)
+                        onApiKeyRejected(e.message)
                         return@withLock
                     }
                     e.isTemporary -> {

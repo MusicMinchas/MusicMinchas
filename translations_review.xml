@@ -177,6 +177,26 @@
             <en>Cardio, running &amp; high-energy beats</en>
             <es>Cardio, running y ritmos con energía</es>
         </string>
+        <string name="catalog_section_artist_essentials">
+            <en>100% Artist Essentials</en>
+            <es>100% Artistas imprescindibles</es>
+        </string>
+        <string name="catalog_section_artist_essentials_sub">
+            <en>Curated career retrospectives from Deezer</en>
+            <es>Retrospectivas esenciales de Deezer</es>
+        </string>
+        <string name="artist_essential_playlist">
+            <en>100% Artist Essentials</en>
+            <es>100% Artistas imprescindibles</es>
+        </string>
+        <string name="artist_essential_playlist_sub">
+            <en>%d songs · Curated by Deezer</en>
+            <es>%d canciones · Selección de Deezer</es>
+        </string>
+        <string name="refresh_section">
+            <en>Refresh</en>
+            <es>Actualizar</es>
+        </string>
         <string name="nebula_card_subtitle_disconnected">
             <en>Stream lossless FLAC audio via Torbox cache for music not in your library using your Eclipse / Stremio add-on manifest URL</en>
             <es>Transmite audio FLAC sin pérdidas a través de la caché de Torbox para música no presente en tu biblioteca mediante tu URL de manifiesto de Eclipse o Stremio</es>
@@ -297,6 +317,58 @@
             <en>Lossless FLAC (Torbox)</en>
             <es>FLAC sin pérdidas (Torbox)</es>
         </string>
+        <string name="storage_mgmt_title">
+            <en>Storage &amp; Cache Management</en>
+            <es>Gestión de caché y almacenamiento</es>
+        </string>
+        <string name="storage_mgmt_subtitle">
+            <en>Overview and control of local database, artwork, and image cache</en>
+            <es>Información y control de la base de datos, carátulas y caché de imágenes</es>
+        </string>
+        <string name="storage_stat_database">
+            <en>Music Database</en>
+            <es>Base de datos</es>
+        </string>
+        <string name="storage_stat_embedded_artwork">
+            <en>Embedded Artwork</en>
+            <es>Carátulas integradas</es>
+        </string>
+        <string name="storage_stat_image_cache">
+            <en>Network Image Cache</en>
+            <es>Caché de imágenes de red</es>
+        </string>
+        <string name="storage_stat_runtime_cache">
+            <en>System Runtime Cache</en>
+            <es>Caché del sistema Android</es>
+        </string>
+        <string name="storage_cache_limit_label">
+            <en>Maximum Image Cache Size</en>
+            <es>Tamaño máximo de caché de imágenes</es>
+        </string>
+        <string name="storage_cache_limit_desc">
+            <en>Coil disk cache quota for Navidrome and streaming artwork (250 MB – 2 GB).</en>
+            <es>Límite de almacenamiento en disco para carátulas de Navidrome y streaming (250 MB – 2 GB).</es>
+        </string>
+        <string name="storage_clear_image_cache">
+            <en>Clear Image Cache</en>
+            <es>Borrar caché de imágenes</es>
+        </string>
+        <string name="storage_prune_artwork">
+            <en>Prune Unused Art</en>
+            <es>Limpiar carátulas huérfanas</es>
+        </string>
+        <string name="storage_cache_cleared">
+            <en>Image cache cleared successfully</en>
+            <es>Caché de imágenes borrada correctamente</es>
+        </string>
+        <string name="storage_prune_result">
+            <en>Pruned %1$d unused cover files (%2$s freed)</en>
+            <es>Se eliminaron %1$d carátulas huérfanas (%2$s liberados)</es>
+        </string>
+        <string name="storage_prune_none">
+            <en>No unused artwork found</en>
+            <es>No se encontraron carátulas huérfanas</es>
+        </string>
     </section>
     <section name="Navigation &amp; Tabs">
         <string name="tab_albums">
@@ -348,6 +420,22 @@
         <string name="search_cat_songs">
             <en>Songs on Deezer &amp; Apple Music</en>
             <es>Canciones en Deezer y Apple Music</es>
+        </string>
+        <string name="search_addon_songs">
+            <en>%1$s Songs</en>
+            <es>Canciones en %1$s</es>
+        </string>
+        <string name="search_addon_albums">
+            <en>%1$s Albums</en>
+            <es>Álbumes en %1$s</es>
+        </string>
+        <string name="search_addon_artists">
+            <en>%1$s Artists</en>
+            <es>Artistas en %1$s</es>
+        </string>
+        <string name="search_addon_loading">
+            <en>Searching %1$s…</en>
+            <es>Buscando en %1$s…</es>
         </string>
         <string name="search_filter_albums">
             <en>Albums</en>
@@ -410,6 +498,10 @@
         <string name="home_made_for_you">
             <en>Made for You</en>
             <es>Para ti</es>
+        </string>
+        <string name="home_genre_decade_mixes">
+            <en>Genres &amp; Decades Mixes</en>
+            <es>Mezclas por género y década</es>
         </string>
         <string name="home_mixes_empty_hint">
             <en>Mixes appear once genres have been fetched for your artists (Sources › online lookup) and grow better as you listen.</en>
@@ -777,6 +869,10 @@
             <en>Sync now</en>
             <es>Sincronizar ahora</es>
         </string>
+        <string name="action_refresh">
+            <en>Refresh</en>
+            <es>Actualizar</es>
+        </string>
     </section>
     <section name="Sources &amp; Settings">
         <string name="server_about_setting_cd">
@@ -864,22 +960,22 @@
             <es>%1$s en la biblioteca</es>
         </string>
         <string name="server_love_stars_lastfm">
-            <en>Love Navidrome stars on Last.fm</en>
-            <es>Añadir estrellas de Navidrome a favoritos de Last.fm</es>
+            <en>Love Navidrome stars on scrobble services</en>
+            <es>Añadir estrellas de Navidrome a favoritos de scrobbling</es>
         </string>
         <string name="server_love_stars_lastfm_dialog_desc">
-            <en>Songs starred on Navidrome become favourites here; with this on they're also loved on Last.fm, and unstarring them unloves them. Favourites you change here are always loved or unloved on Last.fm (when it's connected), whatever this setting.
+            <en>Songs starred on Navidrome become favourites here; with this on they're also loved on connected services (ListenBrainz / Last.fm), and unstarring them unloves them. Favourites you change here are always synced when connected, whatever this setting.
 It applies to stars from now on: songs starred before aren't loved retroactively.</en>
-            <es>Las canciones destacadas con estrella en Navidrome se convierten en favoritos aquí; con esto activado también se marcan como favoritas en Last.fm, y quitarles la estrella las desmarca. Los favoritos que cambies aquí siempre se marcan o desmarcan en Last.fm (cuando está conectado), sea cual sea este ajuste.
+            <es>Las canciones destacadas con estrella en Navidrome se convierten en favoritos aquí; con esto activado también se marcan como favoritas en los servicios conectados (ListenBrainz / Last.fm), y quitarles la estrella las desmarca. Los favoritos que cambies aquí siempre se sincronizan cuando el servicio está conectado, sea cual sea este ajuste.
 Se aplica a las estrellas a partir de ahora: las canciones destacadas antes no se marcan retroactivamente.</es>
         </string>
         <string name="server_love_stars_lastfm_dialog_title">
-            <en>Stars and Last.fm</en>
-            <es>Estrellas y Last.fm</es>
+            <en>Stars &amp; loved tracks</en>
+            <es>Estrellas y temas favoritos</es>
         </string>
         <string name="server_love_stars_lastfm_info">
-            <en>Songs starred on Navidrome become favourites here; with this on they're also loved on Last.fm, and unstarring them unloves them. It applies to stars from now on: songs starred before aren't loved retroactively.</en>
-            <es>Las canciones favoritas en Navidrome se convierten en favoritas aquí; al activar esto también se marcan como favoritas en Last.fm, y desmarcarlas las quita allí.Se aplica a los favoritos futuros: las canciones marcadas previamente no se sincronizan de forma retroactiva.</es>
+            <en>Songs starred on Navidrome become favourites here; with this on they're also loved on ListenBrainz / Last.fm, and unstarring them unloves them. It applies to stars from now on: songs starred before aren't loved retroactively.</en>
+            <es>Las canciones favoritas en Navidrome se convierten en favoritas aquí; al activar esto también se marcan como favoritas en ListenBrainz / Last.fm, y desmarcarlas las quita allí. Se aplica a los favoritos futuros: las canciones marcadas previamente no se sincronizan de forma retroactiva.</es>
         </string>
         <string name="server_password_label">
             <en>Password</en>
@@ -1283,9 +1379,25 @@ La copia de Navidrome se busca por artista y título, ignorando notas como "(Rem
             <en>Last synced: %s</en>
             <es>Última sincronización: %s</es>
         </string>
+        <string name="sources_lastfm_api_key_help">
+            <en>Last.fm requires an API Key and Shared Secret owned by a Last.fm Pro account. Your shared secret is stored encrypted on this device.</en>
+            <es>Last.fm requiere una clave API y un secreto compartido pertenecientes a una cuenta Last.fm Pro. Tu secreto se almacena cifrado en este dispositivo.</es>
+        </string>
+        <string name="sources_lastfm_api_key_label">
+            <en>Pro API key</en>
+            <es>Clave API Pro</es>
+        </string>
+        <string name="sources_lastfm_api_key_saved">
+            <en>Using your API key (%s)</en>
+            <es>Usando tu clave API (%s)</es>
+        </string>
         <string name="sources_lastfm_awaiting_approval">
             <en>Approve MusicMinchas on the Last.fm page, then come back here</en>
             <es>Autoriza MusicMinchas en la página de Last.fm y luego regresa aquí</es>
+        </string>
+        <string name="sources_lastfm_clear_keys">
+            <en>Clear API key</en>
+            <es>Borrar clave API</es>
         </string>
         <string name="sources_lastfm_connect">
             <en>Connect Last.fm</en>
@@ -1294,6 +1406,10 @@ La copia de Navidrome se busca por artista y título, ignorando notas como "(Rem
         <string name="sources_lastfm_connected_as">
             <en>Connected as %s</en>
             <es>Conectado como %s</es>
+        </string>
+        <string name="sources_lastfm_get_api_key">
+            <en>Get API key</en>
+            <es>Obtener clave API</es>
         </string>
         <string name="sources_lastfm_history_title">
             <en>Listening history</en>
@@ -1318,6 +1434,10 @@ La copia de Navidrome se busca por artista y título, ignorando notas como "(Rem
         <string name="sources_lastfm_imported_count">
             <en>%d scrobbles imported</en>
             <es>%d scrobbles importados</es>
+        </string>
+        <string name="sources_lastfm_key_required_for_user">
+            <en>API key required (previously connected as %s)</en>
+            <es>Clave API necesaria (conectado antes como %s)</es>
         </string>
         <string name="sources_lastfm_loved_tracks_desc">
             <en>Favouriting a song loves it on Last.fm, and removing it unloves it. Import your loved tracks to add those in your library to your favourites.</en>
@@ -1367,13 +1487,73 @@ La copia de Navidrome se busca por artista y título, ignorando notas como "(Rem
             <en>When to scrobble</en>
             <es>Cuándo hacer scrobbling</es>
         </string>
+        <string name="sources_lastfm_secret_saved_placeholder">
+            <en>Saved (leave blank to keep)</en>
+            <es>Guardado (déjalo vacío para conservarlo)</es>
+        </string>
+        <string name="sources_lastfm_shared_secret_label">
+            <en>Shared secret</en>
+            <es>Secreto compartido</es>
+        </string>
+        <string name="sources_lastfm_show_secret_cd">
+            <en>Show shared secret</en>
+            <es>Mostrar secreto compartido</es>
+        </string>
         <string name="sources_lastfm_subtitle_connected">
             <en>Scrobble what you play and bring in your Last.fm history and loved tracks</en>
             <es>Haz scrobbling de lo que escuchas e importa tu historial y temas favoritos de Last.fm</es>
         </string>
+        <string name="sources_lastfm_subtitle_pro_key">
+            <en>Scrobble and import history using your own Last.fm Pro API key &amp; secret</en>
+            <es>Scrobbling e historial usando tu propia clave API y secreto de Last.fm Pro</es>
+        </string>
+        <string name="sources_lastfm_upgrade_key_note">
+            <en>MusicMinchas no longer bundles a shared Last.fm API key (Last.fm requires Pro on API keys from Dec 1, 2026). Your imported history is safe — enter your own Pro API key &amp; shared secret below to reconnect, or disconnect if using ListenBrainz.</en>
+            <es>MusicMinchas ya no incluye una clave API compartida de Last.fm (Last.fm exige Pro para claves API desde el 1 de diciembre de 2026). Tu historial importado sigue a salvo: introduce tu propia clave API Pro y secreto abajo para reconectar, o desconecta si usas ListenBrainz.</es>
+        </string>
         <string name="sources_lastfm_unmatched_count">
             <en>· %d of songs not in your library yet (added as plays when you add those songs)</en>
             <es>· %d de canciones aún no en tu biblioteca (se añadirán como reproducciones cuando las agregues)</es>
+        </string>
+        <string name="sources_listenbrainz_autosync_note">
+            <en>Tip: if you migrated from Last.fm, disable ListenBrainz's server-side Last.fm sync in your ListenBrainz settings to avoid duplicate listens.</en>
+            <es>Consejo: si migraste desde Last.fm, desactiva la sincronización automática con Last.fm en los ajustes web de ListenBrainz para evitar escuchas duplicadas.</es>
+        </string>
+        <string name="sources_listenbrainz_connect">
+            <en>Connect ListenBrainz</en>
+            <es>Conectar ListenBrainz</es>
+        </string>
+        <string name="sources_listenbrainz_get_token">
+            <en>Get token</en>
+            <es>Obtener token</es>
+        </string>
+        <string name="sources_listenbrainz_import_history_desc">
+            <en>Import your listens: plays of songs in your library are added to your plays (existing Last.fm scrobbles are skipped automatically)</en>
+            <es>Importa tus escuchas: las reproducciones de canciones presentes en tu biblioteca se añadirán a tu contador (los scrobbles ya importados de Last.fm se omiten automáticamente)</es>
+        </string>
+        <string name="sources_listenbrainz_imported_count">
+            <en>%d listens imported</en>
+            <es>%d escuchas importadas</es>
+        </string>
+        <string name="sources_listenbrainz_loved_tracks_desc">
+            <en>Favouriting a song loves it on ListenBrainz, and removing it unloves it. Import your loved tracks to add those in your library to your favourites.</en>
+            <es>Marcar una canción como favorita la añade a tus temas favoritos de ListenBrainz, y quitarla la desmarca. Importa tus temas favoritos para añadir los que tengas en tu biblioteca a tus favoritos.</es>
+        </string>
+        <string name="sources_listenbrainz_show_token_cd">
+            <en>Show token</en>
+            <es>Mostrar token</es>
+        </string>
+        <string name="sources_listenbrainz_subtitle">
+            <en>Scrobble what you play and bring in your ListenBrainz history and loved tracks (free per-user token)</en>
+            <es>Registra lo que escuchas e importa tu historial y temas favoritos de ListenBrainz (token gratuito por usuario)</es>
+        </string>
+        <string name="sources_listenbrainz_token_help">
+            <en>Copy your personal User Token from listenbrainz.org/settings and paste it below. It is stored encrypted on this device.</en>
+            <es>Copia tu token de usuario personal en listenbrainz.org/settings y pégalo abajo. Se almacena cifrado en este dispositivo.</es>
+        </string>
+        <string name="sources_listenbrainz_token_label">
+            <en>User token</en>
+            <es>Token de usuario</es>
         </string>
         <string name="sources_local">
             <en>Device Folders</en>
@@ -1452,8 +1632,8 @@ La copia de Navidrome se busca por artista y título, ignorando notas como "(Rem
             <es>Navidrome / Subsonic</es>
         </string>
         <string name="sources_sync_card_subtitle">
-            <en>Sync Listening History, Favourites, Playlists and Loved tracks across MusicMinchas and connected services like Last.fm and Navidrome (if connected) every 24 hours</en>
-            <es>Sincroniza el historial de reproducción, favoritos, listas y temas destacados en MusicMinchas y los servicios conectados como Last.fm y Navidrome cada 24 horas</es>
+            <en>Sync Listening History, Favourites, Playlists and Loved tracks across MusicMinchas and connected services like ListenBrainz, Last.fm and Navidrome every 24 hours</en>
+            <es>Sincroniza el historial de reproducción, favoritos, listas y temas destacados en MusicMinchas y los servicios conectados como ListenBrainz, Last.fm y Navidrome cada 24 horas</es>
         </string>
         <string name="sources_sync_card_title">
             <en>Automatic sync</en>
@@ -1554,6 +1734,30 @@ La copia de Navidrome se busca por artista y título, ignorando notas como "(Rem
         <string name="server_error_generic">
             <en>Navidrome error %d</en>
             <es>Error de Navidrome %d</es>
+        </string>
+        <string name="settings_section_integrations">
+            <en>Integrations</en>
+            <es>Integraciones</es>
+        </string>
+        <string name="settings_integrations_title">
+            <en>Integrations</en>
+            <es>Integraciones</es>
+        </string>
+        <string name="settings_integrations_subtitle">
+            <en>ListenBrainz, Last.fm, Online Metadata, and Automatic Sync</en>
+            <es>ListenBrainz, Last.fm, metadatos online y sincronización automática</es>
+        </string>
+        <string name="settings_data_storage_title">
+            <en>Data &amp; Storage</en>
+            <es>Datos y almacenamiento</es>
+        </string>
+        <string name="settings_section_audio">
+            <en>Audio Settings</en>
+            <es>Ajustes de audio</es>
+        </string>
+        <string name="settings_audio_title">
+            <en>Audio Settings</en>
+            <es>Ajustes de audio</es>
         </string>
     </section>
     <section name="Replay">

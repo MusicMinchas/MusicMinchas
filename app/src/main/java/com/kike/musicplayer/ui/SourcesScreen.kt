@@ -69,8 +69,15 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material.icons.filled.Visibility
+import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
+import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.input.VisualTransformation
+import com.kike.musicplayer.data.lastfm.LastFmClient
+import com.kike.musicplayer.data.listenbrainz.ListenBrainzClient
 import androidx.compose.material3.Switch
 import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.SegmentedButtonDefaults
@@ -184,9 +191,10 @@ fun SourcesScreen(
     }
 }
 
-/** Entry card leading to the Integrations submenu (Last.fm, Metadata, Automatic Sync). */
+/** Entry card leading to the Integrations submenu (ListenBrainz, Last.fm, Metadata, Automatic Sync). */
 @Composable
 private fun IntegrationsEntry(vm: LibraryViewModel, onOpen: () -> Unit) {
+    val listenBrainz by vm.listenBrainzState.collectAsState()
     val lastFm by vm.lastFmState.collectAsState()
     val deezer by vm.metaDeezer.collectAsState()
     val apple by vm.metaApple.collectAsState()
@@ -194,7 +202,13 @@ private fun IntegrationsEntry(vm: LibraryViewModel, onOpen: () -> Unit) {
     val autoSync by vm.autoSync.collectAsState()
 
     val summary = buildString {
-        if (lastFm.user != null) {
+        if (listenBrainz.user != null) {
+            append("ListenBrainz (${listenBrainz.user})")
+        } else {
+            append("ListenBrainz")
+        }
+        append(" · ")
+        if (lastFm.user != null && lastFm.hasCredentials) {
             append("Last.fm (${lastFm.user})")
         } else {
             append("Last.fm")
@@ -383,7 +397,7 @@ fun GeneralPreferencesScreen(
     }
 }
 
-/** Integrations sub-screen: Last.fm settings, Online Metadata Lookup, Automatic Sync. */
+/** Integrations sub-screen: ListenBrainz, Last.fm, Online Metadata Lookup, Automatic Sync. */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun IntegrationsScreen(
@@ -393,12 +407,29 @@ fun IntegrationsScreen(
 ) {
     val pending by vm.pendingMetadata.collectAsState()
     val progress by vm.metadataProgress.collectAsState()
+    val listenBrainz by vm.listenBrainzState.collectAsState()
+    val lbScrobbling by vm.listenBrainzScrobbleSettings.collectAsState()
+    val lbPending by vm.listenBrainzPendingScrobbles.collectAsState()
+    val lbImportStatus by vm.listenBrainzImportStatus.collectAsState()
+    val lbCounts by vm.listenBrainzCounts.collectAsState()
     val lastFm by vm.lastFmState.collectAsState()
     val scrobbling by vm.scrobbleSettings.collectAsState()
     val pendingScrobbles by vm.pendingScrobbles.collectAsState()
     val importStatus by vm.importStatus.collectAsState()
     val scrobbleCounts by vm.scrobbleCounts.collectAsState()
     val uriHandler = LocalUriHandler.current
+    var lbTokenInput by remember { mutableStateOf("") }
+    var lbShowToken by remember { mutableStateOf(false) }
+    var lfmApiKeyInput by remember(lastFm.apiKey) { mutableStateOf(lastFm.apiKey) }
+    var lfmSecretInput by remember { mutableStateOf("") }
+    var lfmShowSecret by remember { mutableStateOf(false) }
+
+    LaunchedEffect(listenBrainz.user) {
+        if (listenBrainz.user != null) lbTokenInput = ""
+    }
+    LaunchedEffect(lastFm.user, lastFm.hasCredentials) {
+        if (lastFm.user != null && lastFm.hasCredentials) lfmSecretInput = ""
+    }
 
     Column(Modifier.fillMaxSize().padding(contentPadding)) {
         TopAppBar(
@@ -410,35 +441,169 @@ fun IntegrationsScreen(
             Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 12.dp, vertical = 8.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            // 1. Last.fm
+            // 1. ListenBrainz (primary, free per-user token)
+            SourceCard(
+                "ListenBrainz",
+                when {
+                    listenBrainz.user != null -> stringResource(R.string.sources_lastfm_connected_as, listenBrainz.user!!)
+                    else -> stringResource(R.string.sources_listenbrainz_subtitle)
+                },
+            ) {
+                listenBrainz.message?.let { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) }
+                if (listenBrainz.user != null) {
+                    ScrobbleControls(lbScrobbling, lbPending, vm::setListenBrainzScrobbleSettings)
+                    HistoryImport(
+                        counts = lbCounts,
+                        status = lbImportStatus,
+                        onImport = vm::importListenBrainzListens,
+                        emptyDesc = stringResource(R.string.sources_listenbrainz_import_history_desc),
+                        importedCountRes = R.string.sources_listenbrainz_imported_count,
+                    )
+                    LovedTracks(
+                        status = lbImportStatus,
+                        onImport = vm::importListenBrainzLoved,
+                        desc = stringResource(R.string.sources_listenbrainz_loved_tracks_desc),
+                    )
+                    Text(
+                        stringResource(R.string.sources_listenbrainz_autosync_note),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    OutlinedButton(onClick = vm::disconnectListenBrainz) { Text(stringResource(R.string.sources_disconnect)) }
+                } else {
+                    Text(
+                        stringResource(R.string.sources_listenbrainz_token_help),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    OutlinedTextField(
+                        value = lbTokenInput,
+                        onValueChange = { lbTokenInput = it },
+                        label = { Text(stringResource(R.string.sources_listenbrainz_token_label)) },
+                        singleLine = true,
+                        enabled = !listenBrainz.connecting,
+                        visualTransformation = if (lbShowToken) VisualTransformation.None else PasswordVisualTransformation(),
+                        trailingIcon = {
+                            IconButton(onClick = { lbShowToken = !lbShowToken }) {
+                                Icon(
+                                    if (lbShowToken) Icons.Default.VisibilityOff else Icons.Default.Visibility,
+                                    contentDescription = stringResource(R.string.sources_listenbrainz_show_token_cd),
+                                )
+                            }
+                        },
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Button(
+                            onClick = { vm.connectListenBrainz(lbTokenInput) },
+                            enabled = lbTokenInput.isNotBlank() && !listenBrainz.connecting,
+                        ) {
+                            Text(stringResource(R.string.sources_listenbrainz_connect))
+                        }
+                        TextButton(onClick = { uriHandler.openUri(ListenBrainzClient.SETTINGS_URL) }) {
+                            Text(stringResource(R.string.sources_listenbrainz_get_token))
+                        }
+                        if (listenBrainz.connecting) CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp)
+                    }
+                }
+            }
+
+            // 2. Last.fm (requires user's own Last.fm Pro API key & shared secret)
             SourceCard(
                 "Last.fm",
                 when {
-                    lastFm.user != null -> stringResource(R.string.sources_lastfm_connected_as, lastFm.user!!)
+                    lastFm.user != null && lastFm.hasCredentials -> stringResource(R.string.sources_lastfm_connected_as, lastFm.user!!)
+                    lastFm.user != null -> stringResource(R.string.sources_lastfm_key_required_for_user, lastFm.user!!)
                     lastFm.awaitingApproval -> stringResource(R.string.sources_lastfm_awaiting_approval)
-                    else -> stringResource(R.string.sources_lastfm_subtitle_connected)
+                    else -> stringResource(R.string.sources_lastfm_subtitle_pro_key)
                 },
             ) {
                 lastFm.message?.let { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) }
                 when {
-                    lastFm.user != null -> {
+                    lastFm.user != null && lastFm.hasCredentials -> {
                         ScrobbleControls(scrobbling, pendingScrobbles, vm::setScrobbleSettings)
                         HistoryImport(scrobbleCounts, importStatus, vm::importScrobbles)
                         LovedTracks(importStatus, vm::importLoved)
-                        OutlinedButton(onClick = vm::disconnectLastFm) { Text(stringResource(R.string.sources_disconnect)) }
+                        val keyHint = lastFm.apiKey.takeLast(4).let { if (it.isNotEmpty()) "••••$it" else "" }
+                        if (keyHint.isNotEmpty()) {
+                            Text(
+                                stringResource(R.string.sources_lastfm_api_key_saved, keyHint),
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            OutlinedButton(onClick = vm::disconnectLastFm) { Text(stringResource(R.string.sources_disconnect)) }
+                            TextButton(onClick = vm::clearLastFmCredentials) { Text(stringResource(R.string.sources_lastfm_clear_keys)) }
+                        }
                     }
                     lastFm.awaitingApproval -> Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         Button(onClick = { vm.connectLastFm { uriHandler.openUri(it.toString()) } }) { Text(stringResource(R.string.sources_lastfm_open_again)) }
                         OutlinedButton(onClick = vm::cancelLastFmConnect) { Text(stringResource(R.string.action_cancel)) }
                     }
-                    else -> Button(onClick = { vm.connectLastFm { uriHandler.openUri(it.toString()) } }) { Text(stringResource(R.string.sources_lastfm_connect)) }
+                    else -> {
+                        Text(
+                            stringResource(
+                                if (lastFm.user != null) R.string.sources_lastfm_upgrade_key_note
+                                else R.string.sources_lastfm_api_key_help
+                            ),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                        OutlinedTextField(
+                            value = lfmApiKeyInput,
+                            onValueChange = { lfmApiKeyInput = it },
+                            label = { Text(stringResource(R.string.sources_lastfm_api_key_label)) },
+                            singleLine = true,
+                            modifier = Modifier.fillMaxWidth(),
+                        )
+                        OutlinedTextField(
+                            value = lfmSecretInput,
+                            onValueChange = { lfmSecretInput = it },
+                            label = { Text(stringResource(R.string.sources_lastfm_shared_secret_label)) },
+                            placeholder = if (lastFm.hasCredentials && lfmApiKeyInput.trim() == lastFm.apiKey) {
+                                { Text(stringResource(R.string.sources_lastfm_secret_saved_placeholder)) }
+                            } else null,
+                            singleLine = true,
+                            visualTransformation = if (lfmShowSecret) VisualTransformation.None else PasswordVisualTransformation(),
+                            trailingIcon = {
+                                IconButton(onClick = { lfmShowSecret = !lfmShowSecret }) {
+                                    Icon(
+                                        if (lfmShowSecret) Icons.Default.VisibilityOff else Icons.Default.Visibility,
+                                        contentDescription = stringResource(R.string.sources_lastfm_show_secret_cd),
+                                    )
+                                }
+                            },
+                            modifier = Modifier.fillMaxWidth(),
+                        )
+                        val canConnect = (lfmApiKeyInput.isNotBlank() && lfmSecretInput.isNotBlank()) ||
+                            (lastFm.hasCredentials && lfmApiKeyInput.trim() == lastFm.apiKey)
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                            Button(
+                                onClick = {
+                                    vm.saveAndConnectLastFm(lfmApiKeyInput, lfmSecretInput) { uriHandler.openUri(it.toString()) }
+                                },
+                                enabled = canConnect,
+                            ) {
+                                Text(stringResource(R.string.sources_lastfm_connect))
+                            }
+                            TextButton(onClick = { uriHandler.openUri(LastFmClient.API_ACCOUNT_URL) }) {
+                                Text(stringResource(R.string.sources_lastfm_get_api_key))
+                            }
+                        }
+                        if (lastFm.user != null) {
+                            OutlinedButton(onClick = vm::disconnectLastFm) { Text(stringResource(R.string.sources_disconnect)) }
+                        } else if (lastFm.hasCredentials) {
+                            TextButton(onClick = vm::clearLastFmCredentials) { Text(stringResource(R.string.sources_lastfm_clear_keys)) }
+                        }
+                    }
                 }
             }
 
-            // 2. Online Metadata Lookup
+            // 3. Online Metadata Lookup
             MetadataCard(vm, pending, progress)
 
-            // 3. Automatic Sync
+            // 4. Automatic Sync
             SyncCard(vm)
         }
     }
@@ -1095,16 +1260,21 @@ private fun ScrobbleControls(settings: ScrobbleSettings, pending: Int, onChange:
     )
 }
 
-/** Importing the Last.fm history as plays. */
+/** Importing listening history as plays (shared by Last.fm and ListenBrainz). */
 @Composable
-private fun HistoryImport(counts: ScrobbleCounts?, status: ImportStatus, onImport: (everything: Boolean) -> Unit) {
+private fun HistoryImport(
+    counts: ScrobbleCounts?,
+    status: ImportStatus,
+    onImport: (everything: Boolean) -> Unit,
+    emptyDesc: String = stringResource(R.string.sources_lastfm_import_history_desc),
+    importedCountRes: Int = R.string.sources_lastfm_imported_count,
+) {
     HorizontalDivider(Modifier.padding(vertical = 4.dp))
     Text(stringResource(R.string.sources_lastfm_history_title), style = MaterialTheme.typography.labelLarge)
     Text(
         when {
-            counts == null || counts.total == 0 ->
-                stringResource(R.string.sources_lastfm_import_history_desc)
-            else -> stringResource(R.string.sources_lastfm_imported_count, counts.total) +
+            counts == null || counts.total == 0 -> emptyDesc
+            else -> stringResource(importedCountRes, counts.total) +
                 if (counts.unmatched > 0) stringResource(R.string.sources_lastfm_unmatched_count, counts.unmatched) else ""
         },
         style = MaterialTheme.typography.bodySmall,
@@ -1121,13 +1291,17 @@ private fun HistoryImport(counts: ScrobbleCounts?, status: ImportStatus, onImpor
     }
 }
 
-/** Favourites and Last.fm loved tracks. */
+/** Favourites and loved tracks (shared by Last.fm and ListenBrainz). */
 @Composable
-private fun LovedTracks(status: ImportStatus, onImport: () -> Unit) {
+private fun LovedTracks(
+    status: ImportStatus,
+    onImport: () -> Unit,
+    desc: String = stringResource(R.string.sources_lastfm_loved_tracks_desc),
+) {
     HorizontalDivider(Modifier.padding(vertical = 4.dp))
     Text(stringResource(R.string.sources_lastfm_loved_tracks_title), style = MaterialTheme.typography.labelLarge)
     Text(
-        stringResource(R.string.sources_lastfm_loved_tracks_desc),
+        desc,
         style = MaterialTheme.typography.bodySmall,
         color = MaterialTheme.colorScheme.onSurfaceVariant,
     )

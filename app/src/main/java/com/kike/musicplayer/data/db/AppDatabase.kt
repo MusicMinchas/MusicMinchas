@@ -8,10 +8,10 @@ import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
 
 @Database(
-    entities = [Track::class, QueueItem::class, SessionState::class, PlayHistory::class, ArtistInfo::class, Favourite::class, LastFmOutboxItem::class, LastFmScrobble::class, ReplacedTrack::class, ArtistImage::class, StoredLyrics::class, UserPlaylist::class, PlaylistTrack::class, FollowedArtist::class, DiscoverItem::class,
+    entities = [Track::class, QueueItem::class, SessionState::class, PlayHistory::class, ArtistInfo::class, Favourite::class, LastFmOutboxItem::class, LastFmScrobble::class, ListenBrainzOutboxItem::class, ListenBrainzListen::class, ReplacedTrack::class, ArtistImage::class, StoredLyrics::class, UserPlaylist::class, PlaylistTrack::class, FollowedArtist::class, DiscoverItem::class,
         AlbumIndex::class, ArtistIndex::class, GenreIndex::class, IndexDirty::class,
         TrackFts::class, AlbumFts::class, ArtistFts::class, ServerOutboxItem::class, SavedCatalogPlaylist::class],
-    version = 27,
+    version = 28,
 )
 abstract class AppDatabase : RoomDatabase() {
         abstract fun savedCatalogPlaylists(): SavedCatalogPlaylistDao
@@ -22,6 +22,8 @@ abstract fun tracks(): TrackDao
     abstract fun favourites(): FavouriteDao
     abstract fun lastFmOutbox(): LastFmOutboxDao
     abstract fun lastFmScrobbles(): LastFmScrobbleDao
+    abstract fun listenBrainzOutbox(): ListenBrainzOutboxDao
+    abstract fun listenBrainzListens(): ListenBrainzListenDao
     abstract fun replacements(): ReplacementDao
     abstract fun artistImages(): ArtistImageDao
     abstract fun lyrics(): LyricsDao
@@ -343,6 +345,24 @@ abstract fun tracks(): TrackDao
             }
         }
 
+        /** ListenBrainz outbox and imported listens tables. */
+        private val MIGRATION_27_28 = object : Migration(27, 28) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    "CREATE TABLE IF NOT EXISTS `listenbrainz_outbox` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, " +
+                        "`action` TEXT NOT NULL, `artist` TEXT NOT NULL, `track` TEXT NOT NULL, `album` TEXT, " +
+                        "`albumArtist` TEXT, `durationMs` INTEGER, `trackNumber` INTEGER, `mbRecordingId` TEXT, " +
+                        "`mbReleaseId` TEXT, `timestamp` INTEGER NOT NULL)"
+                )
+                db.execSQL(
+                    "CREATE TABLE IF NOT EXISTS `listenbrainz_listens` (`user` TEXT NOT NULL, `uts` INTEGER NOT NULL, " +
+                        "`artist` TEXT NOT NULL, `track` TEXT NOT NULL, `album` TEXT, `mbid` TEXT, `msid` TEXT NOT NULL, `trackId` TEXT, " +
+                        "PRIMARY KEY(`user`, `uts`, `msid`))"
+                )
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_listenbrainz_listens_trackId` ON `listenbrainz_listens` (`trackId`)")
+            }
+        }
+
         /**
          * Queue every added, changed (in a column the summaries use) or removed song for
          * LibraryIndexer, whatever code changed it. Not part of Room's schema, so created on every open.
@@ -392,7 +412,7 @@ abstract fun tracks(): TrackDao
 
         fun create(context: Context, name: String = "music.db"): AppDatabase =
             Room.databaseBuilder(context, AppDatabase::class.java, name)
-                .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11, MIGRATION_11_12, MIGRATION_12_13, MIGRATION_13_14, MIGRATION_14_15, MIGRATION_15_16, MIGRATION_16_17, MIGRATION_17_18, MIGRATION_18_19, MIGRATION_19_20, MIGRATION_20_21, MIGRATION_21_22, MIGRATION_22_23, MIGRATION_23_24, MIGRATION_24_25, MIGRATION_25_26, MIGRATION_26_27)
+                .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11, MIGRATION_11_12, MIGRATION_12_13, MIGRATION_13_14, MIGRATION_14_15, MIGRATION_15_16, MIGRATION_16_17, MIGRATION_17_18, MIGRATION_18_19, MIGRATION_19_20, MIGRATION_20_21, MIGRATION_21_22, MIGRATION_22_23, MIGRATION_23_24, MIGRATION_24_25, MIGRATION_25_26, MIGRATION_26_27, MIGRATION_27_28)
                 .addCallback(object : Callback() {
                     override fun onOpen(db: SupportSQLiteDatabase) = createIndexTriggers(db)
                 })

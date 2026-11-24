@@ -1,13 +1,11 @@
 package com.kike.musicplayer.data.subsonic
 
 import android.content.Context
-import android.security.keystore.KeyGenParameterSpec
-import android.security.keystore.KeyProperties
-import android.util.Base64
 import android.util.Log
 import androidx.core.content.edit
 import com.kike.musicplayer.Bench
 import com.kike.musicplayer.BuildConfig
+import com.kike.musicplayer.data.Secrets
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -17,11 +15,6 @@ import kotlinx.coroutines.sync.withLock
 import java.io.IOException
 import java.net.UnknownHostException
 import java.net.UnknownServiceException
-import java.security.KeyStore
-import javax.crypto.Cipher
-import javax.crypto.KeyGenerator
-import javax.crypto.SecretKey
-import javax.crypto.spec.GCMParameterSpec
 import javax.net.ssl.SSLException
 
 /** What the server section of the settings shows. */
@@ -239,38 +232,4 @@ class SubsonicAccount(private val context: Context, val client: SubsonicClient, 
                 else -> e.message ?: e.javaClass.simpleName
             }
     }
-}
-
-/** Encrypts small secrets with an AES key kept in the Android Keystore. */
-private object Secrets {
-    private const val ALIAS = "musicminchas-server-password"
-    private const val GCM_TAG_BITS = 128
-
-    private fun key(): SecretKey {
-        val store = KeyStore.getInstance("AndroidKeyStore").apply { load(null) }
-        (store.getKey(ALIAS, null) as? SecretKey)?.let { return it }
-        return KeyGenerator.getInstance(KeyProperties.KEY_ALGORITHM_AES, "AndroidKeyStore").apply {
-            init(
-                KeyGenParameterSpec.Builder(ALIAS, KeyProperties.PURPOSE_ENCRYPT or KeyProperties.PURPOSE_DECRYPT)
-                    .setBlockModes(KeyProperties.BLOCK_MODE_GCM)
-                    .setEncryptionPaddings(KeyProperties.ENCRYPTION_PADDING_NONE)
-                    .build()
-            )
-        }.generateKey()
-    }
-
-    /** IV followed by the ciphertext, Base64. */
-    fun encrypt(text: String): String {
-        val cipher = Cipher.getInstance("AES/GCM/NoPadding").apply { init(Cipher.ENCRYPT_MODE, key()) }
-        return Base64.encodeToString(cipher.iv + cipher.doFinal(text.toByteArray(Charsets.UTF_8)), Base64.NO_WRAP)
-    }
-
-    fun decrypt(stored: String): String? = runCatching {
-        val bytes = Base64.decode(stored, Base64.NO_WRAP)
-        val cipher = Cipher.getInstance("AES/GCM/NoPadding")
-        cipher.init(Cipher.DECRYPT_MODE, key(), GCMParameterSpec(GCM_TAG_BITS, bytes, 0, IV_SIZE))
-        String(cipher.doFinal(bytes, IV_SIZE, bytes.size - IV_SIZE), Charsets.UTF_8)
-    }.onFailure { Log.w("Subsonic", "Saved password can't be decrypted", it) }.getOrNull()
-
-    private const val IV_SIZE = 12
 }
