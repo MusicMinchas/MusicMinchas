@@ -8,12 +8,17 @@ import androidx.annotation.OptIn
 import androidx.media3.common.C
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MediaMetadata
+import androidx.media3.common.Metadata
 import androidx.media3.common.MimeTypes
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.datasource.DefaultDataSource
 import androidx.media3.datasource.okhttp.OkHttpDataSource
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
+import androidx.media3.extractor.metadata.id3.BinaryFrame
+import androidx.media3.extractor.metadata.id3.InternalFrame
+import androidx.media3.extractor.metadata.id3.PrivFrame
 import androidx.media3.extractor.metadata.id3.TextInformationFrame
+import androidx.media3.extractor.metadata.vorbis.VorbisComment
 import androidx.media3.inspector.MetadataRetriever
 import com.kike.musicplayer.data.Settings
 import com.kike.musicplayer.data.catalog.CatalogClient
@@ -22,6 +27,7 @@ import com.kike.musicplayer.data.db.ArtistInfoDao
 import com.kike.musicplayer.data.db.Track
 import com.kike.musicplayer.data.db.TrackDao
 import com.kike.musicplayer.data.drive.DriveAuth
+import com.kike.musicplayer.data.listenbrainz.ListenBrainzClient
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -450,6 +456,8 @@ class MetadataEnricher(
         val genre: String?,
         val sampleRate: Int? = null,
         val bitsPerSample: Int? = null,
+        val mbRecordingId: String? = null,
+        val mbReleaseId: String? = null,
         val picture: () -> ByteArray?,
     )
 
@@ -512,6 +520,8 @@ class MetadataEnricher(
                 val frames = mutableListOf<TextInformationFrame>()
                 var sampleRate: Int? = null
                 var bitsPerSample: Int? = null
+                var mbRecordingId: String? = null
+                var mbReleaseId: String? = null
                 for (g in 0 until groups.length) {
                     val group = groups[g]
                     for (i in 0 until group.length) {
@@ -530,6 +540,9 @@ class MetadataEnricher(
                         format.metadata?.let { metadata ->
                             builder.populateFromMetadata(metadata)
                             for (e in 0 until metadata.length()) (metadata[e] as? TextInformationFrame)?.let(frames::add)
+                            val mbids = extractEmbeddedMbids(metadata)
+                            if (mbRecordingId == null) mbRecordingId = mbids.recordingId
+                            if (mbReleaseId == null) mbReleaseId = mbids.releaseId
                         }
                     }
                 }
@@ -549,6 +562,8 @@ class MetadataEnricher(
                     genre = normalizeGenre(md.genre?.toString() ?: v22("TCO")),
                     sampleRate = sampleRate,
                     bitsPerSample = bitsPerSample,
+                    mbRecordingId = mbRecordingId,
+                    mbReleaseId = mbReleaseId,
                     picture = { md.artworkData },
                 )
             }
@@ -593,6 +608,8 @@ class MetadataEnricher(
             artworkUri = artwork,
             sampleRate = tags.sampleRate ?: track.sampleRate,
             bitsPerSample = tags.bitsPerSample ?: track.bitsPerSample,
+            mbRecordingId = tags.mbRecordingId ?: track.mbRecordingId,
+            mbReleaseId = tags.mbReleaseId ?: track.mbReleaseId,
         )
     }
 
@@ -893,5 +910,94 @@ class MetadataEnricher(
 
         private fun sha1(bytes: ByteArray) =
             MessageDigest.getInstance("SHA-1").digest(bytes).joinToString("") { "%02x".format(it) }
+
+        data class EmbeddedMbids(
+            val recordingId: String? = null,
+            val releaseId: String? = null,
+        )
+
+        /**
+         * Extracts MusicBrainz recording and release MBIDs embedded by taggers such as MusicBrainz Picard:
+         *  - M4A / MP4 (`----:com.apple.iTunes:MusicBrainz Track Id` / `MusicBrainz Album Id` → [InternalFrame])
+         *  - MP3 / ID3v2 (`UFID` `http://musicbrainz.org` → [BinaryFrame], `PRIV` → [PrivFrame], `TXXX` → [TextInformationFrame])
+         *  - FLAC / Ogg / Opus (`MUSICBRAINZ_TRACKID` / `MUSICBRAINZ_ALBUMID` → [VorbisComment])
+         * Values are validated as 36-char UUIDs via [ListenBrainzClient.validMbidOrNull].
+         */
+        @OptIn(UnstableApi::class)
+        fun extractEmbeddedMbids(metadata: Metadata): EmbeddedMbids {
+            var recordingId: String? = null
+            var releaseId: String? = null
+            for (i in 0 until metadata.length()) {
+                when (val entry = metadata[i]) {
+                    is InternalFrame -> {
+                        val desc = entry.description.trim()
+                        val value = ListenBrainzClient.validMbidOrNull(entry.text) ?: continue
+                        when {
+                            recordingId == null && (
+                                desc.equals("MusicBrainz Track Id", ignoreCase = true) ||
+                                    desc.equals("MusicBrainz Recording Id", ignoreCase = true)
+                                ) -> recordingId = value
+                            releaseId == null && (
+                                desc.equals("MusicBrainz Album Id", ignoreCase = true) ||
+                                    desc.equals("MusicBrainz Release Id", ignoreCase = true)
+                                ) -> releaseId = value
+                        }
+                    }
+                    is VorbisComment -> {
+                        val key = entry.key.trim()
+                        val value = ListenBrainzClient.validMbidOrNull(entry.value) ?: continue
+                        when {
+                            recordingId == null && (
+                                key.equals("MUSICBRAINZ_TRACKID", ignoreCase = true) ||
+                                    key.equals("MUSICBRAINZ_RECORDINGID", ignoreCase = true)
+                                ) -> recordingId = value
+                            releaseId == null && (
+                                key.equals("MUSICBRAINZ_ALBUMID", ignoreCase = true) ||
+                                    key.equals("MUSICBRAINZ_RELEASEID", ignoreCase = true)
+                                ) -> releaseId = value
+                        }
+                    }
+                    is BinaryFrame -> {
+                        if (recordingId == null && (entry.id == "UFID" || entry.id == "UFI")) {
+                            val data = entry.data
+                            val nul = data.indexOf(0)
+                            if (nul > 0 && nul < data.size - 1) {
+                                val owner = String(data, 0, nul, Charsets.ISO_8859_1)
+                                if (owner.equals(MB_UFID_OWNER, ignoreCase = true)) {
+                                    val rawId = String(data, nul + 1, data.size - nul - 1, Charsets.ISO_8859_1)
+                                        .trimEnd('\u0000')
+                                    recordingId = ListenBrainzClient.validMbidOrNull(rawId)
+                                }
+                            }
+                        }
+                    }
+                    is PrivFrame -> {
+                        if (recordingId == null && entry.owner.equals(MB_UFID_OWNER, ignoreCase = true)) {
+                            val rawId = String(entry.privateData, Charsets.ISO_8859_1).trimEnd('\u0000')
+                            recordingId = ListenBrainzClient.validMbidOrNull(rawId)
+                        }
+                    }
+                    is TextInformationFrame -> {
+                        if (entry.id == "TXXX" || entry.id == "TXX") {
+                            val desc = entry.description?.trim().orEmpty()
+                            val value = ListenBrainzClient.validMbidOrNull(entry.values.firstOrNull()) ?: continue
+                            when {
+                                recordingId == null && (
+                                    desc.equals("MusicBrainz Track Id", ignoreCase = true) ||
+                                        desc.equals("MusicBrainz Recording Id", ignoreCase = true)
+                                    ) -> recordingId = value
+                                releaseId == null && (
+                                    desc.equals("MusicBrainz Album Id", ignoreCase = true) ||
+                                        desc.equals("MusicBrainz Release Id", ignoreCase = true)
+                                    ) -> releaseId = value
+                            }
+                        }
+                    }
+                }
+            }
+            return EmbeddedMbids(recordingId = recordingId, releaseId = releaseId)
+        }
+
+        private const val MB_UFID_OWNER = "http://musicbrainz.org"
     }
 }

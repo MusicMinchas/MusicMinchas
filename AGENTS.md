@@ -7,7 +7,7 @@ Parent workspace notes: @[Shared Android Dev Workspace](../AGENTS.md)
 
 - **Path:** `C:\Users\kike\dev\MusicPlayer` (local git repo, repo-local identity `kike` / `kikeprojo@gmail.com`, nothing pushed).
 - **Package:** `com.kike.musicplayer`
-- **Current Release:** `1.51.1` (`versionCode = 107`, Room DB `v28`, `minSdk = 30`, `targetSdk = 36`, `compileSdk = 37`). Merged to `master`, tag `v1.51.1`.
+- **Current Release:** `1.51.2` (`versionCode = 108`, Room DB `v28`, `minSdk = 30`, `targetSdk = 36`, `compileSdk = 37`). Merged to `master`, tag `v1.51.2`.
 - **Stack:** Kotlin 2.4.20, Jetpack Compose, Media3 1.11.1 `MediaLibraryService` (Android Auto browse tree), Room 2.8.5 via KSP 2.3.12 + Paging 3 (`paging-compose 3.3.6`, `room-paging`), Retrofit 3 + Moshi (reflection), Coil 3, `play-services-auth` 22 `AuthorizationClient` (`drive.readonly` + `email`), `reorderable` 3.1.0, AGP 9.4.1, Gradle 9.8.
 - **Shared Toolchain & Environment:**
   - `JAVA_HOME`: Android Studio's bundled `jbr`
@@ -499,6 +499,8 @@ Started 2026-10-08 from user-pasted spec. NEW app, explicitly independent of Son
   - **Verified on OnePlus 12:** Pre-`v28` and post-import DB backups saved in `C:\Users\kike\dev\db-backup\2026-11-23-*`; live ListenBrainz import (`37,802/37,802` listens, zero duplicate `play_history` rows), live Now Playing / Love / Scrobble / Import New verified, Last.fm upgrade prompt & disconnect verified, release APK `MusicMinchas-1.51.0.apk` built and installed, merged to `master`, tagged `v1.51.0`.
 - 2026-11-25 Release 1.51.1 (`versionCode = 107`, Room DB `v28`):
   - **ListenBrainz MBID UUID Guard (`ListenBrainzClient.kt`, `ListenBrainzScrobbler.kt`):** Added `validMbidOrNull()` UUID validation before emitting `recording_mbid` / `release_mbid` in `/1/submit-listens` (preventing HTTP 400 rejections when Nebula/Catalog tracks store non-UUID catalog album IDs in `Track.mbReleaseId`) and in `sendLoves()` so non-UUID values fall back cleanly to `metadata/lookup/`. Added regression unit tests in `ListenBrainzClientTest` and `ListenBrainzScrobblerTest` (182/182 unit tests pass). Release APK `MusicMinchas-1.51.1.apk` built and installed on OnePlus 12, tagged `v1.51.1`.
+- 2026-11-25 Release 1.51.2 (`versionCode = 108`, Room DB `v28`):
+  - **Embedded MusicBrainz ID Tag Extraction (`MetadataEnricher.kt`):** Added `extractEmbeddedMbids(metadata)` reading Picard/MusicBrainz recording and release MBIDs from MP4/M4A `InternalFrame` (`MusicBrainz Track Id` / `MusicBrainz Album Id`), ID3v2 `UFID` (`BinaryFrame`), `PRIV` (`PrivFrame`), `TXXX` (`TextInformationFrame`), and FLAC/Ogg `VorbisComment` (`MUSICBRAINZ_TRACKID` / `MUSICBRAINZ_ALBUMID`), validated via `ListenBrainzClient.validMbidOrNull()` and persisted in `tracks` during Drive header extraction. Added `MetadataEnricherMbidsTest` (186/186 unit tests pass). Verified end-to-end on OnePlus 12 with Picard-tagged Drive albums (*Ghost — 2 Big To Rig* 19/19, *Dover — 2* 25/25) and live ListenBrainz scrobble payload. Release APK `MusicMinchas-1.51.2.apk` built and installed, tagged `v1.51.2`.
 
 ---
 
