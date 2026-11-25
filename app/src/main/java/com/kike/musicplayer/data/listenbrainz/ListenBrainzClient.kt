@@ -291,6 +291,15 @@ class ListenBrainzClient(
         const val SETTINGS_URL = "https://listenbrainz.org/settings/"
         private const val RECORDING_METADATA_BATCH = 25
         private val JSON_MEDIA_TYPE = "application/json; charset=utf-8".toMediaType()
+        private val UUID_REGEX = Regex("^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$")
+
+        /**
+         * Returns [value] trimmed if it is a valid 36-character MusicBrainz UUID, or `null` otherwise.
+         * Guards against non-UUID IDs (e.g. Deezer/Apple catalog album IDs stored in `Track.mbReleaseId`)
+         * that would cause ListenBrainz `/1/submit-listens` or `/1/feedback` to reject the request with HTTP 400.
+         */
+        fun validMbidOrNull(value: String?): String? =
+            value?.trim()?.takeIf { UUID_REGEX.matches(it) }
 
         fun buildSubmitListensJson(
             listenType: String,
@@ -317,8 +326,8 @@ class ListenBrainzClient(
                                     put("submission_client_version", appVersion)
                                     s.durationMs?.takeIf { it > 0 }?.let { put("duration_ms", it) }
                                     s.trackNumber?.takeIf { it > 0 }?.let { put("tracknumber", it) }
-                                    s.mbRecordingId?.takeIf { it.isNotBlank() }?.let { put("recording_mbid", it) }
-                                    s.mbReleaseId?.takeIf { it.isNotBlank() }?.let { put("release_mbid", it) }
+                                    validMbidOrNull(s.mbRecordingId)?.let { put("recording_mbid", it) }
+                                    validMbidOrNull(s.mbReleaseId)?.let { put("release_mbid", it) }
                                 }
                             )
                         }

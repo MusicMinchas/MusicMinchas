@@ -155,9 +155,11 @@ class ListenBrainzScrobblerTest {
     fun `sendLoves resolves missing MBID via metadata lookup fallback and drops unmapped loves`() = runBlocking {
         val outbox = FakeOutboxDao()
         val api = StubApiClient()
+        val directUuid = "1145a0eb-065b-47c3-87cc-58ed204e1bc2"
+        val resolvedUuid = "95bc4c8a-878a-4a39-bf18-b967c12b6ab2"
         api.lookupResult = { artist, track, release ->
             when {
-                artist == "Opeth" && track == "Windowpane" && release == null -> MetadataLookupResult("mbid-resolved", null, "Opeth", "Windowpane")
+                artist == "Opeth" && track == "Windowpane" && release == null -> MetadataLookupResult(resolvedUuid, null, "Opeth", "Windowpane")
                 else -> null
             }
         }
@@ -172,17 +174,17 @@ class ListenBrainzScrobblerTest {
             onTokenInvalid = {},
         )
 
-        // 1. Direct MBID
-        outbox.insert(ListenBrainzOutboxItem(action = ListenBrainzOutboxItem.LOVE, artist = "A", track = "T1", album = "Alb", albumArtist = null, durationMs = null, trackNumber = null, mbRecordingId = "mbid-direct", mbReleaseId = null, timestamp = 100))
-        // 2. Missing MBID, fails with release name, succeeds without release name
-        outbox.insert(ListenBrainzOutboxItem(action = ListenBrainzOutboxItem.UNLOVE, artist = "Opeth", track = "Windowpane", album = "Damnation (Remaster)", albumArtist = null, durationMs = null, trackNumber = null, mbRecordingId = null, mbReleaseId = null, timestamp = 200))
+        // 1. Direct valid UUID MBID
+        outbox.insert(ListenBrainzOutboxItem(action = ListenBrainzOutboxItem.LOVE, artist = "A", track = "T1", album = "Alb", albumArtist = null, durationMs = null, trackNumber = null, mbRecordingId = directUuid, mbReleaseId = null, timestamp = 100))
+        // 2. Non-UUID MBID (e.g. catalog ID) falls back to lookup: fails with release name, succeeds without release name
+        outbox.insert(ListenBrainzOutboxItem(action = ListenBrainzOutboxItem.UNLOVE, artist = "Opeth", track = "Windowpane", album = "Damnation (Remaster)", albumArtist = null, durationMs = null, trackNumber = null, mbRecordingId = "catalog-id-123", mbReleaseId = null, timestamp = 200))
         // 3. Unmapped personal recording -> skipped cleanly
         outbox.insert(ListenBrainzOutboxItem(action = ListenBrainzOutboxItem.LOVE, artist = "Garage Band", track = "Rehearsal 1", album = null, albumArtist = null, durationMs = null, trackNumber = null, mbRecordingId = null, mbReleaseId = null, timestamp = 300))
 
         scrobbler.send()
 
         assertTrue(outbox.items.value.isEmpty())
-        assertEquals(listOf("mbid-direct" to 1, "mbid-resolved" to 0), api.feedbacks)
+        assertEquals(listOf(directUuid to 1, resolvedUuid to 0), api.feedbacks)
         assertEquals(3, api.lookups.size)
     }
 }

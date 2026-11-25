@@ -191,7 +191,7 @@ class ListenBrainzScrobbler(
             val token = userToken() ?: return@withLock
             val item = outbox.pendingLoves(1).firstOrNull() ?: return@withLock
             try {
-                val mbid = item.mbRecordingId?.takeIf { it.isNotBlank() }
+                val mbid = ListenBrainzClient.validMbidOrNull(item.mbRecordingId)
                     ?: resolveRecordingMbid(item, token)
                 if (mbid == null) {
                     Log.i(TAG, "ListenBrainz couldn't map ${item.artist} - ${item.track} to a recording MBID; skipping ${item.action}")

@@ -22,6 +22,8 @@ class ListenBrainzClientTest {
 
     @Test
     fun `playing_now payload omits listened_at and includes additional_info`() {
+        val recUuid = "1145a0eb-065b-47c3-87cc-58ed204e1bc2"
+        val relUuid = "95bc4c8a-878a-4a39-bf18-b967c12b6ab2"
         val json = ListenBrainzClient.buildSubmitListensJson(
             listenType = ListenBrainzApiClient.LISTEN_TYPE_PLAYING_NOW,
             submissions = listOf(
@@ -31,8 +33,8 @@ class ListenBrainzClientTest {
                     album = "Damnation",
                     durationMs = 464_000L,
                     trackNumber = 1,
-                    mbRecordingId = "rec-123",
-                    mbReleaseId = "rel-456",
+                    mbRecordingId = recUuid,
+                    mbReleaseId = relUuid,
                     timestampSec = 1_700_000_000L,
                 )
             ),
@@ -54,8 +56,32 @@ class ListenBrainzClientTest {
         assertEquals("1.50.2", extra["submission_client_version"])
         assertEquals(464_000.0, (extra["duration_ms"] as Number).toDouble(), 0.0)
         assertEquals(1.0, (extra["tracknumber"] as Number).toDouble(), 0.0)
-        assertEquals("rec-123", extra["recording_mbid"])
-        assertEquals("rel-456", extra["release_mbid"])
+        assertEquals(recUuid, extra["recording_mbid"])
+        assertEquals(relUuid, extra["release_mbid"])
+    }
+
+    @Test
+    fun `submit payload omits non-UUID recording_mbid and release_mbid`() {
+        val json = ListenBrainzClient.buildSubmitListensJson(
+            listenType = ListenBrainzApiClient.LISTEN_TYPE_SINGLE,
+            submissions = listOf(
+                ListenSubmission(
+                    artist = "Ghost",
+                    track = "Cirice",
+                    album = "Meliora",
+                    mbRecordingId = "not-a-uuid",
+                    mbReleaseId = "302127",
+                    timestampSec = 1_700_000_000L,
+                )
+            ),
+            appVersion = "1.51.0",
+            moshi = moshi,
+        )
+        val root = moshi.adapter(Map::class.java).fromJson(json) as Map<*, *>
+        val entry = (root["payload"] as List<*>).single() as Map<*, *>
+        val extra = (entry["track_metadata"] as Map<*, *>)["additional_info"] as Map<*, *>
+        assertFalse("Non-UUID recording_mbid must be omitted", extra.containsKey("recording_mbid"))
+        assertFalse("Non-UUID release_mbid (e.g. catalog albumId) must be omitted", extra.containsKey("release_mbid"))
     }
 
     @Test
