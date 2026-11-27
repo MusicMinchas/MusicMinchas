@@ -191,8 +191,7 @@ class AppContainer(app: Application) {
 
     val trackServer = TrackServer(
         app, database.tracks(),
-        // Sonos reads ahead in bursts and then pauses for minutes; a normal read timeout would drop the relay.
-        driveHttp.newBuilder().readTimeout(10, TimeUnit.MINUTES).build(),
+        driveHttp,
         subsonicUrls,
         nebulaUrls,
         downsampleEnabled = { settings.sonosDownsample.value },

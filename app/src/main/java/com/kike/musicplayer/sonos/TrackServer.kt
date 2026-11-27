@@ -37,6 +37,9 @@ import java.net.Socket
 import java.nio.ByteBuffer
 import java.security.SecureRandom
 import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.Executors
+import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicLong
 import java.util.concurrent.locks.ReentrantLock
 import kotlin.concurrent.thread
 
@@ -88,9 +91,14 @@ class TrackServer(
     private val probedFormats = ConcurrentHashMap<String, ProbedTrackFormat>()
     private val downsamplerPool = ArrayDeque<CachedDownsampler>()
     private val activeDownsamplers = java.util.concurrent.CopyOnWriteArrayList<CachedDownsampler>()
+    private val prefetchGeneration = AtomicLong(0L)
+    private val prefetchExecutor = Executors.newFixedThreadPool(2) { r ->
+        Thread(r, "track-server-prefetch").apply { isDaemon = true }
+    }
 
     @Synchronized
     fun stop() {
+        prefetchGeneration.incrementAndGet()
         runCatching { server?.close() }
         server = null
         cachedTracks.clear()
@@ -195,34 +203,60 @@ class TrackServer(
             // Sonos probes a file in many small pieces before playing (start, then the index at the
             // end); fetching each from Drive would cost about a second. Serve those from blocks.
             if (method == "GET" && serveFromBlocks(out, track, remote, mime, range)) return
-            fun buildRemoteRequest(url: String): Request {
+            fun buildRemoteRequest(url: String, reqRange: String?): Request {
                 val builder = Request.Builder().url(url)
                 // HEAD: ask Drive for one byte, which still reports the total size in Content-Range.
-                if (method == "HEAD") builder.header("Range", "bytes=0-0") else range?.let { builder.header("Range", it) }
+                if (method == "HEAD") builder.header("Range", "bytes=0-0") else reqRange?.let { builder.header("Range", it) }
                 return builder.build()
             }
-            var response = executeRemote(buildRemoteRequest(remote), ok200 = true)
+            var activeRemote = if (track.source == Track.SOURCE_NEBULA) nebulaUrls?.resolve(track.uri) ?: remote else remote
+            var response = executeRemote(buildRemoteRequest(activeRemote, range), ok200 = true)
             if (response == null && track.source == Track.SOURCE_NEBULA) {
-                nebulaUrls?.invalidate(track.uri)
+                nebulaUrls?.invalidate(track.uri, failedUrl = activeRemote)
                 val freshRemote = nebulaUrls?.resolve(track.uri)
-                if (freshRemote != null && freshRemote != remote) {
-                    response = executeRemote(buildRemoteRequest(freshRemote), ok200 = true)
+                if (freshRemote != null && freshRemote != activeRemote) {
+                    activeRemote = freshRemote
+                    response = executeRemote(buildRemoteRequest(activeRemote, range), ok200 = true)
                 }
             }
             if (response == null) return respondStatus(out, 502)
-            response.use { res ->
-                val total = res.header("Content-Range")?.substringAfter('/')?.toLongOrNull()
-                    ?: res.body.contentLength().takeIf { it > 0 }
-                if (total != null && track.sizeBytes == null) {
-                    cachedTracks[track.id] = track.copy(sizeBytes = total)
-                }
-                if (method == "HEAD") {
+            val contentRange = response.header("Content-Range")
+            val total = contentRange?.substringAfter('/')?.toLongOrNull()
+                ?: response.body.contentLength().takeIf { it > 0 }
+            if (total != null && track.sizeBytes == null) {
+                cachedTracks[track.id] = track.copy(sizeBytes = total)
+            }
+            if (method == "HEAD") {
+                response.use {
                     return writeHead(out, 200, mime, total ?: track.sizeBytes, null)
                 }
-                Log.i(TAG, "serveTrack streaming to Sonos: remoteCode=${res.code}, len=${res.body.contentLength()}, range=${res.header("Content-Range")}")
-                writeHead(out, res.code, mime, res.body.contentLength().takeIf { it >= 0 }, res.header("Content-Range"))
-                copy(res.body.byteStream(), out)
             }
+            val startOffset = parseContentRangeStart(contentRange) ?: 0L
+            val expectedLength = parseContentRangeLength(contentRange)
+                ?: response.body.contentLength().takeIf { it >= 0 }
+            Log.i(TAG, "serveTrack streaming to Sonos: remoteCode=${response.code}, len=$expectedLength, range=$contentRange")
+            writeHead(out, response.code, mime, expectedLength, contentRange)
+            val refreshUrl: ((String) -> String?)? = if (track.source == Track.SOURCE_NEBULA) {
+                { failedUrl ->
+                    nebulaUrls?.invalidate(track.uri, failedUrl = failedUrl)
+                    nebulaUrls?.resolve(track.uri)
+                }
+            } else null
+            relayRemoteWithResume(
+                initialResponse = response,
+                initialRemote = activeRemote,
+                startOffset = startOffset,
+                expectedLength = expectedLength,
+                out = out,
+                openRange = { url, rangeHeader ->
+                    executeRemote(Request.Builder().url(url).header("Range", rangeHeader).build(), ok200 = false)
+                },
+                refreshUrl = refreshUrl,
+                onLog = { msg ->
+                    Log.w(TAG, "${track.title}: $msg")
+                    traceLog("RELAY '${track.title}': $msg")
+                },
+            )
         } else {
             val afd = context.contentResolver.openAssetFileDescriptor(Uri.parse(track.localUri ?: track.uri), "r")
                 ?: return respondStatus(out, 404)
@@ -282,6 +316,7 @@ class TrackServer(
      * bytes are already warm in memory.
      */
     fun warmUpTrack(track: Track) {
+        prefetchGeneration.incrementAndGet()
         cachedTracks[track.id] = track
         if (track.localUri != null) return
         val remote = when (track.source) {
@@ -292,29 +327,37 @@ class TrackServer(
         } ?: return
         getOrFetchBlock(track, remote, 0L)
         val current = cachedTracks[track.id] ?: track
+        val activeRemote = if (current.source == Track.SOURCE_NEBULA) nebulaUrls?.resolve(current.uri) ?: remote else remote
         if (downsampleEnabled() && extensionOf(current) in RESAMPLE_CANDIDATE_EXTS && !probedFormats.containsKey(current.id)) {
-            val fmt = probeTrackFormat(current, remote)
+            val fmt = probeTrackFormat(current, activeRemote)
             if (fmt is ProbedTrackFormat.FlacHiRes || fmt is ProbedTrackFormat.AlacHiRes) {
-                Thread {
-                    runCatching { getOrFetchBlock(cachedTracks[current.id] ?: current, remote, 1L) }
-                }.start()
+                val gen = prefetchGeneration.get()
+                prefetchExecutor.execute {
+                    if (prefetchGeneration.get() != gen || !isRunning) return@execute
+                    runCatching { getOrFetchBlock(cachedTracks[current.id] ?: current, activeRemote, 1L) }
+                }
             }
         }
     }
 
     /**
-     * Fetches, in parallel and before Sonos asks, the blocks it reads first from a remote
-     * song: the start, and the end where many files keep their index. Each remote fetch takes about a
-     * second, and Sonos asks for them one after the other.
+     * Fetches, before Sonos asks, the blocks it reads first from a remote song: Block 0, and
+     * (for containers that keep their index at EOF, such as MP4/M4A) the trailing blocks.
+     * Bounded to [prefetchExecutor] and cancelled via [prefetchGeneration] whenever a newer track
+     * starts or casting stops, so rapid skips never pile up concurrent CDN requests.
      */
     fun prefetch(trackIds: List<String>) {
-        Thread {
+        if (trackIds.isEmpty()) return
+        val gen = prefetchGeneration.incrementAndGet()
+        prefetchExecutor.execute {
+            if (prefetchGeneration.get() != gen || !isRunning) return@execute
             val missing = trackIds.filter { !cachedTracks.containsKey(it) }.toSet()
             if (missing.isNotEmpty()) {
                 runBlocking { dao.getByIds(missing) }.forEach { cachedTracks[it.id] = it }
             }
             val tracks = trackIds.mapNotNull { cachedTracks[it] }
             for (track in tracks) {
+                if (prefetchGeneration.get() != gen || !isRunning) return@execute
                 if (track.localUri != null) continue
                 val remote = when (track.source) {
                     Track.SOURCE_DRIVE -> track.uri
@@ -322,39 +365,45 @@ class TrackServer(
                     Track.SOURCE_NEBULA -> nebulaUrls?.resolve(track.uri)
                     else -> null
                 } ?: continue
+                if (prefetchGeneration.get() != gen || !isRunning) return@execute
                 val firstPair = runCatching { getOrFetchBlock(track, remote, 0L) }.getOrNull()
+                if (prefetchGeneration.get() != gen || !isRunning) return@execute
                 val totalSize = firstPair?.second?.takeIf { it > 0 } ?: track.sizeBytes
                 val updatedTrack = cachedTracks[track.id] ?: track
+                val activeRemote = if (updatedTrack.source == Track.SOURCE_NEBULA) {
+                    nebulaUrls?.resolve(updatedTrack.uri) ?: remote
+                } else {
+                    remote
+                }
                 if (downsampleEnabled() && extensionOf(updatedTrack) in RESAMPLE_CANDIDATE_EXTS && !probedFormats.containsKey(updatedTrack.id)) {
-                    val fmt = runCatching { probeTrackFormat(updatedTrack, remote) }.getOrNull()
+                    val fmt = runCatching { probeTrackFormat(updatedTrack, activeRemote) }.getOrNull()
                     if (fmt is ProbedTrackFormat.FlacHiRes || fmt is ProbedTrackFormat.AlacHiRes) {
-                        Thread {
-                            runCatching { getOrFetchBlock(updatedTrack, remote, 1L) }
-                        }.start()
+                        if (prefetchGeneration.get() == gen && isRunning) {
+                            runCatching { getOrFetchBlock(updatedTrack, activeRemote, 1L) }
+                        }
                         continue
                     }
                 }
+                // FLAC STREAMINFO and SEEKTABLE are always at byte 0 (Block 0); fetching trailing
+                // blocks is only useful for containers like MP4/M4A whose moov index can sit at EOF.
+                if (extensionOf(updatedTrack) == "flac") continue
                 val size = totalSize ?: continue
                 val last = (size - 1) / BLOCK
                 for (index in listOf(last, last - 1).filter { it > 0 }.distinct()) {
-                    Thread {
-                        val key = "${track.id}#$index"
-                        runCatching {
-                            synchronized(blockLocks.computeIfAbsent(key) { Any() }) {
-                                if (blocks.get(key) == null) fetchBlock(remote, index)?.let { blocks.put(key, it) }
-                            }
-                        }.onFailure { Log.i(TAG, "Prefetch of ${track.title} failed: $it") }
-                    }.start()
+                    if (prefetchGeneration.get() != gen || !isRunning) return@execute
+                    runCatching {
+                        getOrFetchBlock(updatedTrack, activeRemote, index)
+                    }.onFailure { Log.i(TAG, "Prefetch of ${track.title} failed: $it") }
                 }
             }
-        }.start()
+        }
     }
 
     /** Block [index] of the remote file and the file's total size, or null if it can't be fetched. */
     private fun getOrFetchBlock(track: Track, remote: String, index: Long): Pair<ByteArray, Long>? {
         val key = "${track.id}#$index"
         val pair = synchronized(blockLocks.computeIfAbsent(key) { Any() }) {
-            blocks.get(key) ?: fetchBlock(remote, index)?.also { blocks.put(key, it) }
+            blocks.get(key) ?: fetchBlock(track, remote, index)?.also { blocks.put(key, it) }
         } ?: return null
         val (_, total) = pair
         if (total > 0 && track.sizeBytes == null) {
@@ -363,14 +412,37 @@ class TrackServer(
         return pair
     }
 
-    private val blockHttp = driveHttp.newBuilder()
-        .readTimeout(15, java.util.concurrent.TimeUnit.SECONDS)
-        .connectTimeout(10, java.util.concurrent.TimeUnit.SECONDS)
+    /**
+     * Bounded upstream read timeout for streaming relays: detects stalled CDN sockets within 25 s
+     * so [relayRemoteWithResume] can reconnect via `Range` before Sonos drains its buffer.
+     * When Sonos pauses, backpressure blocks on the downstream socket write (not upstream read),
+     * and if the upstream closes while paused, the next read seamlessly resumes via `Range`.
+     */
+    private val streamHttp = driveHttp.newBuilder()
+        .readTimeout(25, TimeUnit.SECONDS)
+        .connectTimeout(10, TimeUnit.SECONDS)
         .build()
 
-    private fun fetchBlock(remote: String, index: Long): Pair<ByteArray, Long>? {
-        val request = Request.Builder().url(remote).header("Range", "bytes=${index * BLOCK}-${(index + 1) * BLOCK - 1}").build()
-        val response = executeRemote(request, ok200 = true, useBlockHttp = true) ?: return null
+    private val blockHttp = driveHttp.newBuilder()
+        .readTimeout(15, TimeUnit.SECONDS)
+        .connectTimeout(10, TimeUnit.SECONDS)
+        .build()
+
+    private fun fetchBlock(track: Track, remote: String, index: Long): Pair<ByteArray, Long>? {
+        fun buildReq(url: String) = Request.Builder()
+            .url(url)
+            .header("Range", "bytes=${index * BLOCK}-${(index + 1) * BLOCK - 1}")
+            .build()
+
+        var response = executeRemote(buildReq(remote), ok200 = true, useBlockHttp = true)
+        if (response == null && track.source == Track.SOURCE_NEBULA) {
+            nebulaUrls?.invalidate(track.uri, failedUrl = remote)
+            val freshRemote = nebulaUrls?.resolve(track.uri)
+            if (freshRemote != null && freshRemote != remote) {
+                response = executeRemote(buildReq(freshRemote), ok200 = true, useBlockHttp = true)
+            }
+        }
+        if (response == null) return null
         return response.use { res ->
             val total = res.header("Content-Range")?.substringAfter('/')?.toLongOrNull()
                 ?: res.body.contentLength().takeIf { res.code == 200 && it > 0 }
@@ -402,12 +474,12 @@ class TrackServer(
     }
 
     /**
-     * Runs a remote track request with short retries on network errors or non-206 (or non-200 when
-     * [ok200] is true) responses, so a momentary Drive glitch or token refresh doesn't make Sonos
-     * drop the current track and skip ahead.
+     * Runs a remote track request with short retries on transient network errors or 5xx/429
+     * responses. Fails fast on 403/404/410 so expired signed CDN URLs can be invalidated and
+     * re-resolved immediately instead of burning Sonos's timeout window.
      */
     private fun executeRemote(request: Request, ok200: Boolean, useBlockHttp: Boolean = false): okhttp3.Response? {
-        val client = if (useBlockHttp) blockHttp else driveHttp
+        val client = if (useBlockHttp) blockHttp else streamHttp
         for (attempt in 0 until REMOTE_ATTEMPTS) {
             if (attempt > 0) runCatching { Thread.sleep(RETRY_DELAY_MS * attempt) }
             val res = runCatching { client.newCall(request).execute() }
@@ -415,8 +487,10 @@ class TrackServer(
                 .getOrNull()
             if (res != null && (res.code == 206 || (ok200 && res.code == 200))) return res
             if (res != null) {
-                Log.w(TAG, "Remote request returned HTTP ${res.code} (attempt ${attempt + 1})")
+                val code = res.code
+                Log.w(TAG, "Remote request returned HTTP $code (attempt ${attempt + 1})")
                 res.close()
+                if (code == 403 || code == 404 || code == 410) return null
             }
         }
         return null
@@ -790,8 +864,9 @@ class TrackServer(
 
     private inner class RemoteRandomAccessSource(
         private val track: Track,
-        private val remote: String,
+        initialRemote: String,
     ) : RandomAccessSource {
+        private var currentRemote: String = initialRemote
         private var knownLength: Long = track.sizeBytes ?: -1L
         private var activeResponse: okhttp3.Response? = null
         private var activeStream: InputStream? = null
@@ -800,7 +875,7 @@ class TrackServer(
         override val length: Long
             get() {
                 if (knownLength < 0L) {
-                    getOrFetchBlock(track, remote, 0L)?.let { (_, total) ->
+                    getOrFetchBlock(track, currentRemote, 0L)?.let { (_, total) ->
                         if (total > 0L) knownLength = total
                     }
                 }
@@ -821,7 +896,7 @@ class TrackServer(
 
                 // Serve from the RAM block cache when already cached, or fetch Block 0 once for fast header probes.
                 val cachedPair = blocks.get(key)
-                    ?: if (blockIdx == 0L && activeStream == null) getOrFetchBlock(track, remote, 0L) else null
+                    ?: if (blockIdx == 0L && activeStream == null) getOrFetchBlock(track, currentRemote, 0L) else null
                 if (cachedPair != null) {
                     val (bData, total) = cachedPair
                     if (total > 0L && knownLength < 0L) {
@@ -864,6 +939,8 @@ class TrackServer(
                     }
                     if (n < 0) {
                         closeStream()
+                        // Premature EOF before knownLength: retry with a fresh Range connection.
+                        if (knownLength > 0L && targetOffset < knownLength && attempt == 0) continue
                         return -1
                     }
                 } catch (_: IOException) {
@@ -872,7 +949,7 @@ class TrackServer(
             }
             // Fallback to a single block fetch if streaming failed.
             val blockIdx = targetOffset / BLOCK
-            val (bData, total) = getOrFetchBlock(track, remote, blockIdx) ?: return -1
+            val (bData, total) = getOrFetchBlock(track, currentRemote, blockIdx) ?: return -1
             if (total > 0L && knownLength < 0L) {
                 knownLength = total
                 if (track.sizeBytes == null) cachedTracks[track.id] = track.copy(sizeBytes = total)
@@ -897,11 +974,23 @@ class TrackServer(
                 }
                 closeStream()
             }
-            val request = Request.Builder()
-                .url(remote)
-                .header("Range", "bytes=$targetOffset-")
-                .build()
-            val res = executeRemote(request, ok200 = true) ?: return false
+            fun openAt(url: String): okhttp3.Response? = executeRemote(
+                Request.Builder()
+                    .url(url)
+                    .header("Range", "bytes=$targetOffset-")
+                    .build(),
+                ok200 = true,
+            )
+            var res = openAt(currentRemote)
+            if (res == null && track.source == Track.SOURCE_NEBULA) {
+                nebulaUrls?.invalidate(track.uri, failedUrl = currentRemote)
+                val fresh = nebulaUrls?.resolve(track.uri)
+                if (fresh != null && fresh != currentRemote) {
+                    currentRemote = fresh
+                    res = openAt(currentRemote)
+                }
+            }
+            if (res == null) return false
             val total = res.header("Content-Range")?.substringAfter('/')?.toLongOrNull()
                 ?: res.body.contentLength().takeIf { res.code == 200 && it > 0 }
             if (total != null && total > 0L && knownLength < 0L) {
@@ -996,4 +1085,132 @@ class TrackServer(
     }
 
     fun mimeTypeFor(track: Track): String = if (willDownsampleAtQueueTime(track)) "audio/flac" else mimeOf(track)
+}
+
+private val CONTENT_RANGE_PATTERN = Regex("""bytes\s+(\d+)-(\d+)/(\d+|\*)""", RegexOption.IGNORE_CASE)
+
+internal fun parseContentRangeStart(contentRange: String?): Long? =
+    contentRange?.let { CONTENT_RANGE_PATTERN.find(it.trim()) }?.groupValues?.get(1)?.toLongOrNull()
+
+internal fun parseContentRangeLength(contentRange: String?): Long? {
+    val m = contentRange?.let { CONTENT_RANGE_PATTERN.find(it.trim()) } ?: return null
+    val start = m.groupValues[1].toLongOrNull() ?: return null
+    val end = m.groupValues[2].toLongOrNull() ?: return null
+    return if (end >= start) end - start + 1 else null
+}
+
+/**
+ * Copies a remote HTTP stream into [out], transparently reconnecting with HTTP `Range` requests
+ * if the upstream connection drops, stalls, or ends prematurely before [expectedLength].
+ *
+ * Downstream errors (writing to [out], e.g. Sonos closing the socket on seek/skip/stop) propagate
+ * immediately without retrying upstream.
+ */
+internal fun relayRemoteWithResume(
+    initialResponse: okhttp3.Response,
+    initialRemote: String,
+    startOffset: Long,
+    expectedLength: Long?,
+    out: OutputStream,
+    openRange: (url: String, rangeHeader: String) -> okhttp3.Response?,
+    refreshUrl: ((failedUrl: String) -> String?)? = null,
+    maxResumes: Int = 5,
+    onLog: (String) -> Unit = {},
+) {
+    var currentRes: okhttp3.Response? = initialResponse
+    var currentRemote = initialRemote
+    var sent = 0L
+    var resumes = 0
+    val buf = ByteArray(64 * 1024)
+
+    try {
+        while (true) {
+            val res = currentRes ?: break
+            val input = res.body.byteStream()
+            var upstreamError = false
+            var eof = false
+
+            while (true) {
+                val remaining = expectedLength?.let { it - sent } ?: Long.MAX_VALUE
+                if (remaining <= 0L) {
+                    out.flush()
+                    return
+                }
+                val toRead = minOf(buf.size.toLong(), remaining).toInt()
+                val n = try {
+                    input.read(buf, 0, toRead)
+                } catch (e: IOException) {
+                    onLog("Upstream read error at byte ${startOffset + sent}: $e")
+                    upstreamError = true
+                    -2
+                }
+                if (n == -2) break
+                if (n < 0) {
+                    eof = true
+                    break
+                }
+                if (n > 0) {
+                    // Downstream write stays outside the upstream catch so a closed Sonos socket
+                    // aborts immediately without issuing upstream reconnects.
+                    out.write(buf, 0, n)
+                    sent += n
+                }
+            }
+
+            runCatching { res.close() }
+            currentRes = null
+
+            val finished = (!upstreamError && eof && (expectedLength == null || sent >= expectedLength)) ||
+                (expectedLength != null && sent >= expectedLength)
+            if (finished) {
+                out.flush()
+                return
+            }
+
+            // Flush buffered bytes to Sonos now; also immediately detects if Sonos closed the socket.
+            out.flush()
+
+            if (resumes >= maxResumes) {
+                onLog("Exhausted $maxResumes mid-stream resumes at byte ${startOffset + sent}")
+                return
+            }
+            resumes++
+
+            val nextOffset = startOffset + sent
+            val rangeHeader = if (expectedLength != null) {
+                "bytes=$nextOffset-${startOffset + expectedLength - 1}"
+            } else {
+                "bytes=$nextOffset-"
+            }
+
+            var nextRes = openRange(currentRemote, rangeHeader)
+            if (nextRes == null && refreshUrl != null) {
+                val fresh = refreshUrl(currentRemote)
+                if (fresh != null) {
+                    currentRemote = fresh
+                    nextRes = openRange(currentRemote, rangeHeader)
+                }
+            }
+            if (nextRes == null) {
+                onLog("Resume #$resumes failed to reconnect at byte $nextOffset")
+                return
+            }
+
+            val validOffset = when {
+                nextRes.code == 206 -> parseContentRangeStart(nextRes.header("Content-Range")) == nextOffset
+                nextRes.code == 200 && nextOffset == 0L -> true
+                else -> false
+            }
+            if (!validOffset) {
+                onLog("Resume #$resumes got misaligned response HTTP ${nextRes.code} (${nextRes.header("Content-Range")}) for byte $nextOffset")
+                runCatching { nextRes.close() }
+                return
+            }
+
+            onLog("Resumed upstream stream at byte $nextOffset (resume #$resumes)")
+            currentRes = nextRes
+        }
+    } finally {
+        runCatching { currentRes?.close() }
+    }
 }

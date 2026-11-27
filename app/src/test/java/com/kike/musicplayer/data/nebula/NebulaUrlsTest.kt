@@ -154,4 +154,83 @@ class NebulaUrlsTest {
         assertNull(nebulaUrls.resolve("https://example.com/stream.mp3"))
         assertNull(nebulaUrls.resolve("content://media/external/audio/media/1"))
     }
+
+    @Test
+    fun resolveDeduplicatesConcurrentInFlightRequests() {
+        val requestCount = AtomicInteger(0)
+        val moshi = Moshi.Builder().add(KotlinJsonAdapterFactory()).build()
+        val okHttp = OkHttpClient.Builder()
+            .addInterceptor { chain ->
+                requestCount.incrementAndGet()
+                Thread.sleep(80)
+                Response.Builder()
+                    .protocol(Protocol.HTTP_1_1)
+                    .code(200)
+                    .message("OK")
+                    .request(chain.request())
+                    .body("""{"url":"https://stream.torbox.app/singleflight.flac"}""".toResponseBody("application/json".toMediaType()))
+                    .build()
+            }
+            .build()
+
+        val client = NebulaClient(okHttp, moshi)
+        val nebulaUrls = NebulaUrls(
+            clientProvider = { client },
+            baseUrlProvider = { "https://nebula.example.com" },
+        )
+        val uri = "nebula:stream?artist=Softy&title=Gentle+Soul&id=tidal:track:777"
+
+        val startLatch = java.util.concurrent.CountDownLatch(1)
+        val results = java.util.Collections.synchronizedList(mutableListOf<String?>())
+        val threads = (1..6).map {
+            Thread {
+                startLatch.await()
+                results.add(nebulaUrls.resolve(uri))
+            }.apply { start() }
+        }
+        startLatch.countDown()
+        threads.forEach { it.join(5_000) }
+
+        assertEquals(6, results.size)
+        assertTrue(results.all { it == "https://stream.torbox.app/singleflight.flac" })
+        assertEquals(1, requestCount.get())
+    }
+
+    @Test
+    fun invalidateWithFailedUrlOnlyEvictsMatchingEntry() {
+        val requestCount = AtomicInteger(0)
+        val moshi = Moshi.Builder().add(KotlinJsonAdapterFactory()).build()
+        val okHttp = OkHttpClient.Builder()
+            .addInterceptor { chain ->
+                val n = requestCount.incrementAndGet()
+                Response.Builder()
+                    .protocol(Protocol.HTTP_1_1)
+                    .code(200)
+                    .message("OK")
+                    .request(chain.request())
+                    .body("""{"url":"https://stream.torbox.app/v$n.flac"}""".toResponseBody("application/json".toMediaType()))
+                    .build()
+            }
+            .build()
+
+        val client = NebulaClient(okHttp, moshi)
+        val nebulaUrls = NebulaUrls(
+            clientProvider = { client },
+            baseUrlProvider = { "https://nebula.example.com" },
+        )
+        val uri = "nebula:stream?artist=Test&title=Track&id=tidal:track:42"
+
+        assertEquals("https://stream.torbox.app/v1.flac", nebulaUrls.resolve(uri))
+        assertEquals(1, requestCount.get())
+
+        // Non-matching failedUrl must NOT evict the cached v1 URL
+        nebulaUrls.invalidate(uri, failedUrl = "https://stream.torbox.app/stale.flac")
+        assertEquals("https://stream.torbox.app/v1.flac", nebulaUrls.resolve(uri))
+        assertEquals(1, requestCount.get())
+
+        // Matching failedUrl evicts v1 and forces fresh resolution to v2
+        nebulaUrls.invalidate(uri, failedUrl = "https://stream.torbox.app/v1.flac")
+        assertEquals("https://stream.torbox.app/v2.flac", nebulaUrls.resolve(uri))
+        assertEquals(2, requestCount.get())
+    }
 }

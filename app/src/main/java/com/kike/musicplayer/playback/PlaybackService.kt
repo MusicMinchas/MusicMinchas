@@ -275,7 +275,17 @@ class PlaybackService : MediaLibraryService(), CastHost {
             }
 
             override fun onPlayerError(error: PlaybackException) {
-                Log.e(TAG, "Playback error on ${player.currentMediaItem?.mediaId}: ${error.errorCodeName} (${error.errorCode})", error)
+                val item = player.currentMediaItem
+                Log.e(TAG, "Playback error on ${item?.mediaId}: ${error.errorCodeName} (${error.errorCode})", error)
+                val origUri = item?.mediaMetadata?.extras?.getString("originalUri")
+                    ?: item?.localConfiguration?.uri?.toString()
+                    ?: item?.requestMetadata?.mediaUri?.toString()
+                if (origUri != null && (origUri.startsWith(com.kike.musicplayer.data.nebula.NebulaUrls.PREFIX) ||
+                        origUri.startsWith(com.kike.musicplayer.data.nebula.NebulaUrls.ADDON_PREFIX))
+                ) {
+                    Log.w(TAG, "Invalidating cached Nebula/add-on URL after playback error: $origUri")
+                    container.nebulaUrls.invalidate(origUri)
+                }
             }
         })
         player.addListener(playTracker)

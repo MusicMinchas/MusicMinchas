@@ -9,6 +9,7 @@ import com.kike.musicplayer.data.catalog.CatalogTrack
 import com.kike.musicplayer.data.db.Track
 import java.net.URLDecoder
 import java.net.URLEncoder
+import java.util.concurrent.CompletableFuture
 import java.util.concurrent.ConcurrentHashMap
 
 /**
@@ -51,15 +52,26 @@ class NebulaUrls(
 
     private val cache = ConcurrentHashMap<String, Pair<String, Long>>()
     private val resolvedAddon = ConcurrentHashMap<String, String>()
+    private val inFlight = ConcurrentHashMap<String, CompletableFuture<String?>>()
 
     fun resolvedAddonName(uriStr: String): String? {
         val cacheKey = uriStr.removePrefix(PREFIX).removePrefix(ADDON_PREFIX)
         return resolvedAddon[cacheKey]
     }
 
-    fun invalidate(uriStr: String) {
+    /**
+     * Evicts the cached stream URL for [uriStr]. When [failedUrl] is provided, only evicts if the
+     * cache still holds that exact URL, so a concurrent thread's freshly resolved URL is preserved.
+     */
+    fun invalidate(uriStr: String, failedUrl: String? = null) {
         val cacheKey = uriStr.removePrefix(PREFIX).removePrefix(ADDON_PREFIX)
-        cache.remove(cacheKey)
+        if (failedUrl == null) {
+            cache.remove(cacheKey)
+        } else {
+            cache.computeIfPresent(cacheKey) { _, entry ->
+                if (entry.first == failedUrl) null else entry
+            }
+        }
     }
 
     fun resolve(uriStr: String): String? {
@@ -72,10 +84,40 @@ class NebulaUrls(
                 AppLog.log(TAG, "resolve() cache HIT for $cacheKey -> $url")
                 return url
             } else {
-                cache.remove(cacheKey)
+                cache.remove(cacheKey, url to expiresAt)
             }
         }
 
+        // Single-flight deduplication: if another thread (e.g. Sonos prefetch vs Sonos GET) is
+        // already resolving the same track, wait for its result instead of firing duplicate calls.
+        val mine = CompletableFuture<String?>()
+        val existing = inFlight.putIfAbsent(cacheKey, mine)
+        if (existing != null) {
+            AppLog.log(TAG, "resolve() joining in-flight resolution for $cacheKey")
+            return runCatching { existing.get() }.getOrNull()
+        }
+
+        return try {
+            // Re-check cache in case a previous leader completed right before putIfAbsent.
+            val checkNow = System.currentTimeMillis()
+            cache[cacheKey]?.let { (url, expiresAt) ->
+                if (checkNow < expiresAt) {
+                    mine.complete(url)
+                    return url
+                }
+            }
+            val resolved = resolveUncached(uriStr, cacheKey, checkNow)
+            mine.complete(resolved)
+            resolved
+        } catch (t: Throwable) {
+            mine.completeExceptionally(t)
+            throw t
+        } finally {
+            inFlight.remove(cacheKey, mine)
+        }
+    }
+
+    private fun resolveUncached(uriStr: String, cacheKey: String, now: Long): String? {
         val params = parseParams(uriStr)
         val trackId = params["id"] ?: if (uriStr.startsWith("nebula:track:")) uriStr.removePrefix("nebula:track:") else null
         val artist = params["artist"] ?: ""
@@ -158,7 +200,7 @@ class NebulaUrls(
         private const val TAG = "NebulaUrls"
         const val PREFIX = "nebula:"
         const val ADDON_PREFIX = "addon:"
-        const val CACHE_TTL_MS = 60 * 60 * 1000L // 1 hour
+        const val CACHE_TTL_MS = 30 * 60 * 1000L // 30 minutes
 
         fun parseParams(uriStr: String): Map<String, String> {
             val qIdx = uriStr.indexOf('?')
