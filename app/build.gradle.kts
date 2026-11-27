@@ -27,8 +27,8 @@ android {
         applicationId = "com.kike.musicplayer"
         minSdk = 30
         targetSdk = 36
-        versionCode = 108
-        versionName = "1.51.2"
+        versionCode = 109
+        versionName = "1.51.3"
         resourceConfigurations += listOf("en", "es")
         buildConfigField("String", "TICKETMASTER_KEY", "\"${ticketmasterProps.getProperty("apiKey", "")}\"")
     }

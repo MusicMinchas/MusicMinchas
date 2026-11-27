@@ -7,7 +7,7 @@ Parent workspace notes: @[Shared Android Dev Workspace](../AGENTS.md)
 
 - **Path:** `C:\Users\kike\dev\MusicPlayer` (local git repo, repo-local identity `kike` / `kikeprojo@gmail.com`, nothing pushed).
 - **Package:** `com.kike.musicplayer`
-- **Current Release:** `1.51.2` (`versionCode = 108`, Room DB `v28`, `minSdk = 30`, `targetSdk = 36`, `compileSdk = 37`). Merged to `master`, tag `v1.51.2`.
+- **Current Release:** `1.51.3` (`versionCode = 109`, Room DB `v28`, `minSdk = 30`, `targetSdk = 36`, `compileSdk = 37`). Merged to `master`, tag `v1.51.3`.
 - **Stack:** Kotlin 2.4.20, Jetpack Compose, Media3 1.11.1 `MediaLibraryService` (Android Auto browse tree), Room 2.8.5 via KSP 2.3.12 + Paging 3 (`paging-compose 3.3.6`, `room-paging`), Retrofit 3 + Moshi (reflection), Coil 3, `play-services-auth` 22 `AuthorizationClient` (`drive.readonly` + `email`), `reorderable` 3.1.0, AGP 9.4.1, Gradle 9.8.
 - **Shared Toolchain & Environment:**
   - `JAVA_HOME`: Android Studio's bundled `jbr`
@@ -501,6 +501,14 @@ Started 2026-10-08 from user-pasted spec. NEW app, explicitly independent of Son
   - **ListenBrainz MBID UUID Guard (`ListenBrainzClient.kt`, `ListenBrainzScrobbler.kt`):** Added `validMbidOrNull()` UUID validation before emitting `recording_mbid` / `release_mbid` in `/1/submit-listens` (preventing HTTP 400 rejections when Nebula/Catalog tracks store non-UUID catalog album IDs in `Track.mbReleaseId`) and in `sendLoves()` so non-UUID values fall back cleanly to `metadata/lookup/`. Added regression unit tests in `ListenBrainzClientTest` and `ListenBrainzScrobblerTest` (182/182 unit tests pass). Release APK `MusicMinchas-1.51.1.apk` built and installed on OnePlus 12, tagged `v1.51.1`.
 - 2026-11-25 Release 1.51.2 (`versionCode = 108`, Room DB `v28`):
   - **Embedded MusicBrainz ID Tag Extraction (`MetadataEnricher.kt`):** Added `extractEmbeddedMbids(metadata)` reading Picard/MusicBrainz recording and release MBIDs from MP4/M4A `InternalFrame` (`MusicBrainz Track Id` / `MusicBrainz Album Id`), ID3v2 `UFID` (`BinaryFrame`), `PRIV` (`PrivFrame`), `TXXX` (`TextInformationFrame`), and FLAC/Ogg `VorbisComment` (`MUSICBRAINZ_TRACKID` / `MUSICBRAINZ_ALBUMID`), validated via `ListenBrainzClient.validMbidOrNull()` and persisted in `tracks` during Drive header extraction. Added `MetadataEnricherMbidsTest` (186/186 unit tests pass). Verified end-to-end on OnePlus 12 with Picard-tagged Drive albums (*Ghost — 2 Big To Rig* 19/19, *Dover — 2* 25/25) and live ListenBrainz scrobble payload. Release APK `MusicMinchas-1.51.2.apk` built and installed, tagged `v1.51.2`.
+- 2026-11-27 Release 1.51.3 (`versionCode = 109`, Room DB `v28`, closes GitHub Issue #35):
+  - **Nebula / Add-on & Sonos Streaming Resiliency (`NebulaUrls.kt`, `TrackServer.kt`, `MusicApp.kt`, `PlaybackService.kt`):**
+    - Added single-flight `CompletableFuture` deduplication (`inFlight`) and conditional eviction (`invalidate(uri, failedUrl)`) in `NebulaUrls`, tightening cache TTL from 60 min to 30 min so concurrent Sonos `HEAD`/`GET` and `prefetch()` calls never duplicate `/stream/`, `/search`, or reachability probes.
+    - Added mid-stream HTTP `Range` resume (`relayRemoteWithResume`) in `TrackServer` with strict upstream-vs-downstream `IOException` separation, Nebula URL refresh/fallback on reconnect failure, and a bounded 25 s upstream `streamHttp` read timeout (replacing the 10-minute relay timeout so stalled CDN sockets reconnect before Sonos drains its buffer).
+    - Failed fast on HTTP `403`/`404`/`410` in `TrackServer.executeRemote` and wired immediate Nebula URL invalidation + refresh into `fetchBlock()` and `RemoteRandomAccessSource`.
+    - Replaced unbounded `prefetch()` thread fan-out with a bounded 2-thread cancellable executor (`prefetchGeneration`) and skipped unnecessary EOF tail-block prefetches for `.flac` files (cutting per-track Nebula CDN prefetch connections from 3 to 1).
+    - Invalidated cached Nebula/add-on URLs in `PlaybackService.onPlayerError` so local ExoPlayer retries resolve fresh CDN links.
+  - **Unit Tests:** Added regression tests in `NebulaUrlsTest` and `TrackServerRelayTest`. All 194 unit tests pass. Release APK `MusicMinchas-1.51.3.apk` built and installed on OnePlus 12, merged to `master`, tagged `v1.51.3`.
 
 ---
 
