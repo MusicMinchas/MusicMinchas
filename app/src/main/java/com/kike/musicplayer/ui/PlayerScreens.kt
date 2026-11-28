@@ -985,17 +985,35 @@ private fun SleepTimerOptionRow(label: String, selected: Boolean, onClick: () ->
     }
 }
 
-/** Speaker volume while casting; sent when the finger lifts so Sonos isn't flooded with commands. */
+/** Speaker volume while casting; throttled while dragging for live feedback and flushed on release. */
 @Composable
 private fun RemoteVolume(volume: Int, onChange: (Int) -> Unit) {
     var dragging by remember { mutableStateOf<Float?>(null) }
+    var lastSentAt by remember { mutableStateOf(0L) }
+    var lastSentVolume by remember { mutableStateOf(-1) }
     Row(Modifier.fillMaxWidth().padding(top = 4.dp), verticalAlignment = Alignment.CenterVertically) {
         Icon(Icons.AutoMirrored.Filled.VolumeDown, null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
         DotSlider(
             value = dragging ?: (volume / 100f),
-            onValueChange = { dragging = it },
+            onValueChange = { fraction ->
+                dragging = fraction
+                val target = (fraction * 100).roundToInt().coerceIn(0, 100)
+                val now = android.os.SystemClock.elapsedRealtime()
+                if (target != lastSentVolume && now - lastSentAt >= 120L) {
+                    lastSentAt = now
+                    lastSentVolume = target
+                    onChange(target)
+                }
+            },
             onValueChangeFinished = {
-                dragging?.let { onChange((it * 100).roundToInt()) }
+                dragging?.let { fraction ->
+                    val target = (fraction * 100).roundToInt().coerceIn(0, 100)
+                    if (target != lastSentVolume) {
+                        lastSentAt = android.os.SystemClock.elapsedRealtime()
+                        onChange(target)
+                    }
+                }
+                lastSentVolume = -1
                 dragging = null
             },
             modifier = Modifier.weight(1f).padding(horizontal = 8.dp),

@@ -12,11 +12,9 @@ import androidx.media3.common.SimpleBasePlayer
 import androidx.media3.common.util.UnstableApi
 import com.google.common.util.concurrent.Futures
 import com.google.common.util.concurrent.ListenableFuture
-import com.google.common.util.concurrent.SettableFuture
 import com.kike.musicplayer.data.db.Track
 import com.kike.musicplayer.data.db.TrackDao
 import com.kike.musicplayer.data.db.getByIds
-import com.kike.musicplayer.data.nebula.NebulaUrls
 import com.kike.musicplayer.playback.PlaybackService
 import com.kike.musicplayer.playback.toTransientTrack
 import kotlinx.coroutines.CancellationException
@@ -27,14 +25,15 @@ import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.async
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.guava.future
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.coroutines.yield
 import java.io.IOException
+import java.util.concurrent.atomic.AtomicLong
 
 /**
  * A Media3 [Player] whose playback happens on a Sonos group. The app's queue is mirrored into the
@@ -79,10 +78,21 @@ class SonosPlayer(
     /** Paused during the queue load: Sonos' position needs restoring once loading is done. */
     private var pendingResume = false
 
-    /** Polled state is ignored until then, so it doesn't undo a command still in flight. */
+    /** Polled transport state is ignored until then, so it doesn't undo a command still in flight. */
     private var holdUntil = 0L
+    /** Polled volume is ignored briefly after a user volume change so the slider doesn't snap back. */
+    private var volumeHoldUntil = 0L
     private var failedPolls = 0
     private var foreignPolls = 0
+
+    /**
+     * Conflated channel for volume writes, processed off [sonosThread] so volume reacts in ms even
+     * while a large queue is loading or a track is warming up.
+     */
+    private val volumeRequests = Channel<Int>(Channel.CONFLATED)
+
+    /** Incremented on each seek so stale warm-ups from rapid Next/Prev taps are skipped. */
+    private val seekGeneration = AtomicLong(0L)
 
     /**
      * While shuffle is on: the queue in its unshuffled order. [entries] is then the shuffled play
@@ -103,6 +113,8 @@ class SonosPlayer(
     private val sonosOrder = mutableListOf<Long>()
 
     init {
+        scope.launch { fetchInitialVolume() }
+        scope.launch { processVolumeRequests() }
         scope.launch { poll() }
     }
 
@@ -156,7 +168,6 @@ class SonosPlayer(
         positionAt = SystemClock.elapsedRealtime()
         playbackState = if (entries.isEmpty()) Player.STATE_IDLE else Player.STATE_BUFFERING
         hold(10_000)
-        val started = SettableFuture.create<Unit>()
         val snapshot = entries
         val start = currentIndex
         val startPosition = positionMs
@@ -165,18 +176,17 @@ class SonosPlayer(
                 val t0 = android.os.SystemClock.elapsedRealtime()
                 loadQueue(snapshot, start, startPosition) {
                     com.kike.musicplayer.Bench.log("cast: playing after ${android.os.SystemClock.elapsedRealtime() - t0} ms (${snapshot.size} in queue)")
-                    started.set(Unit)
                 }
             } catch (e: CancellationException) {
-                started.set(Unit)
                 throw e
             } catch (e: Exception) {
                 Log.w(TAG, "Loading the Sonos queue failed", e)
-                started.set(Unit)
                 lose("Couldn't start playback on ${group.name}: ${e.message}")
             }
         }
-        return started
+        // Complete immediately so Media3 commits DEVICE_INFO (remote volume bar) and buffering state
+        // right away instead of blocking controllers and volume commands behind queue/track warm-up.
+        return Futures.immediateVoidFuture()
     }
 
     /** Fills the Sonos queue: tracks from [start] on first (and starts playing), then the ones before it. */
@@ -332,7 +342,9 @@ class SonosPlayer(
         hold(if (changeTrack) 8_000 else 2_000)
         val entry = entries[target]
         val entryId = entry.id
+        val gen = seekGeneration.incrementAndGet()
         return command {
+            if (seekGeneration.get() != gen) return@command
             if (changeTrack) {
                 val track = sonosPosition(entryId) ?: return@command
                 withTimeoutOrNull(6_000) {
@@ -344,6 +356,7 @@ class SonosPlayer(
                         }
                     }
                 }
+                if (seekGeneration.get() != gen) return@command
                 withContext(Dispatchers.Main) { hold(3_000) }
                 Sonos.seekTrack(ip, track)
                 val shouldPlay = withContext(Dispatchers.Main) { playWhenReady }
@@ -527,10 +540,11 @@ class SonosPlayer(
     }
 
     override fun handleSetDeviceVolume(deviceVolume: Int, flags: Int): ListenableFuture<*> {
-        volume = deviceVolume.coerceIn(0, 100)
-        hold()
-        val target = volume
-        return command { Sonos.setGroupVolume(ip, target) }
+        val target = deviceVolume.coerceIn(0, 100)
+        volume = target
+        volumeHoldUntil = SystemClock.elapsedRealtime() + VOLUME_HOLD_MS
+        volumeRequests.trySend(target)
+        return Futures.immediateVoidFuture()
     }
 
     override fun handleIncreaseDeviceVolume(flags: Int) = handleSetDeviceVolume(volume + VOLUME_STEP, flags)
@@ -538,6 +552,7 @@ class SonosPlayer(
     override fun handleDecreaseDeviceVolume(flags: Int) = handleSetDeviceVolume(volume - VOLUME_STEP, flags)
 
     override fun handleRelease(): ListenableFuture<*> {
+        volumeRequests.close()
         scope.cancel()
         return Futures.immediateVoidFuture()
     }
@@ -556,12 +571,19 @@ class SonosPlayer(
 
     // ---- Helpers ----
 
-    private fun command(block: suspend () -> Unit): ListenableFuture<*> = scope.future {
-        try {
-            withContext(sonosThread) { block() }
-        } catch (e: Exception) {
-            Log.w(TAG, "Sonos command failed", e)
+    private fun command(block: suspend () -> Unit): ListenableFuture<*> {
+        scope.launch {
+            try {
+                withContext(sonosThread) { block() }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                Log.w(TAG, "Sonos command failed", e)
+            }
         }
+        // Complete immediately for SimpleBasePlayer so transport/queue SOAP calls never block
+        // subsequent UI updates or independent volume commands; sonosThread preserves AVTransport order.
+        return Futures.immediateVoidFuture()
     }
 
     /** Queue edits wait until the initial queue load is done, so positions line up. */
@@ -638,6 +660,32 @@ class SonosPlayer(
         onLost(message)
     }
 
+    /** Reads the speaker's real volume right as casting begins so the slider never starts at 0. */
+    private suspend fun fetchInitialVolume() {
+        val current = withContext(Dispatchers.IO) { runCatching { Sonos.groupVolume(ip) }.getOrNull() } ?: return
+        if (SystemClock.elapsedRealtime() >= volumeHoldUntil && current != volume) {
+            volume = current
+            invalidateState()
+        }
+    }
+
+    /**
+     * Applies conflated user volume targets on an independent IO loop so volume responds in ms
+     * even while [sonosThread] is busy loading the queue or warming up a track.
+     */
+    private suspend fun processVolumeRequests() {
+        var lastSnapshotAt = 0L
+        withContext(Dispatchers.IO) {
+            for (target in volumeRequests) {
+                val now = SystemClock.elapsedRealtime()
+                val needsSnapshot = now - lastSnapshotAt > VOLUME_SNAPSHOT_WINDOW_MS
+                runCatching { Sonos.setGroupVolume(ip, target, snapshot = needsSnapshot) }
+                    .onSuccess { if (needsSnapshot) lastSnapshotAt = now }
+                    .onFailure { Log.w(TAG, "Setting Sonos volume failed", it) }
+            }
+        }
+    }
+
     /** Mirrors the speaker's state every second; volume and play mode every few seconds. */
     private suspend fun poll() {
         var tick = 0
@@ -657,8 +705,17 @@ class SonosPlayer(
             }
             failedPolls = 0
             Log.i(TAG, "Sonos poll: state=${p.transportState}, relTime=${p.relTimeMs}, track=${p.trackUri}")
-            if (SystemClock.elapsedRealtime() < holdUntil) continue
-            vol?.let { volume = it }
+            var volumeUpdated = false
+            vol?.let {
+                if (SystemClock.elapsedRealtime() >= volumeHoldUntil && it != volume) {
+                    volume = it
+                    volumeUpdated = true
+                }
+            }
+            if (SystemClock.elapsedRealtime() < holdUntil) {
+                if (volumeUpdated) invalidateState()
+                continue
+            }
             mode?.let {
                 // Shuffled from elsewhere (e.g. the Sonos app): Sonos reordered its queue, so it no
                 // longer matches ours. Turn its shuffle off again; the app's shuffle button is the one.
@@ -705,6 +762,8 @@ class SonosPlayer(
         const val POLL_MS = 1_000L
         const val MAX_FAILED_POLLS = 15
         const val VOLUME_STEP = 2
+        const val VOLUME_HOLD_MS = 2_500L
+        const val VOLUME_SNAPSHOT_WINDOW_MS = 5_000L
         const val HOLD_WHILE_LOADING_MS = 600_000L
         const val SEEK_ATTEMPTS = 8
         const val SEEK_RETRY_MS = 400L

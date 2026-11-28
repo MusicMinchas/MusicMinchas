@@ -429,6 +429,12 @@ class PlaybackService : MediaLibraryService(), CastHost {
         sonos.release()
         ip?.let { scope.launch(Dispatchers.IO) { silence(it) } }
         if (items.isNotEmpty()) {
+            val shouldPlay = wasPlaying && message == null
+            if (!shouldPlay) {
+                // Keep ExoPlayer idle when handing back a paused/lost cast so it doesn't open
+                // remote streams in the background after the foreground service may have stopped.
+                player.stop()
+            }
             player.setMediaItems(items, index.coerceIn(0, items.lastIndex), position)
             player.repeatMode = repeat
             player.shuffleModeEnabled = shuffle
@@ -436,8 +442,12 @@ class PlaybackService : MediaLibraryService(), CastHost {
             if (shuffle && playOrder != null) {
                 player.setShuffleOrder(ShuffleOrder.DefaultShuffleOrder(playOrder.toIntArray(), System.nanoTime()))
             }
-            player.prepare()
-            player.playWhenReady = wasPlaying && message == null
+            if (shouldPlay) {
+                player.prepare()
+                player.playWhenReady = true
+            } else {
+                player.playWhenReady = false
+            }
         }
         container.trackServer.stop()
         releaseCastLocks()

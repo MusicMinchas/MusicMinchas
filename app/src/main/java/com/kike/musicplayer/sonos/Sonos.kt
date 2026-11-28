@@ -5,7 +5,9 @@ import android.net.wifi.WifiManager
 import android.os.SystemClock
 import android.util.Xml
 import org.xmlpull.v1.XmlPullParser
+import java.io.ByteArrayOutputStream
 import java.io.IOException
+import java.io.InputStream
 import java.net.DatagramPacket
 import java.net.DatagramSocket
 import java.net.InetAddress
@@ -173,10 +175,16 @@ object Sonos {
         return firstText(reply, "CurrentVolume")?.toIntOrNull() ?: throw IOException("No volume in reply")
     }
 
-    /** Sets the group volume, keeping the members' relative levels. */
-    fun setGroupVolume(ip: String, volume: Int) {
-        // Sonos scales members relative to the snapshot taken here.
-        soap(ip, GROUP_RENDERING_PATH, GROUP_RENDERING, "SnapshotGroupVolume", "<InstanceID>0</InstanceID>")
+    /**
+     * Sets the group volume, keeping the members' relative levels.
+     * Callers adjusting volume in a rapid burst/drag can pass [snapshot] = false after the initial
+     * snapshot to halve the SOAP round trips while preserving group proportions.
+     */
+    fun setGroupVolume(ip: String, volume: Int, snapshot: Boolean = true) {
+        if (snapshot) {
+            // Sonos scales members relative to the snapshot taken here.
+            soap(ip, GROUP_RENDERING_PATH, GROUP_RENDERING, "SnapshotGroupVolume", "<InstanceID>0</InstanceID>")
+        }
         soap(
             ip, GROUP_RENDERING_PATH, GROUP_RENDERING, "SetGroupVolume",
             "<InstanceID>0</InstanceID><DesiredVolume>${volume.coerceIn(0, 100)}</DesiredVolume>",
@@ -229,7 +237,7 @@ object Sonos {
                 write(request.toByteArray(Charsets.ISO_8859_1) + payload)
                 flush()
             }
-            val raw = socket.getInputStream().readBytes()
+            val raw = readHttpResponse(socket.getInputStream())
             if (raw.isEmpty()) throw IOException("$action on $ip: empty reply")
             val text = String(raw, Charsets.UTF_8)
             val code = text.substringAfter(' ').take(3).toIntOrNull() ?: 0
@@ -320,3 +328,56 @@ object Sonos {
         .replace("\"", "&quot;")
         .replace("'", "&apos;")
 }
+
+/**
+ * Reads an HTTP/1.1 response from [input], returning as soon as all `Content-Length` bytes have
+ * arrived instead of blocking until the speaker tears down the TCP socket with FIN.
+ * Falls back to reading until EOF for chunked or unspecified-length replies.
+ */
+internal fun readHttpResponse(input: InputStream): ByteArray {
+    val out = ByteArrayOutputStream(1024)
+    val buf = ByteArray(4096)
+    var headerEnd = -1
+    var contentLength = -1
+
+    while (true) {
+        val n = input.read(buf)
+        if (n < 0) break
+        out.write(buf, 0, n)
+        if (headerEnd < 0) {
+            val bytes = out.toByteArray()
+            headerEnd = findHttpHeaderEnd(bytes)
+            if (headerEnd >= 0) {
+                val head = String(bytes, 0, headerEnd, Charsets.ISO_8859_1)
+                contentLength = parseHttpContentLength(head) ?: -1
+                if (contentLength >= 0 && bytes.size >= headerEnd + 4 + contentLength) {
+                    return bytes.copyOf(headerEnd + 4 + contentLength)
+                }
+            }
+        } else if (contentLength >= 0 && out.size() >= headerEnd + 4 + contentLength) {
+            return out.toByteArray().copyOf(headerEnd + 4 + contentLength)
+        }
+    }
+    return out.toByteArray()
+}
+
+private fun findHttpHeaderEnd(bytes: ByteArray): Int {
+    for (i in 0..bytes.size - 4) {
+        if (bytes[i] == '\r'.code.toByte() &&
+            bytes[i + 1] == '\n'.code.toByte() &&
+            bytes[i + 2] == '\r'.code.toByte() &&
+            bytes[i + 3] == '\n'.code.toByte()
+        ) {
+            return i
+        }
+    }
+    return -1
+}
+
+private fun parseHttpContentLength(headers: String): Int? = headers
+    .lineSequence()
+    .firstOrNull { it.startsWith("content-length:", ignoreCase = true) }
+    ?.substringAfter(':')
+    ?.trim()
+    ?.toIntOrNull()
+    ?.takeIf { it >= 0 }
