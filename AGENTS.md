@@ -7,7 +7,7 @@ Parent workspace notes: @[Shared Android Dev Workspace](../AGENTS.md)
 
 - **Path:** `C:\Users\kike\dev\MusicPlayer` (local git repo, repo-local identity `kike` / `kikeprojo@gmail.com`, nothing pushed).
 - **Package:** `com.kike.musicplayer`
-- **Current Release:** `1.51.3` (`versionCode = 109`, Room DB `v28`, `minSdk = 30`, `targetSdk = 36`, `compileSdk = 37`). Merged to `master`, tag `v1.51.3`.
+- **Current Release:** `1.51.4` (`versionCode = 110`, Room DB `v28`, `minSdk = 30`, `targetSdk = 36`, `compileSdk = 37`). Merged to `master`, tag `v1.51.4`.
 - **Stack:** Kotlin 2.4.20, Jetpack Compose, Media3 1.11.1 `MediaLibraryService` (Android Auto browse tree), Room 2.8.5 via KSP 2.3.12 + Paging 3 (`paging-compose 3.3.6`, `room-paging`), Retrofit 3 + Moshi (reflection), Coil 3, `play-services-auth` 22 `AuthorizationClient` (`drive.readonly` + `email`), `reorderable` 3.1.0, AGP 9.4.1, Gradle 9.8.
 - **Shared Toolchain & Environment:**
   - `JAVA_HOME`: Android Studio's bundled `jbr`
@@ -509,6 +509,15 @@ Started 2026-10-08 from user-pasted spec. NEW app, explicitly independent of Son
     - Replaced unbounded `prefetch()` thread fan-out with a bounded 2-thread cancellable executor (`prefetchGeneration`) and skipped unnecessary EOF tail-block prefetches for `.flac` files (cutting per-track Nebula CDN prefetch connections from 3 to 1).
     - Invalidated cached Nebula/add-on URLs in `PlaybackService.onPlayerError` so local ExoPlayer retries resolve fresh CDN links.
   - **Unit Tests:** Added regression tests in `NebulaUrlsTest` and `TrackServerRelayTest`. All 194 unit tests pass. Release APK `MusicMinchas-1.51.3.apk` built and installed on OnePlus 12, merged to `master`, tagged `v1.51.3`.
+- 2026-11-28 Release 1.51.4 (`versionCode = 110`, Room DB `v28`, closes GitHub Issue #36):
+  - **Sonos Cast Initiation, Volume Responsiveness & Idle Paused Handback (`SonosPlayer.kt`, `Sonos.kt`, `PlayerScreens.kt`, `PlaybackService.kt`):**
+    - Completed `SimpleBasePlayer` `handle*` futures immediately in `SonosPlayer` while keeping `AVTransport` commands serialized on `sonosThread`, eliminating the >10 s delay before `PLAYBACK_TYPE_REMOTE` / the volume slider appeared on cast start.
+    - Added immediate `fetchInitialVolume()` on `SonosPlayer` init and separated `volumeHoldUntil` from transport `holdUntil` so the slider shows real speaker volume right away instead of waiting for `hold(10_000)` + 5 s slow poll.
+    - Decoupled volume writes onto an independent `Channel<Int>(Channel.CONFLATED)` off `sonosThread` with smart `SnapshotGroupVolume` (snapshotting once per 5 s burst instead of every step) and added `seekGeneration` to skip stale `warmUpTrack` calls on rapid skips.
+    - Added `Content-Length`-bounded `readHttpResponse()` in `Sonos.kt` so SOAP calls return immediately without waiting for Sonos TCP FIN (benchmarked 1.8 ms vs 23.8 ms on Beam; 6.9 ms vs 16.3 ms on Kitchen).
+    - Added 120 ms throttled live volume updates while dragging `RemoteVolume` slider plus final flush on release.
+    - Guarded `player.prepare()` behind `shouldPlay` in `PlaybackService.endCast()` (calling `player.stop()` when paused/lost) to eliminate background `Source error` after paused cast handbacks.
+  - **Unit Tests:** Added `SonosHttpResponseTest`. All 197 unit tests pass. Release APK `MusicMinchas-1.51.4.apk` built and installed on OnePlus 12, merged to `master`, tagged `v1.51.4`.
 
 ---
 
